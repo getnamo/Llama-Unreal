@@ -13,6 +13,7 @@ namespace Internal
 }
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnNewTokenGeneratedSignature, FString, NewToken);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPromptHistorySignature, FString, History);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnEndOfStreamSignature, bool, bStopSequenceTriggered);
 
 UCLASS(Category = "LLM", BlueprintType, meta = (BlueprintSpawnableComponent))
@@ -37,6 +38,9 @@ public:
     UPROPERTY(BlueprintAssignable)
     FOnEndOfStreamSignature OnEndOfStream;
 
+    UPROPERTY(BlueprintAssignable)
+    FOnPromptHistorySignature OnHistoryRetrieved;
+
     UPROPERTY(EditAnywhere, BlueprintReadWrite)
     FString Prompt = "Hello";
 
@@ -52,12 +56,19 @@ public:
     UFUNCTION(BlueprintCallable)
     void InsertPrompt(const FString &Text);
 
+    UFUNCTION(BlueprintCallable)
+    void StartStopQThread(bool bShouldRun = true);
+
     //Force stop generating new tokens
     UFUNCTION(BlueprintCallable)
     void StopGenerating();
 
     UFUNCTION(BlueprintCallable)
     void ResumeGenerating();
+
+    //for debugging purposes
+    UFUNCTION(BlueprintCallable)
+    void RequestFullHistory();
 
 private:
     std::unique_ptr<Internal::Llama> llama;

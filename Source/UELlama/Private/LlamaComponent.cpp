@@ -106,7 +106,7 @@ namespace
         return res;
     }
 
-    constexpr int n_threads = 4;
+    constexpr int n_threads = 8;
 
     struct Params
     {
@@ -124,6 +124,8 @@ namespace Internal
         Llama();
         ~Llama();
 
+        void startStopThread(bool bShouldRun);
+
         void activate(bool bReset, Params);
         void deactivate();
         void insertPrompt(FString v);
@@ -135,6 +137,7 @@ namespace Internal
         function<void(bool)> eosCb;
 
         bool shouldLog = true;
+        bool threadStarted = false;
 
     private:
         llama_model *model = nullptr;
@@ -142,7 +145,7 @@ namespace Internal
         Q qMainToThread;
         Q qThreadToMain;
         atomic_bool running = true;
-        thread thread;
+        thread qThread;
         vector<vector<llama_token>> stopSequences;
         vector<llama_token> embd_inp;
         vector<llama_token> embd;
@@ -174,11 +177,29 @@ namespace Internal
         embd_inp.insert(embd_inp.end(), line_inp.begin(), line_inp.end());
     }
 
-    Llama::Llama() : thread([this]() { 
-                threadRun();
-            }) 
+    Llama::Llama() 
     {
-        //todo: fix the thread start/end spam
+        //We no longer startup the thread unless initialized
+    }
+
+    void Llama::startStopThread(bool bShouldRun) {
+        if (bShouldRun)
+        {
+            if (threadStarted)
+            {
+                return;
+            }
+            qThread = thread([this]() {
+                threadRun();
+                });
+            threadStarted = true;
+        }
+        else
+        {
+            running = false;
+            qThread.join();
+        }
+
     }
 
     void Llama::stopGenerating()
@@ -475,7 +496,7 @@ namespace Internal
     Llama::~Llama()
     {
         running = false;
-        thread.join();
+        qThread.join();
     }
 
     void Llama::process()
@@ -597,6 +618,10 @@ ULlamaComponent::~ULlamaComponent() = default;
 void ULlamaComponent::Activate(bool bReset)
 {
     Super::Activate(bReset);
+
+    //if it hasn't been started, this will start it
+    llama->startStopThread(true);
+
     Params params;
     params.pathToModel = PathToModel;
     params.prompt = Prompt;
@@ -624,6 +649,11 @@ auto ULlamaComponent::InsertPrompt(const FString& v) -> void
     llama->insertPrompt(v);
 }
 
+void ULlamaComponent::StartStopQThread(bool bShouldRun)
+{
+    llama->startStopThread(bShouldRun);
+}
+
 void ULlamaComponent::StopGenerating()
 {
     llama->stopGenerating();
@@ -632,4 +662,9 @@ void ULlamaComponent::StopGenerating()
 void ULlamaComponent::ResumeGenerating()
 {
     llama->resumeGenerating();
+}
+
+void ULlamaComponent::RequestFullHistory()
+{
+
 }
