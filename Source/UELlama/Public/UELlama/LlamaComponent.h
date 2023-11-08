@@ -12,37 +12,47 @@ namespace Internal
   class Llama;
 }
 
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnNewTokenGenerated, FString, NewToken);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnNewTokenGeneratedSignature, FString, NewToken);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnEndOfStreamSignature, bool, bStopSequenceTriggered);
 
 UCLASS(Category = "LLM", BlueprintType, meta = (BlueprintSpawnableComponent))
 class UELLAMA_API ULlamaComponent : public UActorComponent
 {
-  GENERATED_BODY()
+    GENERATED_BODY()
 public:
-  ULlamaComponent(const FObjectInitializer &ObjectInitializer);
-  ~ULlamaComponent();
+    ULlamaComponent(const FObjectInitializer &ObjectInitializer);
+    ~ULlamaComponent();
 
-  virtual void Activate(bool bReset) override;
-  virtual void Deactivate() override;
-  virtual void TickComponent(float DeltaTime,
-                             ELevelTick TickType,
-                             FActorComponentTickFunction* ThisTickFunction) override;
+    virtual void Activate(bool bReset) override;
+    virtual void Deactivate() override;
+    virtual void TickComponent(float DeltaTime,
+                                ELevelTick TickType,
+                                FActorComponentTickFunction* ThisTickFunction) override;
 
-  UPROPERTY(BlueprintAssignable)
-  FOnNewTokenGenerated OnNewTokenGenerated;
+    //Main callback
+    UPROPERTY(BlueprintAssignable)
+    FOnNewTokenGeneratedSignature OnNewTokenGenerated;
 
-  UPROPERTY(EditAnywhere, BlueprintReadWrite)
-  FString prompt = "Hello";
+    //Whenever the model stops generating
+    UPROPERTY(BlueprintAssignable)
+    FOnEndOfStreamSignature OnEndOfStream;
 
-  UPROPERTY(EditAnywhere, BlueprintReadWrite)
-  FString pathToModel = "/media/mika/Michigan/prj/llama-2-13b-chat.ggmlv3.q8_0.bin";
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+    FString Prompt = "Hello";
 
-  UPROPERTY(EditAnywhere, BlueprintReadWrite)
-  TArray<FString> stopSequences;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+    FString PathToModel = "/media/mika/Michigan/prj/llama-2-13b-chat.ggmlv3.q8_0.bin";
 
-  UFUNCTION(BlueprintCallable)
-  void InsertPrompt(const FString &v);
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+    TArray<FString> StopSequences;
+
+    UFUNCTION(BlueprintCallable)
+    void InsertPrompt(const FString &Text);
+
+    //Force stop generating new tokens
+    UFUNCTION(BlueprintCallable)
+    void StopGenerating();
 
 private:
-  std::unique_ptr<Internal::Llama> llama;
+    std::unique_ptr<Internal::Llama> llama;
 };
