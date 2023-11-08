@@ -135,16 +135,16 @@ namespace Internal
 
         function<void(FString)> tokenCb;
         function<void(bool)> eosCb;
+        function<void(void)> startEvalCb;
 
         bool shouldLog = true;
-        bool threadStarted = false;
 
     private:
         llama_model *model = nullptr;
         llama_context *ctx = nullptr;
         Q qMainToThread;
         Q qThreadToMain;
-        atomic_bool running = true;
+        atomic_bool running = false;
         thread qThread;
         vector<vector<llama_token>> stopSequences;
         vector<llama_token> embd_inp;
@@ -185,21 +185,24 @@ namespace Internal
     void Llama::startStopThread(bool bShouldRun) {
         if (bShouldRun)
         {
-            if (threadStarted)
+            if (running)
             {
                 return;
             }
+            running = true;
+
             qThread = thread([this]() {
                 threadRun();
-                });
-            threadStarted = true;
+            });
         }
         else
         {
             running = false;
-            qThread.join();
+            if (qThread.joinable())
+            {
+                qThread.join();
+            }
         }
-
     }
 
     void Llama::stopGenerating()
@@ -245,6 +248,12 @@ namespace Internal
             const int n_ctx = llama_n_ctx(ctx);
             if (embd.size() > 0)
             {
+                qThreadToMain.enqueue([this] {
+                    if (!startEvalCb)
+                        return;
+                    startEvalCb();
+                });
+
                 // Note: n_ctx - 4 here is to match the logic for commandline prompt handling via
                 // --prompt or --file which uses the same value.
                 int max_embd_size = n_ctx - 4;
@@ -496,7 +505,10 @@ namespace Internal
     Llama::~Llama()
     {
         running = false;
-        qThread.join();
+        if (qThread.joinable())
+        {
+            qThread.join();
+        }
     }
 
     void Llama::process()
@@ -541,6 +553,7 @@ namespace Internal
             return;
         }
         ctx = llama_new_context_with_model(model, lparams);
+        n_past = 0; //reset past
 
         UE_LOG(LogTemp, Warning, TEXT("%p model context set to %p"), this, ctx);
 
@@ -610,6 +623,10 @@ ULlamaComponent::ULlamaComponent(const FObjectInitializer &ObjectInitializer)
     llama->eosCb = [this](bool StopTokenCausedEos)
     {
         OnEndOfStream.Broadcast(StopTokenCausedEos);
+    };
+    llama->startEvalCb = [this]()
+    {
+        OnStartEval.Broadcast();
     };
 }
 

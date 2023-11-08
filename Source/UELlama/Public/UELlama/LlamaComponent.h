@@ -15,6 +15,7 @@ namespace Internal
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnNewTokenGeneratedSignature, FString, NewToken);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPromptHistorySignature, FString, History);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnEndOfStreamSignature, bool, bStopSequenceTriggered);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FStartEvaluationSignature);
 
 UCLASS(Category = "LLM", BlueprintType, meta = (BlueprintSpawnableComponent))
 class UELLAMA_API ULlamaComponent : public UActorComponent
@@ -34,12 +35,13 @@ public:
     UPROPERTY(BlueprintAssignable)
     FOnNewTokenGeneratedSignature OnNewTokenGenerated;
 
+    UPROPERTY(BlueprintAssignable)
+    FStartEvaluationSignature OnStartEval;
+
     //Whenever the model stops generating
     UPROPERTY(BlueprintAssignable)
     FOnEndOfStreamSignature OnEndOfStream;
 
-    UPROPERTY(BlueprintAssignable)
-    FOnPromptHistorySignature OnHistoryRetrieved;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite)
     FString Prompt = "Hello";
