@@ -56,6 +56,9 @@ public:
     UFUNCTION(BlueprintCallable)
     void StopGenerating();
 
+    UFUNCTION(BlueprintCallable)
+    void ResumeGenerating();
+
 private:
     std::unique_ptr<Internal::Llama> llama;
 };

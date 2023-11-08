@@ -83,7 +83,7 @@ namespace
         {
             lock_guard l(mutex_);
             if (q.empty()) {
-            return false;
+                return false;
             }
             v = move(q.front());
             q.pop_front();
@@ -129,6 +129,7 @@ namespace Internal
         void insertPrompt(FString v);
         void process();
         void stopGenerating();
+        void resumeGenerating();
 
         function<void(FString)> tokenCb;
         function<void(bool)> eosCb;
@@ -185,6 +186,13 @@ namespace Internal
         qMainToThread.enqueue([this]() 
         {
             eos = true;
+        });
+    }
+    void Llama::resumeGenerating()
+    {
+        qMainToThread.enqueue([this]()
+        {
+            eos = false;
         });
     }
 
@@ -619,4 +627,9 @@ auto ULlamaComponent::InsertPrompt(const FString& v) -> void
 void ULlamaComponent::StopGenerating()
 {
     llama->stopGenerating();
+}
+
+void ULlamaComponent::ResumeGenerating()
+{
+    llama->resumeGenerating();
 }
