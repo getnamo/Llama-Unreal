@@ -92,10 +92,10 @@ namespace
         return true;
     }
 
-    vector<llama_token> my_llama_tokenize(llama_context *ctx,
-                                                                                            const string &text,
-                                                                                            vector<llama_token> &res,
-                                                                                            bool add_bos)
+    vector<llama_token> my_llama_tokenize(  llama_context *ctx,
+                                            const string &text,
+                                            vector<llama_token> &res,
+                                            bool add_bos)
     {
         UE_LOG(LogTemp, Warning, TEXT("Tokenize `%s`"), UTF8_TO_TCHAR(text.c_str()));
         // initialize to prompt numer of chars, since n_tokens <= n_prompt_chars
@@ -128,6 +128,7 @@ namespace Internal
         void deactivate();
         void insertPrompt(FString v);
         void process();
+        void stopGenerating();
 
         function<void(FString)> tokenCb;
         function<void(bool)> eosCb;
@@ -172,7 +173,17 @@ namespace Internal
 
     Llama::Llama() : thread([this]() { 
                 threadRun();
-            }) {
+            }) 
+    {
+        //todo: fix the thread start/end spam
+    }
+
+    void Llama::stopGenerating()
+    {
+        qMainToThread.enqueue([this]() 
+        {
+            eos = true;
+        });
     }
 
     void Llama::threadRun()
@@ -432,13 +443,14 @@ namespace Internal
             {
                 UE_LOG(LogTemp, Warning, TEXT("%p EOS"), this);
                 eos = true;
+                const bool stopSeqSafe = hasStopSeq;
 
                 //notify main thread we're done
-                qThreadToMain.enqueue([this] {
+                qThreadToMain.enqueue([stopSeqSafe, this] {
                     if (!eosCb)
                         return;
 
-                    eosCb(true);
+                    eosCb(stopSeqSafe);
                 });
             }
         }
@@ -583,8 +595,8 @@ void ULlamaComponent::Deactivate()
 }
 
 void ULlamaComponent::TickComponent(float DeltaTime,
-                                                                        ELevelTick TickType,
-                                                                        FActorComponentTickFunction* ThisTickFunction)
+                                    ELevelTick TickType,
+                                    FActorComponentTickFunction* ThisTickFunction)
 {
     Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
     llama->process();
@@ -597,5 +609,5 @@ auto ULlamaComponent::InsertPrompt(const FString& v) -> void
 
 void ULlamaComponent::StopGenerating()
 {
-
+    llama->stopGenerating();
 }
