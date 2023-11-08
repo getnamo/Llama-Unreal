@@ -133,6 +133,8 @@ namespace Internal
         function<void(FString)> tokenCb;
         function<void(bool)> eosCb;
 
+        bool shouldLog = true;
+
     private:
         llama_model *model = nullptr;
         llama_context *ctx = nullptr;
@@ -267,7 +269,11 @@ namespace Internal
                     for (auto j = 0; j < n_eval; ++j)
                         //    TODO: Replace this llama_detokenize_bpe with llama_detokenize when can be possible.
                         str += llama_detokenize_bpe(ctx, {embd[i + j]});
-                    UE_LOG(LogTemp, Warning, TEXT("%p eval tokens `%s`"), this, UTF8_TO_TCHAR(str.c_str()));
+
+                    if (shouldLog)
+                    {
+                        UE_LOG(LogTemp, Warning, TEXT("%p eval tokens `%s`"), this, UTF8_TO_TCHAR(str.c_str()));
+                    }
                     if (llama_eval(ctx, &embd[i], n_eval, n_past, n_threads))
                     {
                         UE_LOG(LogTemp, Error, TEXT("failed to eval"));
@@ -507,6 +513,8 @@ namespace Internal
         }
         ctx = llama_new_context_with_model(model, lparams);
 
+        UE_LOG(LogTemp, Warning, TEXT("%p model context set to %p"), this, ctx);
+
         // tokenize the prompt
         string stdPrompt = string(" ") + TCHAR_TO_UTF8(*params.prompt);
         embd_inp = my_llama_tokenize(ctx, stdPrompt, res, true /* add bos */);
@@ -585,6 +593,7 @@ void ULlamaComponent::Activate(bool bReset)
     params.pathToModel = PathToModel;
     params.prompt = Prompt;
     params.stopSequences = StopSequences;
+    llama->shouldLog = bDebugLogModelOutput;
     llama->activate(bReset, move(params));
 }
 

@@ -46,6 +46,9 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite)
     TArray<FString> StopSequences;
 
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+    bool bDebugLogModelOutput = false;
+
     UFUNCTION(BlueprintCallable)
     void InsertPrompt(const FString &Text);
 
