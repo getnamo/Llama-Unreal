@@ -136,6 +136,7 @@ namespace Internal
         function<void(FString)> tokenCb;
         function<void(bool)> eosCb;
         function<void(void)> startEvalCb;
+        function<void(void)> onContextResetCb;
 
         bool shouldLog = true;
 
@@ -154,11 +155,15 @@ namespace Internal
         vector<llama_token> last_n_tokens;
         int n_consumed = 0;
         bool eos = false;
+        bool startedEvalLoop = false;
 
         void threadRun();
         void unsafeActivate(bool bReset, Params);
         void unsafeDeactivate();
         void unsafeInsertPrompt(FString);
+
+        //backup method to check eos
+        bool hasEnding(std::string const& fullString, std::string const& ending);
     };
 
     void Llama::insertPrompt(FString v)
@@ -220,6 +225,15 @@ namespace Internal
         });
     }
 
+    bool Llama::hasEnding(std::string const& fullString, std::string const& ending) {
+        if (fullString.length() >= ending.length()) {
+            return (0 == fullString.compare(fullString.length() - ending.length(), ending.length(), ending));
+        }
+        else {
+            return false;
+        }
+    }
+
     void Llama::threadRun()
     {
         UE_LOG(LogTemp, Warning, TEXT("%p Llama thread is running"), this);
@@ -243,16 +257,23 @@ namespace Internal
                 this_thread::sleep_for(200ms);
                 continue;
             }
+            if (eos == false && !startedEvalLoop)
+            {
+                startedEvalLoop = true;
+                qThreadToMain.enqueue([this] {
+                if (!startEvalCb)
+                    return;
+                    startEvalCb();
+                });
+            }
+
+
             eos = false;
 
             const int n_ctx = llama_n_ctx(ctx);
             if (embd.size() > 0)
             {
-                qThreadToMain.enqueue([this] {
-                    if (!startEvalCb)
-                        return;
-                    startEvalCb();
-                });
+                
 
                 // Note: n_ctx - 4 here is to match the logic for commandline prompt handling via
                 // --prompt or --file which uses the same value.
@@ -452,6 +473,8 @@ namespace Internal
             // }
             
             FString token = UTF8_TO_TCHAR(llama_detokenize_bpe(ctx, embd).c_str());
+
+            
             qThreadToMain.enqueue([token = move(token), this] {
                 if (!tokenCb)
                     return;
@@ -464,10 +487,31 @@ namespace Internal
                 if (stopSequences.empty())
                     return false;
                 if (haveHumanTokens)
-                    return false;
+                    return false;                
 
                 for (vector<llama_token> stopSeq : stopSequences)
                 {
+                    FString sequence = UTF8_TO_TCHAR(llama_detokenize_bpe(ctx, stopSeq).c_str());
+                    sequence = sequence.TrimStartAndEnd();
+
+                    vector<llama_token> endSeq;
+                    for (unsigned i = 0U; i < stopSeq.size(); ++i)
+                    {
+                        endSeq.push_back(last_n_tokens[last_n_tokens.size() - stopSeq.size() + i]);
+                    }
+                    FString endString = UTF8_TO_TCHAR(llama_detokenize_bpe(ctx, endSeq).c_str());
+                    
+                    if (shouldLog) 
+                    {
+                        UE_LOG(LogTemp, Log, TEXT("stop vs end: #%s# vs #%s#"), *sequence, *endString);
+                    }
+                    if (endString.Contains(sequence))
+                    {
+                        UE_LOG(LogTemp, Log, TEXT("String match found, eos triggered."));
+                        return true;
+                    }
+                    
+
                     if (last_n_tokens.size() < stopSeq.size())
                         return false;
                     bool match = true;
@@ -488,6 +532,7 @@ namespace Internal
                 UE_LOG(LogTemp, Warning, TEXT("%p EOS"), this);
                 eos = true;
                 const bool stopSeqSafe = hasStopSeq;
+                startedEvalLoop = false;
 
                 //notify main thread we're done
                 qThreadToMain.enqueue([stopSeqSafe, this] {
@@ -553,7 +598,7 @@ namespace Internal
             return;
         }
         ctx = llama_new_context_with_model(model, lparams);
-        n_past = 0; //reset past
+        n_past = 0;
 
         UE_LOG(LogTemp, Warning, TEXT("%p model context set to %p"), this, ctx);
 
@@ -600,14 +645,28 @@ namespace Internal
 
     void Llama::unsafeDeactivate()
     {
+        startedEvalLoop = false;
+        stopSequences.clear();
         UE_LOG(LogTemp, Warning, TEXT("%p Unloading LLM model %p"), this, model);
         if (!model)
             return;
         llama_print_timings(ctx);
         llama_free(ctx);
         ctx = nullptr;
+
+        //Todo: potentially not reset model if same model is loaded
         llama_free_model(model);
         model = nullptr;
+
+        //Reset signal.
+        qThreadToMain.enqueue([this] {
+        if (!onContextResetCb)
+            return;
+            onContextResetCb();
+        });
+
+        
+        
     }
 } // namespace Internal
 
@@ -618,6 +677,10 @@ ULlamaComponent::ULlamaComponent(const FObjectInitializer &ObjectInitializer)
     PrimaryComponentTick.bStartWithTickEnabled = true;
     llama->tokenCb = [this](FString NewToken) 
     { 
+        if (bSyncPromptHistory)
+        {
+            PromptHistory.Append(NewToken);
+        }
         OnNewTokenGenerated.Broadcast(move(NewToken));
     };
     llama->eosCb = [this](bool StopTokenCausedEos)
@@ -627,6 +690,14 @@ ULlamaComponent::ULlamaComponent(const FObjectInitializer &ObjectInitializer)
     llama->startEvalCb = [this]()
     {
         OnStartEval.Broadcast();
+    };
+    llama->onContextResetCb = [this]()
+    {
+        if (bSyncPromptHistory) 
+        {
+            PromptHistory.Empty();
+        }
+        OnContextReset.Broadcast();
     };
 }
 
@@ -679,9 +750,4 @@ void ULlamaComponent::StopGenerating()
 void ULlamaComponent::ResumeGenerating()
 {
     llama->resumeGenerating();
-}
-
-void ULlamaComponent::RequestFullHistory()
-{
-
 }

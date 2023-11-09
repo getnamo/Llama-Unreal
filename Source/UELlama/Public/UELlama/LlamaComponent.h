@@ -15,7 +15,7 @@ namespace Internal
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnNewTokenGeneratedSignature, FString, NewToken);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPromptHistorySignature, FString, History);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnEndOfStreamSignature, bool, bStopSequenceTriggered);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE(FStartEvaluationSignature);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FVoidEventSignature);
 
 UCLASS(Category = "LLM", BlueprintType, meta = (BlueprintSpawnableComponent))
 class UELLAMA_API ULlamaComponent : public UActorComponent
@@ -36,11 +36,14 @@ public:
     FOnNewTokenGeneratedSignature OnNewTokenGenerated;
 
     UPROPERTY(BlueprintAssignable)
-    FStartEvaluationSignature OnStartEval;
+    FVoidEventSignature OnStartEval;
 
     //Whenever the model stops generating
     UPROPERTY(BlueprintAssignable)
     FOnEndOfStreamSignature OnEndOfStream;
+
+    UPROPERTY(BlueprintAssignable)
+    FVoidEventSignature OnContextReset;
 
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite)
@@ -68,9 +71,13 @@ public:
     UFUNCTION(BlueprintCallable)
     void ResumeGenerating();
 
-    //for debugging purposes
-    UFUNCTION(BlueprintCallable)
-    void RequestFullHistory();
+    //One true store that should be synced to the model internal history, accessible on game thread.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+    FString PromptHistory;
+
+    //toggle to pay copy cost or not, default true
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+    bool bSyncPromptHistory = true;
 
 private:
     std::unique_ptr<Internal::Llama> llama;
