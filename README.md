@@ -1,6 +1,6 @@
 # Getnamo Fork notes
 
-Forked largely for usability fixes and a CPU focused build to obviate CUDA issues for larger compatibility. It's fast enough for good 7B models.
+Forked for usability fixes with a CPU focused build to also obviate CUDA issues for larger release compatibility. It's fast enough for decent 7B models.
 
 # Llama.cpp Build Parameters
 
