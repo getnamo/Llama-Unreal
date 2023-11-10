@@ -1,16 +1,19 @@
 [![🌸 This dude put LLaMA 2 inside UE5 🌸 41 / 100 🌸](https://img.youtube.com/vi/j_r5xWm3Xl8/maxresdefault.jpg)](https://www.youtube.com/watch?v=j_r5xWm3Xl8)
 
+# Getnamo Fork notes
+
+Forked largely for usability fixes and CPU build to obviate CUDA issues for larger compatibility. It's fast enough for good 7B models.
 
 # Llama.cpp Build Parameters
 
-Llama.cpp was built from git hash: `dadbed99e65252d79f81101a392d0d6497b86caa`
+Forked Plugin Llama.cpp was built from git hash: [a40f2b656fab364ce0aff98dbefe9bd9c3721cc9](https://github.com/ggerganov/llama.cpp/tree/a40f2b656fab364ce0aff98dbefe9bd9c3721cc9)
 
-With the following build commands:
+With the following build commands (cpu build only, CUDA ignored, see upstream for GPU version):
 
 ```
 mkdir build
 cd build/
-cmake .. -DLLAMA_CUBLAS=ON -DLLAMA_CUDA_DMMV_X=64 -DLLAMA_CUDA_MMV_Y=2 -DLLAMA_CUDA_F16=true -DBUILD_SHARED_LIBS=ON
+cmake .. -DBUILD_SHARED_LIBS=ON
 cd ..
 cmake --build build --config Release -j --verbose
 ```
