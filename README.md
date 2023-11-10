@@ -4,7 +4,7 @@ Forked for usability fixes with a CPU focused build to also obviate CUDA issues 
 
 # Llama.cpp Build Parameters
 
-Forked Plugin Llama.cpp was built from git hash: [a40f2b656fab364ce0aff98dbefe9bd9c3721cc9](https://github.com/ggerganov/llama.cpp/tree/a40f2b656fab364ce0aff98dbefe9bd9c3721cc9)
+Forked Plugin [Llama.cpp](https://github.com/ggerganov/llama.cpp) was built from git hash: [a40f2b656fab364ce0aff98dbefe9bd9c3721cc9](https://github.com/ggerganov/llama.cpp/tree/a40f2b656fab364ce0aff98dbefe9bd9c3721cc9)
 
 With the following build commands (cpu build only, CUDA ignored, see upstream for GPU version):
 
