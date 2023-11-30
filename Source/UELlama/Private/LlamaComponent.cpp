@@ -133,10 +133,10 @@ namespace Internal
         void stopGenerating();
         void resumeGenerating();
 
-        function<void(FString, int32)> tokenCb;
-        function<void(bool, float)> eosCb;
-        function<void(void)> startEvalCb;
-        function<void(void)> onContextResetCb;
+        function<void(FString, int32)> OnTokenCb;
+        function<void(bool, float)> OnEosCb;
+        function<void(void)> OnStartEvalCb;
+        function<void(void)> OnContextResetCb;
 
         //Passthrough from component
         FLLMModelParams Params;
@@ -265,12 +265,16 @@ namespace Internal
             if (eos == false && !startedEvalLoop)
             {
                 startedEvalLoop = true;
-                qThreadToMain.enqueue([this] {
-                    StartEvalTime = FPlatformTime::Seconds();
-                    StartContextLength = (int32)embd_inp.size();
-                    if (!startEvalCb)
+                StartEvalTime = FPlatformTime::Seconds();
+                StartContextLength = n_past; //(int32)last_n_tokens.size(); //(int32)embd_inp.size();
+
+                qThreadToMain.enqueue([this] 
+                {    
+                    if (!OnStartEvalCb)
+                    {
                         return;
-                    startEvalCb();
+                    }
+                    OnStartEvalCb();
                 });
             }
 
@@ -455,20 +459,27 @@ namespace Internal
             // {
             //     FString token = llama_detokenize(ctx, id);
             //     qThreadToMain.enqueue([token = move(token), this]() {
-            //         if (!tokenCb)
+            //         if (!OnTokenCb)
             //             return;
-            //         tokenCb(move(token));
+            //         OnTokenCb(move(token));
             //     });
             // }
             
             FString token = UTF8_TO_TCHAR(llama_detokenize_bpe(ctx, embd).c_str());
-            int32 NewContextLength = (int32)embd_inp.size();
+
+            //Debug block
+            //NB: appears full history is not being input back to the model,
+            // does Llama not need input copying for proper context?
+            //FString history1 = UTF8_TO_TCHAR(llama_detokenize_bpe(ctx, embd_inp).c_str()); 
+            //FString history2 = UTF8_TO_TCHAR(llama_detokenize_bpe(ctx, last_n_tokens).c_str());
+            //UE_LOG(LogTemp, Log, TEXT("history1: %s, history2: %s"), *history1, *history2);
+            int32 NewContextLength = n_past; //(int32)last_n_tokens.size();
 
             
             qThreadToMain.enqueue([token = move(token), NewContextLength,  this] {
-                if (!tokenCb)
+                if (!OnTokenCb)
                     return;
-                tokenCb(move(token), NewContextLength);
+                OnTokenCb(move(token), NewContextLength);
             });
             ////////////////////////////////////////////////////////////////////////
 
@@ -522,18 +533,19 @@ namespace Internal
                 UE_LOG(LogTemp, Warning, TEXT("%p EOS"), this);
                 eos = true;
                 const bool stopSeqSafe = hasStopSeq;
-                startedEvalLoop = false;
                 const int32 DeltaTokens = NewContextLength - StartContextLength;
+                const double EosTime = FPlatformTime::Seconds();
+                const float TokensPerSecond = double(DeltaTokens) / (EosTime - StartEvalTime);
+
+                startedEvalLoop = false;
+                
 
                 //notify main thread we're done
-                qThreadToMain.enqueue([stopSeqSafe, DeltaTokens, this] {
-                    if (!eosCb)
+                qThreadToMain.enqueue([stopSeqSafe, TokensPerSecond, this] 
+                {
+                    if (!OnEosCb)
                         return;
-
-                    double EosTime = FPlatformTime::Seconds();
-                    float TokensPerSecond = double(DeltaTokens) / (EosTime - StartEvalTime);
-
-                    eosCb(stopSeqSafe, TokensPerSecond);
+                    OnEosCb(stopSeqSafe, TokensPerSecond);
                 });
             }
         }
@@ -666,9 +678,9 @@ namespace Internal
 
         //Reset signal.
         qThreadToMain.enqueue([this] {
-        if (!onContextResetCb)
+        if (!OnContextResetCb)
             return;
-            onContextResetCb();
+            OnContextResetCb();
         });
 
         
@@ -681,7 +693,7 @@ ULlamaComponent::ULlamaComponent(const FObjectInitializer &ObjectInitializer)
 {
     PrimaryComponentTick.bCanEverTick = true;
     PrimaryComponentTick.bStartWithTickEnabled = true;
-    llama->tokenCb = [this](FString NewToken, int32 NewContextLength) 
+    llama->OnTokenCb = [this](FString NewToken, int32 NewContextLength) 
     { 
         if (bSyncPromptHistory)
         {
@@ -690,16 +702,16 @@ ULlamaComponent::ULlamaComponent(const FObjectInitializer &ObjectInitializer)
         ModelState.ContextLength = NewContextLength;
         OnNewTokenGenerated.Broadcast(move(NewToken));
     };
-    llama->eosCb = [this](bool StopTokenCausedEos, float TokensPerSecond)
+    llama->OnEosCb = [this](bool StopTokenCausedEos, float TokensPerSecond)
     {
         ModelState.LastTokensPerSecond = TokensPerSecond;
         OnEndOfStream.Broadcast(StopTokenCausedEos, TokensPerSecond);
     };
-    llama->startEvalCb = [this]()
+    llama->OnStartEvalCb = [this]()
     {
         OnStartEval.Broadcast();
     };
-    llama->onContextResetCb = [this]()
+    llama->OnContextResetCb = [this]()
     {
         if (bSyncPromptHistory) 
         {
