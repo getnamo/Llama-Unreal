@@ -74,17 +74,21 @@ struct FLLMModelParams
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
     FString Prompt = "You are a helpful assistant.";
 
+    //Currently unsupported - should add support for this and filter results
+    //UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
+    //FString PromptTemplate = "ChatML";
+
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
     TArray<FString> StopSequences;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
-    int32 MaxContextLength;
+    int32 MaxContextLength = 2048;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
-    int32 GPULayers;
+    int32 GPULayers = 50;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
-    int32 Seed;
+    int32 Seed = -1;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
     FLLMModelAdvancedParams Advanced;

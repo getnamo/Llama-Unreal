@@ -349,24 +349,10 @@ namespace Internal
             embd.clear();
 
             bool haveHumanTokens = false;
+            const FLLMModelAdvancedParams& P = Params.Advanced;
 
             if ((int)embd_inp.size() <= n_consumed)
             {
-                // out of user input, sample next token
-                const float temp = 0.80f;
-                const int32_t top_k = 40;
-                const float top_p = 0.95f;
-                const float tfs_z = 1.00f;
-                const float typical_p = 1.00f;
-                const int32_t repeat_last_n = 64;
-                const float repeat_penalty = 1.10f;
-                const float alpha_presence = 0.00f;
-                const float alpha_frequency = 0.00f;
-                const int mirostat = 0;
-                const float mirostat_tau = 5.f;
-                const float mirostat_eta = 0.1f;
-                const bool penalize_nl = true;
-
                 llama_token id = 0;
 
                 {
@@ -384,54 +370,53 @@ namespace Internal
 
                     // Apply penalties
                     float nl_logit = logits[llama_token_nl(ctx)];
-                    int last_n_repeat = min(min((int)last_n_tokens.size(), repeat_last_n), n_ctx);
+                    int last_n_repeat = min(min((int)last_n_tokens.size(), P.RepeatLastN), n_ctx);
                     llama_sample_repetition_penalty(ctx,
-                                                                                    &candidates_p,
-                                                                                    last_n_tokens.data() + last_n_tokens.size() - last_n_repeat,
-                                                                                    last_n_repeat,
-                                                                                    repeat_penalty);
-                    llama_sample_frequency_and_presence_penalties(ctx,
-                                                                                                                &candidates_p,
-                                                                                                                last_n_tokens.data() + last_n_tokens.size() -
-                                                                                                                    last_n_repeat,
-                                                                                                                last_n_repeat,
-                                                                                                                alpha_frequency,
-                                                                                                                alpha_presence);
-                    if (!penalize_nl)
+                                                    &candidates_p,
+                                                    last_n_tokens.data() + last_n_tokens.size() - last_n_repeat,
+                                                    last_n_repeat,
+                                                    P.RepeatPenalty);
+                    llama_sample_frequency_and_presence_penalties(  ctx,
+                                                                    &candidates_p,
+                                                                    last_n_tokens.data() + last_n_tokens.size() - last_n_repeat,
+                                                                    last_n_repeat,
+                                                                    P.AlphaFrequency,
+                                                                    P.AlphaPresence);
+                    if (!P.PenalizeNl)
                     {
                         logits[llama_token_nl(ctx)] = nl_logit;
                     }
 
-                    if (temp <= 0)
+                    if (P.Temp <= 0)
                     {
                         // Greedy sampling
                         id = llama_sample_token_greedy(ctx, &candidates_p);
                     }
                     else
                     {
-                        if (mirostat == 1)
+                        if (P.Mirostat == 1)
                         {
-                            static float mirostat_mu = 2.0f * mirostat_tau;
+                            static float mirostat_mu = 2.0f * P.MirostatTau;
                             const int mirostat_m = 100;
-                            llama_sample_temperature(ctx, &candidates_p, temp);
+                            llama_sample_temperature(ctx, &candidates_p, P.Temp);
                             id = llama_sample_token_mirostat(
-                                ctx, &candidates_p, mirostat_tau, mirostat_eta, mirostat_m, &mirostat_mu);
+                                ctx, &candidates_p, P.MirostatTau, P.MirostatEta, mirostat_m, &mirostat_mu);
                         }
-                        else if (mirostat == 2)
+                        else if (P.Mirostat == 2)
                         {
-                            static float mirostat_mu = 2.0f * mirostat_tau;
-                            llama_sample_temperature(ctx, &candidates_p, temp);
+                            static float mirostat_mu = 2.0f * P.MirostatTau;
+                            llama_sample_temperature(ctx, &candidates_p, P.Temp);
                             id = llama_sample_token_mirostat_v2(
-                                ctx, &candidates_p, mirostat_tau, mirostat_eta, &mirostat_mu);
+                                ctx, &candidates_p, P.MirostatTau, P.MirostatEta, &mirostat_mu);
                         }
                         else
                         {
                             // Temperature sampling
-                            llama_sample_top_k(ctx, &candidates_p, top_k, 1);
-                            llama_sample_tail_free(ctx, &candidates_p, tfs_z, 1);
-                            llama_sample_typical(ctx, &candidates_p, typical_p, 1);
-                            llama_sample_top_p(ctx, &candidates_p, top_p, 1);
-                            llama_sample_temperature(ctx, &candidates_p, temp);
+                            llama_sample_top_k(ctx, &candidates_p, P.TopK, 1);
+                            llama_sample_tail_free(ctx, &candidates_p, P.TfsZ, 1);
+                            llama_sample_typical(ctx, &candidates_p, P.TypicalP, 1);
+                            llama_sample_top_p(ctx, &candidates_p, P.TopP, 1);
+                            llama_sample_temperature(ctx, &candidates_p, P.Temp);
                             id = llama_sample_token(ctx, &candidates_p);
                         }
                     }
@@ -588,13 +573,24 @@ namespace Internal
             unsafeDeactivate();
         if (model)
             return;
-        llama_context_params lparams = []()
+        
+        llama_context_params lparams = [this]()
         {
             llama_context_params lparams = llama_context_default_params();
             // -eps 1e-5 -t 8 -ngl 50
-            lparams.n_gpu_layers = 50;
-            lparams.n_ctx = 4096;
-            lparams.seed = time(nullptr);
+            lparams.n_gpu_layers = Params.GPULayers;
+            lparams.n_ctx = Params.MaxContextLength;
+
+            bool bIsRandomSeed = Params.Seed == -1;
+
+            if(bIsRandomSeed){
+                lparams.seed = time(nullptr);
+            }
+            else
+            {
+                lparams.seed = Params.Seed;
+            }
+
             return lparams;
         }();
         model = llama_load_model_from_file(TCHAR_TO_UTF8(*Params.PathToModel), lparams);
