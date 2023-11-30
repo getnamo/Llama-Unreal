@@ -160,6 +160,7 @@ namespace Internal
         bool eos = false;
         bool startedEvalLoop = false;
         double StartEvalTime = 0.f;
+        int32 StartContextLength = 0;
 
         void threadRun();
         void unsafeActivate(bool bReset);
@@ -266,6 +267,7 @@ namespace Internal
                 startedEvalLoop = true;
                 qThreadToMain.enqueue([this] {
                     StartEvalTime = FPlatformTime::Seconds();
+                    StartContextLength = (int32)embd_inp.size();
                     if (!startEvalCb)
                         return;
                     startEvalCb();
@@ -460,7 +462,7 @@ namespace Internal
             // }
             
             FString token = UTF8_TO_TCHAR(llama_detokenize_bpe(ctx, embd).c_str());
-            int32 NewContextLength = (int32)embd.size();
+            int32 NewContextLength = (int32)embd_inp.size();
 
             
             qThreadToMain.enqueue([token = move(token), NewContextLength,  this] {
@@ -521,14 +523,15 @@ namespace Internal
                 eos = true;
                 const bool stopSeqSafe = hasStopSeq;
                 startedEvalLoop = false;
+                const int32 DeltaTokens = NewContextLength - StartContextLength;
 
                 //notify main thread we're done
-                qThreadToMain.enqueue([stopSeqSafe, NewContextLength, this] {
+                qThreadToMain.enqueue([stopSeqSafe, DeltaTokens, this] {
                     if (!eosCb)
                         return;
 
                     double EosTime = FPlatformTime::Seconds();
-                    float TokensPerSecond = ((double)NewContextLength) / (EosTime - StartEvalTime);
+                    float TokensPerSecond = double(DeltaTokens) / (EosTime - StartEvalTime);
 
                     eosCb(stopSeqSafe, TokensPerSecond);
                 });
