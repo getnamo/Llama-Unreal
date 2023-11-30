@@ -1,12 +1,12 @@
-// 2023 (c) Mika Pi
+// 2023 (c) Mika Pi, Modifications Getnamo
 
-// ReSharper disable CppPrintfBadFormat
 #include "UELlama/LlamaComponent.h"
 #include <atomic>
 #include <deque>
 #include <thread>
 #include <functional>
 #include <mutex>
+#include "HAL/PlatformTime.h"
 
 #define GGML_CUDA_DMMV_X 64
 #define GGML_CUDA_F16
@@ -126,17 +126,20 @@ namespace Internal
 
         void startStopThread(bool bShouldRun);
 
-        void activate(bool bReset, Params);
+        void activate(bool bReset, const FLLMModelParams& Params);
         void deactivate();
         void insertPrompt(FString v);
         void process();
         void stopGenerating();
         void resumeGenerating();
 
-        function<void(FString)> tokenCb;
-        function<void(bool)> eosCb;
+        function<void(FString, int32)> tokenCb;
+        function<void(bool, float)> eosCb;
         function<void(void)> startEvalCb;
         function<void(void)> onContextResetCb;
+
+        //Passthrough from component
+        FLLMModelParams Params;
 
         bool shouldLog = true;
 
@@ -156,9 +159,10 @@ namespace Internal
         int n_consumed = 0;
         bool eos = false;
         bool startedEvalLoop = false;
+        double StartEvalTime = 0.f;
 
         void threadRun();
-        void unsafeActivate(bool bReset, Params);
+        void unsafeActivate(bool bReset);
         void unsafeDeactivate();
         void unsafeInsertPrompt(FString);
 
@@ -261,8 +265,9 @@ namespace Internal
             {
                 startedEvalLoop = true;
                 qThreadToMain.enqueue([this] {
-                if (!startEvalCb)
-                    return;
+                    StartEvalTime = FPlatformTime::Seconds();
+                    if (!startEvalCb)
+                        return;
                     startEvalCb();
                 });
             }
@@ -273,8 +278,6 @@ namespace Internal
             const int n_ctx = llama_n_ctx(ctx);
             if (embd.size() > 0)
             {
-                
-
                 // Note: n_ctx - 4 here is to match the logic for commandline prompt handling via
                 // --prompt or --file which uses the same value.
                 int max_embd_size = n_ctx - 4;
@@ -453,7 +456,6 @@ namespace Internal
                     ++n_consumed;
                     if ((int)embd.size() >= n_batch)
                     {
-                        // TODO-Mika
                         break;
                     }
                 }
@@ -473,12 +475,13 @@ namespace Internal
             // }
             
             FString token = UTF8_TO_TCHAR(llama_detokenize_bpe(ctx, embd).c_str());
+            int32 NewContextLength = (int32)embd.size();
 
             
-            qThreadToMain.enqueue([token = move(token), this] {
+            qThreadToMain.enqueue([token = move(token), NewContextLength,  this] {
                 if (!tokenCb)
                     return;
-                tokenCb(move(token));
+                tokenCb(move(token), NewContextLength);
             });
             ////////////////////////////////////////////////////////////////////////
 
@@ -535,11 +538,14 @@ namespace Internal
                 startedEvalLoop = false;
 
                 //notify main thread we're done
-                qThreadToMain.enqueue([stopSeqSafe, this] {
+                qThreadToMain.enqueue([stopSeqSafe, NewContextLength, this] {
                     if (!eosCb)
                         return;
 
-                    eosCb(stopSeqSafe);
+                    double EosTime = FPlatformTime::Seconds();
+                    float TokensPerSecond = ((double)NewContextLength) / (EosTime - StartEvalTime);
+
+                    eosCb(stopSeqSafe, TokensPerSecond);
                 });
             }
         }
@@ -562,10 +568,11 @@ namespace Internal
             ;
     }
 
-    void Llama::activate(bool bReset, Params params)
+    void Llama::activate(bool bReset, const FLLMModelParams& InParams)
     {
-        qMainToThread.enqueue([bReset, params = move(params), this]() mutable {
-            unsafeActivate(bReset, move(params));
+        Params = InParams;
+        qMainToThread.enqueue([bReset, this]() mutable {
+            unsafeActivate(bReset);
         });
     }
 
@@ -574,7 +581,7 @@ namespace Internal
         qMainToThread.enqueue([this]() { unsafeDeactivate(); });
     }
 
-    void Llama::unsafeActivate(bool bReset, Params params)
+    void Llama::unsafeActivate(bool bReset)
     {
         UE_LOG(LogTemp, Warning, TEXT("%p Loading LLM model %p bReset: %d"), this, model, bReset);
         if (bReset)
@@ -590,7 +597,7 @@ namespace Internal
             lparams.seed = time(nullptr);
             return lparams;
         }();
-        model = llama_load_model_from_file(TCHAR_TO_UTF8(*params.pathToModel), lparams);
+        model = llama_load_model_from_file(TCHAR_TO_UTF8(*Params.PathToModel), lparams);
         if (!model)
         {
             UE_LOG(LogTemp, Error, TEXT("%p unable to load model"), this);
@@ -603,13 +610,13 @@ namespace Internal
         UE_LOG(LogTemp, Warning, TEXT("%p model context set to %p"), this, ctx);
 
         // tokenize the prompt
-        string stdPrompt = string(" ") + TCHAR_TO_UTF8(*params.prompt);
+        string stdPrompt = string(" ") + TCHAR_TO_UTF8(*Params.Prompt);
         embd_inp = my_llama_tokenize(ctx, stdPrompt, res, true /* add bos */);
-        if (!params.stopSequences.IsEmpty())
+        if (!Params.StopSequences.IsEmpty())
         {
-            for (int i = 0; i < params.stopSequences.Num(); ++i)
+            for (int i = 0; i < Params.StopSequences.Num(); ++i)
             {
-                const FString& stopSeq = params.stopSequences[i];
+                const FString& stopSeq = Params.StopSequences[i];
                 string str = string{TCHAR_TO_UTF8(*stopSeq)};
                 if (::isalnum(str[0]))
                     str = " " + str;
@@ -675,17 +682,19 @@ ULlamaComponent::ULlamaComponent(const FObjectInitializer &ObjectInitializer)
 {
     PrimaryComponentTick.bCanEverTick = true;
     PrimaryComponentTick.bStartWithTickEnabled = true;
-    llama->tokenCb = [this](FString NewToken) 
+    llama->tokenCb = [this](FString NewToken, int32 NewContextLength) 
     { 
         if (bSyncPromptHistory)
         {
-            PromptHistory.Append(NewToken);
+            ModelState.PromptHistory.Append(NewToken);
         }
+        ModelState.ContextLength = NewContextLength;
         OnNewTokenGenerated.Broadcast(move(NewToken));
     };
-    llama->eosCb = [this](bool StopTokenCausedEos)
+    llama->eosCb = [this](bool StopTokenCausedEos, float TokensPerSecond)
     {
-        OnEndOfStream.Broadcast(StopTokenCausedEos);
+        ModelState.LastTokensPerSecond = TokensPerSecond;
+        OnEndOfStream.Broadcast(StopTokenCausedEos, TokensPerSecond);
     };
     llama->startEvalCb = [this]()
     {
@@ -695,7 +704,7 @@ ULlamaComponent::ULlamaComponent(const FObjectInitializer &ObjectInitializer)
     {
         if (bSyncPromptHistory) 
         {
-            PromptHistory.Empty();
+            ModelState.PromptHistory.Empty();
         }
         OnContextReset.Broadcast();
     };
@@ -709,13 +718,8 @@ void ULlamaComponent::Activate(bool bReset)
 
     //if it hasn't been started, this will start it
     llama->startStopThread(true);
-
-    Params params;
-    params.pathToModel = PathToModel;
-    params.prompt = Prompt;
-    params.stopSequences = StopSequences;
     llama->shouldLog = bDebugLogModelOutput;
-    llama->activate(bReset, move(params));
+    llama->activate(bReset, ModelParams);
 }
 
 void ULlamaComponent::Deactivate()

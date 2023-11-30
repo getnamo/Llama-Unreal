@@ -1,4 +1,4 @@
-// 2023 (c) Mika Pi
+// 2023 (c) Mika Pi, Modifications Getnamo
 
 #pragma once
 #include <Components/ActorComponent.h>
@@ -14,8 +14,100 @@ namespace Internal
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnNewTokenGeneratedSignature, FString, NewToken);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPromptHistorySignature, FString, History);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnEndOfStreamSignature, bool, bStopSequenceTriggered);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnEndOfStreamSignature, bool, bStopSequenceTriggered, float, TokensPerSecond);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FVoidEventSignature);
+
+USTRUCT(BlueprintType)
+struct FLLMModelAdvancedParams
+{
+    GENERATED_USTRUCT_BODY();
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
+    float Temp = 0.80f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
+    int32 TopK = 40;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
+    float TopP = 0.95f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
+    float TfsZ = 1.00f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
+    float TypicalP = 1.00f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
+    int32 RepeatLastN = 64;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
+    float RepeatPenalty = 1.10f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
+    float AlphaPresence = 0.00f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
+    float AlphaFrequency = 0.00f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
+    int32 Mirostat = 0;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
+    float MirostatTau = 5.f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
+    float MirostatEta = 0.1f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
+    bool PenalizeNl = true;
+};
+
+//Initial state fed into the model
+USTRUCT(BlueprintType)
+struct FLLMModelParams
+{
+    GENERATED_USTRUCT_BODY();
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
+    FString PathToModel = "/model.gguf";
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
+    FString Prompt = "You are a helpful assistant.";
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
+    TArray<FString> StopSequences;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
+    int32 MaxContextLength;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
+    int32 GPULayers;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
+    int32 Seed;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
+    FLLMModelAdvancedParams Advanced;
+};
+
+//Current State
+USTRUCT(BlueprintType)
+struct FLLMModelState
+{
+    GENERATED_USTRUCT_BODY();
+
+    //One true store that should be synced to the model internal history, accessible on game thread.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model State")
+    FString PromptHistory;
+
+    //Synced with current context length
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model State")
+    int32 ContextLength;
+
+    //Stored the last speed reading on this model
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model State")
+    float LastTokensPerSecond;
+};
 
 UCLASS(Category = "LLM", BlueprintType, meta = (BlueprintSpawnableComponent))
 class UELLAMA_API ULlamaComponent : public UActorComponent
@@ -45,18 +137,19 @@ public:
     UPROPERTY(BlueprintAssignable)
     FVoidEventSignature OnContextReset;
 
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Component")
+    FLLMModelParams ModelParams;
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite)
-    FString Prompt = "Hello";
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Component")
+    FLLMModelState ModelState;
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite)
-    FString PathToModel = "/media/mika/Michigan/prj/llama-2-13b-chat.ggmlv3.q8_0.bin";
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite)
-    TArray<FString> StopSequences;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+    //Settings
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Component")
     bool bDebugLogModelOutput = false;
+
+    //toggle to pay copy cost or not, default true
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Component")
+    bool bSyncPromptHistory = true;
 
     UFUNCTION(BlueprintCallable)
     void InsertPrompt(const FString &Text);
@@ -70,14 +163,6 @@ public:
 
     UFUNCTION(BlueprintCallable)
     void ResumeGenerating();
-
-    //One true store that should be synced to the model internal history, accessible on game thread.
-    UPROPERTY(EditAnywhere, BlueprintReadWrite)
-    FString PromptHistory;
-
-    //toggle to pay copy cost or not, default true
-    UPROPERTY(EditAnywhere, BlueprintReadWrite)
-    bool bSyncPromptHistory = true;
 
 private:
     std::unique_ptr<Internal::Llama> llama;
