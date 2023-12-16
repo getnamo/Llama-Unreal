@@ -5,6 +5,11 @@ using System.IO;
 
 public class UELlama : ModuleRules
 {
+	private string PluginBinariesPath
+	{
+		get { return Path.GetFullPath(Path.Combine(ModuleDirectory, "../../Binaries/Win64")); }
+	}
+
 	public UELlama(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = ModuleRules.PCHUsageMode.UseExplicitOrSharedPCHs;
@@ -57,15 +62,21 @@ public class UELlama : ModuleRules
 			{
 				// ... add any modules that your module loads dynamically here ...
 			}
-			);
+		);
+
+
 		if (Target.Platform == UnrealTargetPlatform.Linux)
 		{
 			PublicAdditionalLibraries.Add(Path.Combine(PluginDirectory, "Libraries", "libllama.so"));
 			PublicIncludePaths.Add(Path.Combine(PluginDirectory, "Includes"));
-		} else if (Target.Platform == UnrealTargetPlatform.Win64) {
+		} 
+		else if (Target.Platform == UnrealTargetPlatform.Win64)
+		{
 			PublicAdditionalLibraries.Add(Path.Combine(PluginDirectory, "Libraries", "llama.lib"));
-            PublicIncludePaths.Add(Path.Combine(PluginDirectory, "Includes"));
-		}
+			PublicIncludePaths.Add(Path.Combine(PluginDirectory, "Includes"));
 
+			string LlamaDLLPath = Path.Combine(PluginBinariesPath, "llama.dll");
+			RuntimeDependencies.Add(LlamaDLLPath);
+		}
 	}
 }
