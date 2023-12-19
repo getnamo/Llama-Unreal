@@ -102,7 +102,7 @@ public class UELlama : ModuleRules
 		}
 		else if (Target.Platform == UnrealTargetPlatform.Android)
 		{
-			//Built against NDK 25.1.8937393, API 23
+			//Built against NDK 25.1.8937393, API 26
 			PublicAdditionalLibraries.Add(Path.Combine(PluginDirectory, "Libraries", "Android", "libggml_static.a"));
 			PublicAdditionalLibraries.Add(Path.Combine(PluginDirectory, "Libraries", "Android", "libllama.a"));
 			PublicIncludePaths.Add(Path.Combine(PluginDirectory, "Includes"));
