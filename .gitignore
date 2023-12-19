@@ -18,6 +18,7 @@
 #*.so
 #*.dylib
 *.dll
+!Binaries/Win64/llama.dll
 
 # Fortran module files
 *.mod
@@ -77,4 +78,3 @@ Plugins/*/Intermediate/*
 DerivedDataCache/*
 
 Content/model/*
-!Libraries/Win64/llama.dll

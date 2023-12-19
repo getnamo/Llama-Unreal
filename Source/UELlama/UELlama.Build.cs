@@ -2,6 +2,7 @@
 
 using UnrealBuildTool;
 using System.IO;
+using EpicGames.Core;
 
 public class UELlama : ModuleRules
 {
@@ -12,7 +13,7 @@ public class UELlama : ModuleRules
 
 	private string PluginLibPath
 	{
-		get { return Path.GetFullPath(Path.Combine(PluginDirectory, "Libraries")); }
+		get { return Path.GetFullPath(Path.Combine(ModuleDirectory, "../../Libraries")); }
 	}
 
 	private void LinkDyLib(string DyLib)
@@ -77,23 +78,26 @@ public class UELlama : ModuleRules
 			}
 		);
 
+		PublicIncludePaths.Add(Path.Combine(PluginDirectory, "Includes"));
 
 		if (Target.Platform == UnrealTargetPlatform.Linux)
 		{
+			
 			PublicAdditionalLibraries.Add(Path.Combine(PluginDirectory, "Libraries", "Linux", "libllama.so"));
-			PublicIncludePaths.Add(Path.Combine(PluginDirectory, "Includes"));
 		} 
 		else if (Target.Platform == UnrealTargetPlatform.Win64)
 		{
-			PublicAdditionalLibraries.Add(Path.Combine(PluginDirectory, "Libraries", "Win64", "llama.lib"));
-			PublicIncludePaths.Add(Path.Combine(PluginDirectory, "Includes"));
+			PublicAdditionalLibraries.Add(Path.Combine(PluginLibPath, "Win64", "llama.lib"));
 
-			string LlamaDLLPath = Path.Combine(PluginLibPath, "Win64", "llama.dll");
+			//string LlamaDLLPath = Path.Combine(PluginLibPath, "Win64", "llama.dll");
+			string LlamaDLLPath = Path.Combine(PluginBinariesPath, "Win64", "llama.dll");
+
+			System.Console.WriteLine(LlamaDLLPath); 
 			RuntimeDependencies.Add(LlamaDLLPath);
+
 		}
 		else if (Target.Platform == UnrealTargetPlatform.Mac)
 		{
-			PublicIncludePaths.Add(Path.Combine(PluginDirectory, "Includes"));
 			PublicAdditionalLibraries.Add(Path.Combine(PluginDirectory, "Libraries", "Mac", "libggml_static.a"));
 			
 			//Dylibs act as both, so include them, add as lib and add as runtime dep
@@ -105,7 +109,6 @@ public class UELlama : ModuleRules
 			//Built against NDK 25.1.8937393, API 26
 			PublicAdditionalLibraries.Add(Path.Combine(PluginDirectory, "Libraries", "Android", "libggml_static.a"));
 			PublicAdditionalLibraries.Add(Path.Combine(PluginDirectory, "Libraries", "Android", "libllama.a"));
-			PublicIncludePaths.Add(Path.Combine(PluginDirectory, "Includes"));
 		}
 	}
 }
