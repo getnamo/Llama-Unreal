@@ -7,6 +7,7 @@
 #include <functional>
 #include <mutex>
 #include "HAL/PlatformTime.h"
+#include "Misc/Paths.h"
 
 #define GGML_CUDA_DMMV_X 64
 #define GGML_CUDA_F16
@@ -169,6 +170,9 @@ namespace Internal
 
         //backup method to check eos
         bool hasEnding(std::string const& fullString, std::string const& ending);
+
+        FString ModelsRelativeRootPath();
+        FString ParsePathIntoFullPath(const FString& InRelativeOrAbsolutePath);
     };
 
     void Llama::insertPrompt(FString v)
@@ -237,6 +241,29 @@ namespace Internal
         else {
             return false;
         }
+    }
+
+    FString Llama::ModelsRelativeRootPath()
+    {
+        FString AbsoluteFilePath = FPaths::ConvertRelativePathToFull(FPaths::ProjectPluginsDir() + "/Llama-Unreal/Content/Models");
+        
+        return AbsoluteFilePath;
+    }
+
+    FString Llama::ParsePathIntoFullPath(const FString& InRelativeOrAbsolutePath)
+    {
+        //Is it a relative path?
+        if (InRelativeOrAbsolutePath.StartsWith(TEXT(".")))
+        {
+            //relative path
+            return FPaths::ConvertRelativePathToFull(ModelsRelativeRootPath() + InRelativeOrAbsolutePath);
+        }
+        else
+        {
+            //Already an absolute path
+            return InRelativeOrAbsolutePath;
+        }
+        return FString();
     }
 
     void Llama::threadRun()
@@ -608,7 +635,10 @@ namespace Internal
 
             return lparams;
         }();
-        model = llama_load_model_from_file(TCHAR_TO_UTF8(*Params.PathToModel), lparams);
+
+        FString FullModelPath = ParsePathIntoFullPath(Params.PathToModel);
+
+        model = llama_load_model_from_file(TCHAR_TO_UTF8(*FullModelPath), lparams);
         if (!model)
         {
             UE_LOG(LogTemp, Error, TEXT("%p unable to load model"), this);
