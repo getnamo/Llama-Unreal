@@ -678,8 +678,11 @@ namespace Internal
 
         //Reset signal.
         qThreadToMain.enqueue([this] {
-        if (!OnContextResetCb)
-            return;
+            if (!OnContextResetCb)
+            {
+                return;
+            }
+            
             OnContextResetCb();
         });
 
