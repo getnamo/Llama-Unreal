@@ -75,7 +75,7 @@ namespace
     void Q::enqueue(function<void()> v)
     {
         lock_guard l(mutex_);
-        q.emplace_back(move(v));
+        q.emplace_back(std::move(v));
     }
 
     bool Q::processQ() {
@@ -85,7 +85,7 @@ namespace
             if (q.empty()) {
                 return false;
             }
-            v = move(q.front());
+            v = std::move(q.front());
             q.pop_front();
         }
         v();
@@ -173,7 +173,7 @@ namespace Internal
 
     void Llama::insertPrompt(FString v)
     {
-        qMainToThread.enqueue([this, v = move(v)]() mutable { unsafeInsertPrompt(move(v)); });
+        qMainToThread.enqueue([this, v = std::move(v)]() mutable { unsafeInsertPrompt(std::move(v)); });
     }
 
     void Llama::unsafeInsertPrompt(FString v)
@@ -476,10 +476,10 @@ namespace Internal
             int32 NewContextLength = n_past; //(int32)last_n_tokens.size();
 
             
-            qThreadToMain.enqueue([token = move(token), NewContextLength,  this] {
+            qThreadToMain.enqueue([token = std::move(token), NewContextLength,  this] {
                 if (!OnTokenCb)
                     return;
-                OnTokenCb(move(token), NewContextLength);
+                OnTokenCb(std::move(token), NewContextLength);
             });
             ////////////////////////////////////////////////////////////////////////
 
@@ -632,7 +632,7 @@ namespace Internal
                 if (::isalnum(str[0]))
                     str = " " + str;
                 vector<llama_token> seq = my_llama_tokenize(ctx, str, res, false /* add bos */);
-                stopSequences.emplace_back(move(seq));
+                stopSequences.emplace_back(std::move(seq));
             }
         }
         else
@@ -700,7 +700,7 @@ ULlamaComponent::ULlamaComponent(const FObjectInitializer &ObjectInitializer)
             ModelState.PromptHistory.Append(NewToken);
         }
         ModelState.ContextLength = NewContextLength;
-        OnNewTokenGenerated.Broadcast(move(NewToken));
+        OnNewTokenGenerated.Broadcast(std::move(NewToken));
     };
     llama->OnEosCb = [this](bool StopTokenCausedEos, float TokensPerSecond)
     {
