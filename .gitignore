@@ -18,7 +18,6 @@
 #*.so
 #*.dylib
 *.dll
-!Binaries/Win64/llama.dll
 
 # Fortran module files
 *.mod
@@ -51,7 +50,8 @@ SourceArt/**/*.tga
 
 # Binary Files
 Binaries/*
-Plugins/*/Binaries/*
+!llama.dll
+!*/
 
 # Builds
 Build/*
@@ -76,5 +76,4 @@ Plugins/*/Intermediate/*
 
 # Cache files for the editor to use
 DerivedDataCache/*
-
 Content/model/*
