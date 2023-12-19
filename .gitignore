@@ -77,3 +77,4 @@ Plugins/*/Intermediate/*
 DerivedDataCache/*
 
 Content/model/*
+!Libraries/Win64/llama.dll
