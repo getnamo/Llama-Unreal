@@ -274,7 +274,16 @@ namespace Internal
 
     FString Llama::ModelsRelativeRootPath()
     {
-        FString AbsoluteFilePath = FPaths::ConvertRelativePathToFull(FPaths::ProjectContentDir() + "Models/");
+        FString AbsoluteFilePath;
+
+#if PLATFORM_ANDROID
+        //This is the path we're allowed to sample on android
+        AbsoluteFilePath = FPaths::Combine(FPaths::Combine(FString(FAndroidMisc::GamePersistentDownloadDir()), "Models/"));
+#else
+
+        AbsoluteFilePath = FPaths::ConvertRelativePathToFull(FPaths::Combine(FPaths::ProjectSavedDir(), "Models/"));
+
+#endif
         
         return AbsoluteFilePath;
     }
@@ -296,11 +305,6 @@ namespace Internal
             //UE_LOG(LogTemp, Log, TEXT("model returning absolute path"));
             FinalPath = FPaths::ConvertRelativePathToFull(InRelativeOrAbsolutePath);
         }
-
-#if PLATFORM_ANDROID
-        IFileManager& FileManager = IFileManager::Get();
-        FinalPath = FileManager.ConvertToAbsolutePathForExternalAppForRead(*FinalPath);
-#endif
 
         return FinalPath;
     }
@@ -872,8 +876,8 @@ TArray<FString> ULlamaComponent::DebugListDirectoryContent(const FString& InPath
         FString Remainder = InPath.Replace(TEXT("<Content>"), TEXT(""));
 
 #if PLATFORM_ANDROID
-        //FString ExternalStoragePath = FPaths::Combine(, TEXT("models"));
-        //FullPathDirectory = FAndroidMisc::GetExternalStorageDirectory() + Remainder;
+        FString ExternalStoragePath = FString(FAndroidMisc::GamePersistentDownloadDir());
+        FullPathDirectory = ExternalStoragePath + Remainder;
 #else
         UE_LOG(LogTemp, Warning, TEXT("Externals not valid in this context!"));
         FullPathDirectory = Internal::Llama::ParsePathIntoFullPath(Remainder);
