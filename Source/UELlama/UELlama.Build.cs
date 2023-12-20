@@ -80,6 +80,8 @@ public class UELlama : ModuleRules
 
 		PublicIncludePaths.Add(Path.Combine(PluginDirectory, "Includes"));
 
+		
+
 		if (Target.Platform == UnrealTargetPlatform.Linux)
 		{
 			
@@ -89,12 +91,16 @@ public class UELlama : ModuleRules
 		{
 			PublicAdditionalLibraries.Add(Path.Combine(PluginLibPath, "Win64", "llama.lib"));
 
-			//string LlamaDLLPath = Path.Combine(PluginLibPath, "Win64", "llama.dll");
-			string LlamaDLLPath = Path.Combine(PluginBinariesPath, "Win64", "llama.dll");
+			string LlamaDLLPath = Path.Combine(PluginLibPath, "Win64", "llama.dll");
+			//string LlamaDLLPath = Path.Combine(PluginBinariesPath, "Win64", "llama.dll");
+			//System.Console.WriteLine(LlamaDLLPath);
 
-			System.Console.WriteLine(LlamaDLLPath); 
-			RuntimeDependencies.Add(LlamaDLLPath);
+			
+			//RuntimeDependencies.Add(LlamaDLLPath);
+			RuntimeDependencies.Add("$(BinaryOutputDir)/llama.dll", Path.Combine(LlamaDLLPath));
+			PublicDelayLoadDLLs.Add("llama.dll");
 
+			//RuntimeDependencies.Add("$(BinaryOutputDir)/llama.dll", Path.Combine(LlamaDLLPath));
 		}
 		else if (Target.Platform == UnrealTargetPlatform.Mac)
 		{
