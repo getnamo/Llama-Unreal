@@ -69,7 +69,7 @@ struct FLLMModelParams
     GENERATED_USTRUCT_BODY();
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
-    FString PathToModel = "/model.gguf";
+    FString PathToModel = "./model.gguf";
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
     FString Prompt = "You are a helpful assistant.";

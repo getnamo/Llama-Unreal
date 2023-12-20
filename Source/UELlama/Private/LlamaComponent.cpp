@@ -245,7 +245,7 @@ namespace Internal
 
     FString Llama::ModelsRelativeRootPath()
     {
-        FString AbsoluteFilePath = FPaths::ConvertRelativePathToFull(FPaths::ProjectPluginsDir() + "/Llama-Unreal/Content/Models");
+        FString AbsoluteFilePath = FPaths::ConvertRelativePathToFull(FPaths::ProjectPluginsDir() + "/Llama-Unreal/Content/Models/");
         
         return AbsoluteFilePath;
     }
@@ -633,6 +633,7 @@ namespace Internal
                 lparams.seed = Params.Seed;
             }
 
+
             return lparams;
         }();
 
@@ -641,7 +642,7 @@ namespace Internal
         model = llama_load_model_from_file(TCHAR_TO_UTF8(*FullModelPath), lparams);
         if (!model)
         {
-            UE_LOG(LogTemp, Error, TEXT("%p unable to load model"), this);
+            UE_LOG(LogTemp, Error, TEXT("%p unable to load model at %s"), this, *FullModelPath);
             unsafeDeactivate();
             return;
         }
