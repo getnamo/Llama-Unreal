@@ -779,6 +779,10 @@ ULlamaComponent::ULlamaComponent(const FObjectInitializer &ObjectInitializer)
         }
         OnContextReset.Broadcast();
     };
+    llama->OnErrorCb = [this](FString ErrorMessage)
+    {
+        OnError.Broadcast(ErrorMessage);
+    };
 }
 
 ULlamaComponent::~ULlamaComponent() = default;
