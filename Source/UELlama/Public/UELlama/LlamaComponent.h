@@ -173,6 +173,10 @@ public:
     UFUNCTION(BlueprintCallable)
     void ResumeGenerating();
 
+    //Tempfunction for android explore
+    UFUNCTION(BlueprintCallable)
+    TArray<FString> ListDirectoryContent(const FString& InPath);
+
 private:
     std::unique_ptr<Internal::Llama> llama;
 };

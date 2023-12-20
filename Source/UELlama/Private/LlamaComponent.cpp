@@ -8,6 +8,7 @@
 #include <mutex>
 #include "HAL/PlatformTime.h"
 #include "Misc/Paths.h"
+#include "HAL/FileManager.h"
 
 #define GGML_CUDA_DMMV_X 64
 #define GGML_CUDA_F16
@@ -145,6 +146,9 @@ namespace Internal
 
         bool shouldLog = true;
 
+        static FString ModelsRelativeRootPath();
+        static FString ParsePathIntoFullPath(const FString& InRelativeOrAbsolutePath);
+
     private:
         llama_model *model = nullptr;
         llama_context *ctx = nullptr;
@@ -173,8 +177,8 @@ namespace Internal
         bool hasEnding(std::string const& fullString, std::string const& ending);
 
         void EmitErrorMessage(const FString& ErrorMessage, bool bLogErrorMessage=true);
-        FString ModelsRelativeRootPath();
-        FString ParsePathIntoFullPath(const FString& InRelativeOrAbsolutePath);
+       
+
     };
 
     void Llama::insertPrompt(FString v)
@@ -829,4 +833,44 @@ void ULlamaComponent::StopGenerating()
 void ULlamaComponent::ResumeGenerating()
 {
     llama->resumeGenerating();
+}
+
+TArray<FString> ULlamaComponent::ListDirectoryContent(const FString& InPath)
+{
+    TArray<FString> Entries;
+
+    FString FullPathDirectory = Internal::Llama::ParsePathIntoFullPath(InPath);
+
+    UE_LOG(LogTemp, Log, TEXT("Listing contents of <%s>"), *FullPathDirectory);
+
+    TArray<FString> Files;
+    IFileManager& FileManager = IFileManager::Get();
+
+    // Find files
+    FileManager.FindFiles(Entries, *FullPathDirectory, TEXT("*.*")); // Find all entries
+    for (FString Entry : Entries)
+    {
+        FString FullPath = FullPathDirectory / Entry;
+        if (!FileManager.DirectoryExists(*FullPath)) // Filter out directories
+        {
+            UE_LOG(LogTemp, Log, TEXT("Found file: %s"), *Entry);
+        }
+    }
+
+    // Find directories
+    TArray<FString> Directories;
+    FileManager.FindFiles(Directories, *FullPathDirectory, TEXT("*.*")); // Find all entries
+    for (FString Entry : Directories)
+    {
+        FString FullPath = FullPathDirectory / Entry;
+        if (FileManager.DirectoryExists(*FullPath)) // Filter for directories
+        {
+            UE_LOG(LogTemp, Log, TEXT("Found directory: %s"), *Entry);
+        }
+    }
+
+    Entries.Append(Directories);
+    Entries.Append(Files);
+
+    return Entries;
 }
