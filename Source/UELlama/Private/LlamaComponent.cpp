@@ -835,7 +835,7 @@ void ULlamaComponent::ResumeGenerating()
     llama->resumeGenerating();
 }
 
-TArray<FString> ULlamaComponent::ListDirectoryContent(const FString& InPath)
+TArray<FString> ULlamaComponent::DebugListDirectoryContent(const FString& InPath)
 {
     TArray<FString> Entries;
 

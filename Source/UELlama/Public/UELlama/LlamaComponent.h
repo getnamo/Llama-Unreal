@@ -173,9 +173,10 @@ public:
     UFUNCTION(BlueprintCallable)
     void ResumeGenerating();
 
-    //Tempfunction for android explore
+
+    //Utility function for debugging model location and file enumeration
     UFUNCTION(BlueprintCallable)
-    TArray<FString> ListDirectoryContent(const FString& InPath);
+    TArray<FString> DebugListDirectoryContent(const FString& InPath);
 
 private:
     std::unique_ptr<Internal::Llama> llama;
