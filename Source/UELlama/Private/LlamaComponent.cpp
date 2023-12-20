@@ -138,6 +138,7 @@ namespace Internal
         function<void(bool, float)> OnEosCb;
         function<void(void)> OnStartEvalCb;
         function<void(void)> OnContextResetCb;
+        function<void(FString)> OnErrorCb;
 
         //Passthrough from component
         FLLMModelParams Params;
@@ -171,6 +172,7 @@ namespace Internal
         //backup method to check eos
         bool hasEnding(std::string const& fullString, std::string const& ending);
 
+        void EmitErrorMessage(const FString& ErrorMessage, bool bLogErrorMessage=true);
         FString ModelsRelativeRootPath();
         FString ParsePathIntoFullPath(const FString& InRelativeOrAbsolutePath);
     };
@@ -243,6 +245,25 @@ namespace Internal
         }
     }
 
+    void Llama::EmitErrorMessage(const FString& ErrorMessage, bool bLogErrorMessage)
+    {
+        const FString ErrorMessageSafe = ErrorMessage;
+
+        if (bLogErrorMessage)
+        {
+            UE_LOG(LogTemp, Error, TEXT("%s"), *ErrorMessageSafe);
+        }
+
+        qThreadToMain.enqueue([this, ErrorMessageSafe] {
+            if (!OnErrorCb)
+            {
+                return;
+            }
+
+            OnErrorCb(ErrorMessageSafe);
+        });
+    }
+
     FString Llama::ModelsRelativeRootPath()
     {
         FString AbsoluteFilePath = FPaths::ConvertRelativePathToFull(FPaths::ProjectPluginsDir() + "/Llama-Unreal/Content/Models/");
@@ -256,12 +277,14 @@ namespace Internal
         if (InRelativeOrAbsolutePath.StartsWith(TEXT(".")))
         {
             //relative path
+            UE_LOG(LogTemp, Log, TEXT("returning relative path"));
             return FPaths::ConvertRelativePathToFull(ModelsRelativeRootPath() + InRelativeOrAbsolutePath);
         }
         else
         {
             //Already an absolute path
-            return InRelativeOrAbsolutePath;
+            UE_LOG(LogTemp, Log, TEXT("returning absolute path"));
+            return FPaths::ConvertRelativePathToFull(InRelativeOrAbsolutePath);
         }
         return FString();
     }
@@ -318,11 +341,10 @@ namespace Internal
                 if ((int)embd.size() > max_embd_size)
                 {
                     uint64 skipped_tokens = embd.size() - max_embd_size;
-                    UE_LOG(LogTemp,
-                                 Error,
-                                 TEXT("<<input too long: skipped %zu token%s>>"),
-                                 skipped_tokens,
-                                 skipped_tokens != 1 ? "s" : "");
+                    FString ErrorMsg = FString::Printf(TEXT("<<input too long: skipped %zu token%s>>"), 
+                        skipped_tokens,
+                        skipped_tokens != 1 ? "s" : "");
+                    EmitErrorMessage(ErrorMsg);
                     embd.resize(max_embd_size);
                 }
 
@@ -335,7 +357,8 @@ namespace Internal
                     UE_LOG(LogTemp, Warning, TEXT("%p context resetting"), this);
                     if (n_predict == -2)
                     {
-                        UE_LOG(LogTemp, Error, TEXT("context full, stopping generation"));
+                        FString ErrorMsg = TEXT("context full, stopping generation");
+                        EmitErrorMessage(ErrorMsg);
                         unsafeDeactivate();
                         continue;
                     }
@@ -371,7 +394,8 @@ namespace Internal
                     }
                     if (llama_eval(ctx, &embd[i], n_eval, n_past, n_threads))
                     {
-                        UE_LOG(LogTemp, Error, TEXT("failed to eval"));
+                        FString ErrorMsg = TEXT("failed to eval");
+                        EmitErrorMessage(ErrorMsg);
                         unsafeDeactivate();
                         continue;
                     }
@@ -642,7 +666,9 @@ namespace Internal
         model = llama_load_model_from_file(TCHAR_TO_UTF8(*FullModelPath), lparams);
         if (!model)
         {
-            UE_LOG(LogTemp, Error, TEXT("%p unable to load model at %s"), this, *FullModelPath);
+            FString ErrorMessage = FString::Printf(TEXT("%p unable to load model at %s"), this, *FullModelPath);
+
+            EmitErrorMessage(ErrorMessage);
             unsafeDeactivate();
             return;
         }
@@ -673,8 +699,8 @@ namespace Internal
 
         if ((int)embd_inp.size() > n_ctx - 4)
         {
-            UE_LOG(
-                LogTemp, Error, TEXT("prompt is too long (%d tokens, max %d)"), (int)embd_inp.size(), n_ctx - 4);
+            FString ErrorMessage = FString::Printf(TEXT("prompt is too long (%d tokens, max %d)"), (int)embd_inp.size(), n_ctx - 4);
+            EmitErrorMessage(ErrorMessage);
             unsafeDeactivate();
             return;
         }

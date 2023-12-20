@@ -12,6 +12,7 @@ namespace Internal
   class Llama;
 }
 
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnErrorSignature, FString, ErrorMessage);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnNewTokenGeneratedSignature, FString, NewToken);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPromptHistorySignature, FString, History);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnEndOfStreamSignature, bool, bStopSequenceTriggered, float, TokensPerSecond);
@@ -140,6 +141,10 @@ public:
 
     UPROPERTY(BlueprintAssignable)
     FVoidEventSignature OnContextReset;
+
+    //Catch internal errors
+    UPROPERTY(BlueprintAssignable)
+    FOnErrorSignature OnError;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Component")
     FLLMModelParams ModelParams;
