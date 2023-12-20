@@ -270,7 +270,7 @@ namespace Internal
 
     FString Llama::ModelsRelativeRootPath()
     {
-        FString AbsoluteFilePath = FPaths::ConvertRelativePathToFull(FPaths::ProjectPluginsDir() + "Llama-Unreal/Content/Models/");
+        FString AbsoluteFilePath = FPaths::ConvertRelativePathToFull(FPaths::ProjectContentDir() + "Models/");
         
         return AbsoluteFilePath;
     }
@@ -281,13 +281,13 @@ namespace Internal
         if (InRelativeOrAbsolutePath.StartsWith(TEXT(".")))
         {
             //relative path
-            UE_LOG(LogTemp, Log, TEXT("model returning relative path"));
+            //UE_LOG(LogTemp, Log, TEXT("model returning relative path"));
             return FPaths::ConvertRelativePathToFull(ModelsRelativeRootPath() + InRelativeOrAbsolutePath);
         }
         else
         {
             //Already an absolute path
-            UE_LOG(LogTemp, Log, TEXT("model returning absolute path"));
+            //UE_LOG(LogTemp, Log, TEXT("model returning absolute path"));
             return FPaths::ConvertRelativePathToFull(InRelativeOrAbsolutePath);
         }
         return FString();
@@ -839,38 +839,59 @@ TArray<FString> ULlamaComponent::ListDirectoryContent(const FString& InPath)
 {
     TArray<FString> Entries;
 
-    FString FullPathDirectory = Internal::Llama::ParsePathIntoFullPath(InPath);
+    FString FullPathDirectory;
+
+    if (InPath.Contains(TEXT("<ProjectDir>")))
+    {
+        FString Remainder = InPath.Replace(TEXT("<ProjectDir>"), TEXT(""));
+
+        FullPathDirectory = FPaths::ProjectDir() + Remainder;
+    }
+    else if (InPath.Contains(TEXT("<Content>")))
+    {
+        FString Remainder = InPath.Replace(TEXT("<Content>"), TEXT(""));
+
+        FullPathDirectory = FPaths::ProjectContentDir() + Remainder;
+    }
+    else
+    {
+        FullPathDirectory = Internal::Llama::ParsePathIntoFullPath(InPath);
+    }
+    
+
+    Entries.Add(FullPathDirectory);
 
     UE_LOG(LogTemp, Log, TEXT("Listing contents of <%s>"), *FullPathDirectory);
 
-    TArray<FString> Files;
+    
     IFileManager& FileManager = IFileManager::Get();
-
-    // Find files
-    FileManager.FindFiles(Entries, *FullPathDirectory, TEXT("*.*")); // Find all entries
-    for (FString Entry : Entries)
-    {
-        FString FullPath = FullPathDirectory / Entry;
-        if (!FileManager.DirectoryExists(*FullPath)) // Filter out directories
-        {
-            UE_LOG(LogTemp, Log, TEXT("Found file: %s"), *Entry);
-        }
-    }
 
     // Find directories
     TArray<FString> Directories;
-    FileManager.FindFiles(Directories, *FullPathDirectory, TEXT("*.*")); // Find all entries
+    FString FinalPath = FullPathDirectory / TEXT("*");
+    FileManager.FindFiles(Directories, *FinalPath, false, true);
     for (FString Entry : Directories)
     {
         FString FullPath = FullPathDirectory / Entry;
         if (FileManager.DirectoryExists(*FullPath)) // Filter for directories
         {
             UE_LOG(LogTemp, Log, TEXT("Found directory: %s"), *Entry);
+            Entries.Add(Entry);
         }
     }
 
-    Entries.Append(Directories);
-    Entries.Append(Files);
+    // Find files
+    TArray<FString> Files;
+    FileManager.FindFiles(Files, *FullPathDirectory, TEXT("*.*")); // Find all entries
+    for (FString Entry : Files)
+    {
+        FString FullPath = FullPathDirectory / Entry;
+        if (!FileManager.DirectoryExists(*FullPath)) // Filter out directories
+        {
+            UE_LOG(LogTemp, Log, TEXT("Found file: %s"), *Entry);
+            Entries.Add(Entry);
+        }
+    }
 
     return Entries;
 }
