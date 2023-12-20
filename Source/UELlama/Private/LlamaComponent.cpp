@@ -266,7 +266,7 @@ namespace Internal
 
     FString Llama::ModelsRelativeRootPath()
     {
-        FString AbsoluteFilePath = FPaths::ConvertRelativePathToFull(FPaths::ProjectPluginsDir() + "/Llama-Unreal/Content/Models/");
+        FString AbsoluteFilePath = FPaths::ConvertRelativePathToFull(FPaths::ProjectPluginsDir() + "Llama-Unreal/Content/Models/");
         
         return AbsoluteFilePath;
     }
@@ -277,13 +277,13 @@ namespace Internal
         if (InRelativeOrAbsolutePath.StartsWith(TEXT(".")))
         {
             //relative path
-            UE_LOG(LogTemp, Log, TEXT("returning relative path"));
+            UE_LOG(LogTemp, Log, TEXT("model returning relative path"));
             return FPaths::ConvertRelativePathToFull(ModelsRelativeRootPath() + InRelativeOrAbsolutePath);
         }
         else
         {
             //Already an absolute path
-            UE_LOG(LogTemp, Log, TEXT("returning absolute path"));
+            UE_LOG(LogTemp, Log, TEXT("model returning absolute path"));
             return FPaths::ConvertRelativePathToFull(InRelativeOrAbsolutePath);
         }
         return FString();
