@@ -95,12 +95,7 @@ public class UELlama : ModuleRules
 			//string LlamaDLLPath = Path.Combine(PluginBinariesPath, "Win64", "llama.dll");
 			//System.Console.WriteLine(LlamaDLLPath);
 
-			
-			//RuntimeDependencies.Add(LlamaDLLPath);
 			RuntimeDependencies.Add("$(BinaryOutputDir)/llama.dll", Path.Combine(LlamaDLLPath));
-			PublicDelayLoadDLLs.Add("llama.dll");
-
-			//RuntimeDependencies.Add("$(BinaryOutputDir)/llama.dll", Path.Combine(LlamaDLLPath));
 		}
 		else if (Target.Platform == UnrealTargetPlatform.Mac)
 		{
