@@ -106,11 +106,11 @@ struct FLLMModelState
 
     //Synced with current context length
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model State")
-    int32 ContextLength;
+    int32 ContextLength = 0;
 
     //Stored the last speed reading on this model
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model State")
-    float LastTokensPerSecond;
+    float LastTokensPerSecond = 0.f;
 };
 
 UCLASS(Category = "LLM", BlueprintType, meta = (BlueprintSpawnableComponent))
