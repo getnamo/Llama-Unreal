@@ -10,6 +10,10 @@
 #include "Misc/Paths.h"
 #include "HAL/FileManager.h"
 
+#if PLATFORM_ANDROID
+#include "Android/AndroidPlatformFile.h"
+#endif
+
 #define GGML_CUDA_DMMV_X 64
 #define GGML_CUDA_F16
 #define GGML_CUDA_MMV_Y 2
@@ -277,20 +281,28 @@ namespace Internal
 
     FString Llama::ParsePathIntoFullPath(const FString& InRelativeOrAbsolutePath)
     {
+        FString FinalPath;
+
         //Is it a relative path?
         if (InRelativeOrAbsolutePath.StartsWith(TEXT(".")))
         {
             //relative path
             //UE_LOG(LogTemp, Log, TEXT("model returning relative path"));
-            return FPaths::ConvertRelativePathToFull(ModelsRelativeRootPath() + InRelativeOrAbsolutePath);
+            FinalPath = FPaths::ConvertRelativePathToFull(ModelsRelativeRootPath() + InRelativeOrAbsolutePath);
         }
         else
         {
             //Already an absolute path
             //UE_LOG(LogTemp, Log, TEXT("model returning absolute path"));
-            return FPaths::ConvertRelativePathToFull(InRelativeOrAbsolutePath);
+            FinalPath = FPaths::ConvertRelativePathToFull(InRelativeOrAbsolutePath);
         }
-        return FString();
+
+#if PLATFORM_ANDROID
+        IFileManager& FileManager = IFileManager::Get();
+        FinalPath = FileManager.ConvertToAbsolutePathForExternalAppForRead(*FinalPath);
+#endif
+
+        return FinalPath;
     }
 
     void Llama::threadRun()
@@ -667,6 +679,8 @@ namespace Internal
 
         FString FullModelPath = ParsePathIntoFullPath(Params.PathToModel);
 
+        UE_LOG(LogTemp, Log, TEXT("File at %s exists? %d"), *FullModelPath, FPaths::FileExists(FullModelPath));
+
         model = llama_load_model_from_file(TCHAR_TO_UTF8(*FullModelPath), lparams);
         if (!model)
         {
@@ -853,18 +867,35 @@ TArray<FString> ULlamaComponent::DebugListDirectoryContent(const FString& InPath
 
         FullPathDirectory = FPaths::ProjectContentDir() + Remainder;
     }
+    else if (InPath.Contains(TEXT("<External>")))
+    {
+        FString Remainder = InPath.Replace(TEXT("<Content>"), TEXT(""));
+
+#if PLATFORM_ANDROID
+        //FString ExternalStoragePath = FPaths::Combine(, TEXT("models"));
+        //FullPathDirectory = FAndroidMisc::GetExternalStorageDirectory() + Remainder;
+#else
+        UE_LOG(LogTemp, Warning, TEXT("Externals not valid in this context!"));
+        FullPathDirectory = Internal::Llama::ParsePathIntoFullPath(Remainder);
+#endif
+    }
     else
     {
         FullPathDirectory = Internal::Llama::ParsePathIntoFullPath(InPath);
     }
     
+    IFileManager& FileManager = IFileManager::Get();
+
+    FullPathDirectory = FPaths::ConvertRelativePathToFull(FullPathDirectory);
+
+    FullPathDirectory = FileManager.ConvertToAbsolutePathForExternalAppForRead(*FullPathDirectory);
 
     Entries.Add(FullPathDirectory);
 
     UE_LOG(LogTemp, Log, TEXT("Listing contents of <%s>"), *FullPathDirectory);
 
     
-    IFileManager& FileManager = IFileManager::Get();
+    
 
     // Find directories
     TArray<FString> Directories;
