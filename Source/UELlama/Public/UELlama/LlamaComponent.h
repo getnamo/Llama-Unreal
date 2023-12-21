@@ -182,6 +182,9 @@ public:
     UFUNCTION(BlueprintCallable)
     void ResumeGenerating();
 
+    UFUNCTION(BlueprintCallable)
+    void SyncParamsToLlama();
+
 
     //Utility function for debugging model location and file enumeration
     UFUNCTION(BlueprintCallable)

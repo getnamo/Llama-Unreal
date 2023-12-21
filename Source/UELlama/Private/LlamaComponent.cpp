@@ -137,6 +137,8 @@ namespace Internal
         void StopGenerating();
         void ResumeGenerating();
 
+        void UpdateParams(const FLLMModelParams& Params);
+
         function<void(FString, int32)> OnTokenCb;
         function<void(bool, float)> OnEosCb;
         function<void(void)> OnStartEvalCb;
@@ -237,6 +239,15 @@ namespace Internal
         qMainToThread.Enqueue([this]()
         {
             Eos = false;
+        });
+    }
+
+    void FLlama::UpdateParams(const FLLMModelParams& InParams)
+    {
+        FLLMModelParams SafeParams = InParams;
+        qMainToThread.Enqueue([this, SafeParams]() mutable
+        {
+            Params = SafeParams;
         });
     }
 
@@ -639,8 +650,11 @@ namespace Internal
 
     void FLlama::Activate(bool bReset, const FLLMModelParams& InParams)
     {
-        Params = InParams;
-        qMainToThread.Enqueue([bReset, this]() mutable {
+        FLLMModelParams SafeParams = InParams;
+        
+        qMainToThread.Enqueue([bReset, this, SafeParams]() mutable
+        {
+            Params = SafeParams;
             UnsafeActivate(bReset);
         });
     }
@@ -762,9 +776,6 @@ namespace Internal
             
             OnContextResetCb();
         });
-
-        
-        
     }
 } // namespace Internal
 
@@ -831,9 +842,9 @@ void ULlamaComponent::TickComponent(float DeltaTime,
     llama->Process();
 }
 
-auto ULlamaComponent::InsertPrompt(const FString& v) -> void
+void ULlamaComponent::InsertPrompt(const FString& Prompt)
 {
-    llama->InsertPrompt(v);
+    llama->InsertPrompt(Prompt);
 }
 
 void ULlamaComponent::StartStopQThread(bool bShouldRun)
@@ -849,6 +860,11 @@ void ULlamaComponent::StopGenerating()
 void ULlamaComponent::ResumeGenerating()
 {
     llama->ResumeGenerating();
+}
+
+void ULlamaComponent::SyncParamsToLlama()
+{
+    llama->UpdateParams(ModelParams);
 }
 
 TArray<FString> ULlamaComponent::DebugListDirectoryContent(const FString& InPath)
@@ -896,9 +912,6 @@ TArray<FString> ULlamaComponent::DebugListDirectoryContent(const FString& InPath
 
     UE_LOG(LogTemp, Log, TEXT("Listing contents of <%s>"), *FullPathDirectory);
 
-    
-    
-
     // Find directories
     TArray<FString> Directories;
     FString FinalPath = FullPathDirectory / TEXT("*");
@@ -928,3 +941,4 @@ TArray<FString> ULlamaComponent::DebugListDirectoryContent(const FString& InPath
 
     return Entries;
 }
+
