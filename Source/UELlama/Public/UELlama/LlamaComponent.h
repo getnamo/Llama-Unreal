@@ -88,6 +88,12 @@ struct FLLMModelParams
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
     int32 GPULayers = 50;
 
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
+    int32 Threads = 8;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
+    int32 BatchCount = 512;
+
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
     int32 Seed = -1;
 

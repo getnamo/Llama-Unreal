@@ -112,8 +112,6 @@ namespace
         return res;
     }
 
-    constexpr int n_threads = 8;
-
     struct Params
     {
         FString prompt = "Hello";
@@ -314,7 +312,8 @@ namespace Internal
         UE_LOG(LogTemp, Warning, TEXT("%p Llama thread is running"), this);
         const int n_predict = -1;
         const int n_keep = 0;
-        const int n_batch = 512;
+        const int n_batch = Params.BatchCount;
+
         while (running)
         {
             while (qMainToThread.processQ())
@@ -412,7 +411,7 @@ namespace Internal
                     {
                         UE_LOG(LogTemp, Warning, TEXT("%p eval tokens `%s`"), this, UTF8_TO_TCHAR(str.c_str()));
                     }
-                    if (llama_eval(ctx, &embd[i], n_eval, n_past, n_threads))
+                    if (llama_eval(ctx, &embd[i], n_eval, n_past, Params.Threads))
                     {
                         FString ErrorMsg = TEXT("failed to eval");
                         EmitErrorMessage(ErrorMsg);
@@ -732,7 +731,7 @@ namespace Internal
             const vector tmp = {
                 llama_token_bos(ctx),
             };
-            llama_eval(ctx, tmp.data(), tmp.size(), 0, n_threads);
+            llama_eval(ctx, tmp.data(), tmp.size(), 0, Params.Threads);
             llama_reset_timings(ctx);
         }
         last_n_tokens.resize(n_ctx);
