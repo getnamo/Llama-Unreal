@@ -60,6 +60,9 @@ struct FLLMModelAdvancedParams
     float MirostatEta = 0.1f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
+    int MirostatM = 100;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
     bool PenalizeNl = true;
 };
 

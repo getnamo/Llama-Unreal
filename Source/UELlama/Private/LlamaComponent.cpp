@@ -70,21 +70,21 @@ namespace
     class Q
     {
     public:
-        void enqueue(function<void()>);
-        bool processQ();
+        void Enqueue(function<void()>);
+        bool ProcessQ();
 
     private:
         deque<function<void()>> q;
         mutex mutex_;
     };
 
-    void Q::enqueue(function<void()> v)
+    void Q::Enqueue(function<void()> v)
     {
         lock_guard l(mutex_);
         q.emplace_back(std::move(v));
     }
 
-    bool Q::processQ() {
+    bool Q::ProcessQ() {
         function<void()> v;
         {
             lock_guard l(mutex_);
@@ -159,44 +159,42 @@ namespace Internal
         atomic_bool bRunning = false;
         thread qThread;
         vector<vector<llama_token>> StopSequences;
-        vector<llama_token> embd_inp;
+        vector<llama_token> EmbdInput;
         vector<llama_token> Embd;
-        vector<llama_token> res;
+        vector<llama_token> Res;
         int NPast = 0;
-        vector<llama_token> last_n_tokens;
-        int n_consumed = 0;
+        vector<llama_token> LastNTokens;
+        int NConsumed = 0;
         bool Eos = false;
         bool bStartedEvalLoop = false;
         double StartEvalTime = 0.f;
         int32 StartContextLength = 0;
 
         void ThreadRun();
-        void unsafeActivate(bool bReset);
+        void UnsafeActivate(bool bReset);
         void UnsafeDeactivate();
-        void unsafeInsertPrompt(FString);
+        void UnsafeInsertPrompt(FString);
 
-        //backup method to check eos
-        bool hasEnding(std::string const& fullString, std::string const& ending);
+        //backup method to check eos, until we get proper prompt templating support
+        bool HasEnding(std::string const& FullString, std::string const& Ending);
 
         void EmitErrorMessage(const FString& ErrorMessage, bool bLogErrorMessage=true);
-       
-
     };
 
     void FLlama::InsertPrompt(FString v)
     {
-        qMainToThread.enqueue([this, v = std::move(v)]() mutable { unsafeInsertPrompt(std::move(v)); });
+        qMainToThread.Enqueue([this, v = std::move(v)]() mutable { UnsafeInsertPrompt(std::move(v)); });
     }
 
-    void FLlama::unsafeInsertPrompt(FString v)
+    void FLlama::UnsafeInsertPrompt(FString v)
     {
         if (!Context) {
             UE_LOG(LogTemp, Error, TEXT("Llama not activated"));
             return;
         }
         string stdV = string(" ") + TCHAR_TO_UTF8(*v);
-        vector<llama_token> line_inp = my_llama_tokenize(Context, stdV, res, false /* add bos */);
-        embd_inp.insert(embd_inp.end(), line_inp.begin(), line_inp.end());
+        vector<llama_token> line_inp = my_llama_tokenize(Context, stdV, Res, false /* add bos */);
+        EmbdInput.insert(EmbdInput.end(), line_inp.begin(), line_inp.end());
     }
 
     FLlama::FLlama() 
@@ -229,22 +227,22 @@ namespace Internal
 
     void FLlama::StopGenerating()
     {
-        qMainToThread.enqueue([this]() 
+        qMainToThread.Enqueue([this]() 
         {
             Eos = true;
         });
     }
     void FLlama::ResumeGenerating()
     {
-        qMainToThread.enqueue([this]()
+        qMainToThread.Enqueue([this]()
         {
             Eos = false;
         });
     }
 
-    bool FLlama::hasEnding(std::string const& fullString, std::string const& ending) {
-        if (fullString.length() >= ending.length()) {
-            return (0 == fullString.compare(fullString.length() - ending.length(), ending.length(), ending));
+    bool FLlama::HasEnding(std::string const& FullString, std::string const& Ending) {
+        if (FullString.length() >= Ending.length()) {
+            return (0 == FullString.compare(FullString.length() - Ending.length(), Ending.length(), Ending));
         }
         else {
             return false;
@@ -260,7 +258,7 @@ namespace Internal
             UE_LOG(LogTemp, Error, TEXT("%s"), *ErrorMessageSafe);
         }
 
-        qThreadToMain.enqueue([this, ErrorMessageSafe] {
+        qThreadToMain.Enqueue([this, ErrorMessageSafe] {
             if (!OnErrorCb)
             {
                 return;
@@ -310,13 +308,13 @@ namespace Internal
     void FLlama::ThreadRun()
     {
         UE_LOG(LogTemp, Warning, TEXT("%p Llama thread is running"), this);
-        const int n_predict = -1;
+        const int NPredict = -1;
         const int NKeep = 0;
         const int NBatch = Params.BatchCount;
 
         while (bRunning)
         {
-            while (qMainToThread.processQ())
+            while (qMainToThread.ProcessQ())
                 ;
             if (!Model)
             {
@@ -325,7 +323,7 @@ namespace Internal
                 continue;
             }
 
-            if (Eos && (int)embd_inp.size() <= n_consumed)
+            if (Eos && (int)EmbdInput.size() <= NConsumed)
             {
                 using namespace chrono_literals;
                 this_thread::sleep_for(200ms);
@@ -335,9 +333,9 @@ namespace Internal
             {
                 bStartedEvalLoop = true;
                 StartEvalTime = FPlatformTime::Seconds();
-                StartContextLength = NPast; //(int32)last_n_tokens.size(); //(int32)embd_inp.size();
+                StartContextLength = NPast; //(int32)LastNTokens.size(); //(int32)embd_inp.size();
 
-                qThreadToMain.enqueue([this] 
+                qThreadToMain.Enqueue([this] 
                 {    
                     if (!OnStartEvalCb)
                     {
@@ -374,7 +372,7 @@ namespace Internal
                 if (NPast + (int)Embd.size() > NCtx)
                 {
                     UE_LOG(LogTemp, Warning, TEXT("%p context resetting"), this);
-                    if (n_predict == -2)
+                    if (NPredict == -2)
                     {
                         FString ErrorMsg = TEXT("context full, stopping generation");
                         EmitErrorMessage(ErrorMsg);
@@ -386,10 +384,10 @@ namespace Internal
                     // always keep the first token - BOS
                     NPast = max(1, NKeep);
 
-                    // insert NLeft/2 tokens at the start of embd from last_n_tokens
+                    // insert NLeft/2 tokens at the start of embd from LastNTokens
                     Embd.insert(Embd.begin(),
-                                            last_n_tokens.begin() + NCtx - NLeft / 2 - Embd.size(),
-                                            last_n_tokens.end() - Embd.size());
+                                            LastNTokens.begin() + NCtx - NLeft / 2 - Embd.size(),
+                                            LastNTokens.end() - Embd.size());
                 }
 
                 // evaluate tokens in batches
@@ -424,97 +422,96 @@ namespace Internal
 
             Embd.clear();
 
-            bool haveHumanTokens = false;
+            bool bHaveHumanTokens = false;
             const FLLMModelAdvancedParams& P = Params.Advanced;
 
-            if ((int)embd_inp.size() <= n_consumed)
+            if ((int)EmbdInput.size() <= NConsumed)
             {
-                llama_token id = 0;
+                llama_token ID = 0;
 
                 {
-                    float* logits = llama_get_logits(Context);
-                    int n_vocab = llama_n_vocab(Context);
+                    float* Logits = llama_get_logits(Context);
+                    int NVocab = llama_n_vocab(Context);
 
-                    vector<llama_token_data> candidates;
-                    candidates.reserve(n_vocab);
-                    for (llama_token token_id = 0; token_id < n_vocab; token_id++)
+                    vector<llama_token_data> Candidates;
+                    Candidates.reserve(NVocab);
+                    for (llama_token TokenID = 0; TokenID < NVocab; TokenID++)
                     {
-                        candidates.emplace_back(llama_token_data{token_id, logits[token_id], 0.0f});
+                        Candidates.emplace_back(llama_token_data{TokenID, Logits[TokenID], 0.0f});
                     }
 
-                    llama_token_data_array candidates_p = {candidates.data(), candidates.size(), false};
+                    llama_token_data_array CandidatesP = {Candidates.data(), Candidates.size(), false};
 
                     // Apply penalties
-                    float nl_logit = logits[llama_token_nl(Context)];
-                    int last_n_repeat = min(min((int)last_n_tokens.size(), P.RepeatLastN), NCtx);
+                    float NLLogit = Logits[llama_token_nl(Context)];
+                    int LastNRepeat = min(min((int)LastNTokens.size(), P.RepeatLastN), NCtx);
                     llama_sample_repetition_penalty(Context,
-                                                    &candidates_p,
-                                                    last_n_tokens.data() + last_n_tokens.size() - last_n_repeat,
-                                                    last_n_repeat,
+                                                    &CandidatesP,
+                                                    LastNTokens.data() + LastNTokens.size() - LastNRepeat,
+                                                    LastNRepeat,
                                                     P.RepeatPenalty);
                     llama_sample_frequency_and_presence_penalties(  Context,
-                                                                    &candidates_p,
-                                                                    last_n_tokens.data() + last_n_tokens.size() - last_n_repeat,
-                                                                    last_n_repeat,
+                                                                    &CandidatesP,
+                                                                    LastNTokens.data() + LastNTokens.size() - LastNRepeat,
+                                                                    LastNRepeat,
                                                                     P.AlphaFrequency,
                                                                     P.AlphaPresence);
                     if (!P.PenalizeNl)
                     {
-                        logits[llama_token_nl(Context)] = nl_logit;
+                        Logits[llama_token_nl(Context)] = NLLogit;
                     }
 
                     if (P.Temp <= 0)
                     {
                         // Greedy sampling
-                        id = llama_sample_token_greedy(Context, &candidates_p);
+                        ID = llama_sample_token_greedy(Context, &CandidatesP);
                     }
                     else
                     {
                         if (P.Mirostat == 1)
                         {
-                            static float mirostat_mu = 2.0f * P.MirostatTau;
-                            const int mirostat_m = 100;
-                            llama_sample_temperature(Context, &candidates_p, P.Temp);
-                            id = llama_sample_token_mirostat(
-                                Context, &candidates_p, P.MirostatTau, P.MirostatEta, mirostat_m, &mirostat_mu);
+                            static float MirostatMu = 2.0f * P.MirostatTau;
+                            llama_sample_temperature(Context, &CandidatesP, P.Temp);
+                            ID = llama_sample_token_mirostat(
+                                Context, &CandidatesP, P.MirostatTau, P.MirostatEta, P.MirostatM, &MirostatMu);
                         }
                         else if (P.Mirostat == 2)
                         {
-                            static float mirostat_mu = 2.0f * P.MirostatTau;
-                            llama_sample_temperature(Context, &candidates_p, P.Temp);
-                            id = llama_sample_token_mirostat_v2(
-                                Context, &candidates_p, P.MirostatTau, P.MirostatEta, &mirostat_mu);
+                            static float MirostatMu = 2.0f * P.MirostatTau;
+                            llama_sample_temperature(Context, &CandidatesP, P.Temp);
+                            ID = llama_sample_token_mirostat_v2(
+                                Context, &CandidatesP, P.MirostatTau, P.MirostatEta, &MirostatMu);
                         }
                         else
                         {
                             // Temperature sampling
-                            llama_sample_top_k(Context, &candidates_p, P.TopK, 1);
-                            llama_sample_tail_free(Context, &candidates_p, P.TfsZ, 1);
-                            llama_sample_typical(Context, &candidates_p, P.TypicalP, 1);
-                            llama_sample_top_p(Context, &candidates_p, P.TopP, 1);
-                            llama_sample_temperature(Context, &candidates_p, P.Temp);
-                            id = llama_sample_token(Context, &candidates_p);
+                            llama_sample_top_k(Context, &CandidatesP, P.TopK, 1);
+                            llama_sample_tail_free(Context, &CandidatesP, P.TfsZ, 1);
+                            llama_sample_typical(Context, &CandidatesP, P.TypicalP, 1);
+                            llama_sample_top_p(Context, &CandidatesP, P.TopP, 1);
+                            llama_sample_temperature(Context, &CandidatesP, P.Temp);
+                            ID = llama_sample_token(Context, &CandidatesP);
                         }
                     }
 
-                    last_n_tokens.erase(last_n_tokens.begin());
-                    last_n_tokens.push_back(id);
+                    LastNTokens.erase(LastNTokens.begin());
+                    LastNTokens.push_back(ID);
                 }
 
                 // add it to the context
-                Embd.push_back(id);
+                Embd.push_back(ID);
             }
             else
             {
                 // some user input remains from Prompt or interaction, forward it to processing
-                while ((int)embd_inp.size() > n_consumed)
+                while ((int)EmbdInput.size() > NConsumed)
                 {
-                    const int tokenId = embd_inp[n_consumed];
+                    const int tokenId = EmbdInput[NConsumed];
                     Embd.push_back(tokenId);
-                    last_n_tokens.erase(last_n_tokens.begin());
-                    last_n_tokens.push_back(embd_inp[n_consumed]);
-                    haveHumanTokens = true;
-                    ++n_consumed;
+                    LastNTokens.erase(LastNTokens.begin());
+                    LastNTokens.push_back(EmbdInput[NConsumed]);
+                    bHaveHumanTokens = true;
+                    ++NConsumed;
                     if ((int)Embd.size() >= NBatch)
                     {
                         break;
@@ -525,84 +522,84 @@ namespace Internal
             // TODO: Revert these changes to the commented code when the llama.cpp add the llama_detokenize function.
             
             // display Text
-            // for (auto id : embd)
+            // for (auto Id : embd)
             // {
-            //     FString token = llama_detokenize(Context, id);
-            //     qThreadToMain.enqueue([token = move(token), this]() {
+            //     FString token = llama_detokenize(Context, Id);
+            //     qThreadToMain.Enqueue([token = move(token), this]() {
             //         if (!OnTokenCb)
             //             return;
             //         OnTokenCb(move(token));
             //     });
             // }
             
-            FString token = UTF8_TO_TCHAR(llama_detokenize_bpe(Context, Embd).c_str());
+            FString Token = UTF8_TO_TCHAR(llama_detokenize_bpe(Context, Embd).c_str());
 
             //Debug block
             //NB: appears full history is not being input back to the model,
             // does Llama not need input copying for proper context?
             //FString history1 = UTF8_TO_TCHAR(llama_detokenize_bpe(Context, embd_inp).c_str()); 
-            //FString history2 = UTF8_TO_TCHAR(llama_detokenize_bpe(Context, last_n_tokens).c_str());
+            //FString history2 = UTF8_TO_TCHAR(llama_detokenize_bpe(Context, LastNTokens).c_str());
             //UE_LOG(LogTemp, Log, TEXT("history1: %s, history2: %s"), *history1, *history2);
-            int32 NewContextLength = NPast; //(int32)last_n_tokens.size();
+            int32 NewContextLength = NPast; //(int32)LastNTokens.size();
 
             
-            qThreadToMain.enqueue([token = std::move(token), NewContextLength,  this] {
+            qThreadToMain.Enqueue([token = std::move(Token), NewContextLength,  this] {
                 if (!OnTokenCb)
                     return;
                 OnTokenCb(std::move(token), NewContextLength);
             });
             ////////////////////////////////////////////////////////////////////////
 
-            bool const hasStopSeq = [&]
+            bool const HasStopSeq = [&]
             {
                 if (StopSequences.empty())
                     return false;
-                if (haveHumanTokens)
+                if (bHaveHumanTokens)
                     return false;                
 
-                for (vector<llama_token> stopSeq : StopSequences)
+                for (vector<llama_token> StopSeq : StopSequences)
                 {
-                    FString sequence = UTF8_TO_TCHAR(llama_detokenize_bpe(Context, stopSeq).c_str());
-                    sequence = sequence.TrimStartAndEnd();
+                    FString Sequence = UTF8_TO_TCHAR(llama_detokenize_bpe(Context, StopSeq).c_str());
+                    Sequence = Sequence.TrimStartAndEnd();
 
-                    vector<llama_token> endSeq;
-                    for (unsigned i = 0U; i < stopSeq.size(); ++i)
+                    vector<llama_token> EndSeq;
+                    for (unsigned i = 0U; i < StopSeq.size(); ++i)
                     {
-                        endSeq.push_back(last_n_tokens[last_n_tokens.size() - stopSeq.size() + i]);
+                        EndSeq.push_back(LastNTokens[LastNTokens.size() - StopSeq.size() + i]);
                     }
-                    FString endString = UTF8_TO_TCHAR(llama_detokenize_bpe(Context, endSeq).c_str());
+                    FString EndString = UTF8_TO_TCHAR(llama_detokenize_bpe(Context, EndSeq).c_str());
                     
                     if (bShouldLog) 
                     {
-                        UE_LOG(LogTemp, Log, TEXT("stop vs end: #%s# vs #%s#"), *sequence, *endString);
+                        UE_LOG(LogTemp, Log, TEXT("stop vs end: #%s# vs #%s#"), *Sequence, *EndString);
                     }
-                    if (endString.Contains(sequence))
+                    if (EndString.Contains(Sequence))
                     {
                         UE_LOG(LogTemp, Log, TEXT("String match found, eos triggered."));
                         return true;
                     }
                     
 
-                    if (last_n_tokens.size() < stopSeq.size())
+                    if (LastNTokens.size() < StopSeq.size())
                         return false;
-                    bool match = true;
-                    for (unsigned i = 0U; i < stopSeq.size(); ++i)
-                        if (last_n_tokens[last_n_tokens.size() - stopSeq.size() + i] != stopSeq[i])
+                    bool bMatch = true;
+                    for (unsigned i = 0U; i < StopSeq.size(); ++i)
+                        if (LastNTokens[LastNTokens.size() - StopSeq.size() + i] != StopSeq[i])
                         {
-                            match = false;
+                            bMatch = false;
                             break;
                         }
-                    if (match)
+                    if (bMatch)
                         return true;
                 }
                 return false;
             }();
 
-            if ((!Embd.empty() && Embd.back() == llama_token_eos(Context)) || hasStopSeq)
+            if ((!Embd.empty() && Embd.back() == llama_token_eos(Context)) || HasStopSeq)
             {
                 UE_LOG(LogTemp, Warning, TEXT("%p EOS"), this);
                 Eos = true;
-                const bool stopSeqSafe = hasStopSeq;
+                const bool StopSeqSafe = HasStopSeq;
                 const int32 DeltaTokens = NewContextLength - StartContextLength;
                 const double EosTime = FPlatformTime::Seconds();
                 const float TokensPerSecond = double(DeltaTokens) / (EosTime - StartEvalTime);
@@ -611,11 +608,13 @@ namespace Internal
                 
 
                 //notify main thread we're done
-                qThreadToMain.enqueue([stopSeqSafe, TokensPerSecond, this] 
+                qThreadToMain.Enqueue([StopSeqSafe, TokensPerSecond, this] 
                 {
                     if (!OnEosCb)
+                    {
                         return;
-                    OnEosCb(stopSeqSafe, TokensPerSecond);
+                    }
+                    OnEosCb(StopSeqSafe, TokensPerSecond);
                 });
             }
         }
@@ -634,24 +633,24 @@ namespace Internal
 
     void FLlama::Process()
     {
-        while (qThreadToMain.processQ())
+        while (qThreadToMain.ProcessQ())
             ;
     }
 
     void FLlama::Activate(bool bReset, const FLLMModelParams& InParams)
     {
         Params = InParams;
-        qMainToThread.enqueue([bReset, this]() mutable {
-            unsafeActivate(bReset);
+        qMainToThread.Enqueue([bReset, this]() mutable {
+            UnsafeActivate(bReset);
         });
     }
 
     void FLlama::Deactivate()
     {
-        qMainToThread.enqueue([this]() { UnsafeDeactivate(); });
+        qMainToThread.Enqueue([this]() { UnsafeDeactivate(); });
     }
 
-    void FLlama::unsafeActivate(bool bReset)
+    void FLlama::UnsafeActivate(bool bReset)
     {
         UE_LOG(LogTemp, Warning, TEXT("%p Loading LLM model %p bReset: %d"), this, Model, bReset);
         if (bReset)
@@ -700,7 +699,7 @@ namespace Internal
 
         // tokenize the Prompt
         string stdPrompt = string(" ") + TCHAR_TO_UTF8(*Params.Prompt);
-        embd_inp = my_llama_tokenize(Context, stdPrompt, res, true /* add bos */);
+        EmbdInput = my_llama_tokenize(Context, stdPrompt, Res, true /* add bos */);
         if (!Params.StopSequences.IsEmpty())
         {
             for (int i = 0; i < Params.StopSequences.Num(); ++i)
@@ -709,7 +708,7 @@ namespace Internal
                 string str = string{TCHAR_TO_UTF8(*stopSeq)};
                 if (::isalnum(str[0]))
                     str = " " + str;
-                vector<llama_token> seq = my_llama_tokenize(Context, str, res, false /* add bos */);
+                vector<llama_token> seq = my_llama_tokenize(Context, str, Res, false /* add bos */);
                 StopSequences.emplace_back(std::move(seq));
             }
         }
@@ -718,9 +717,9 @@ namespace Internal
 
         const int n_ctx = llama_n_ctx(Context);
 
-        if ((int)embd_inp.size() > n_ctx - 4)
+        if ((int)EmbdInput.size() > n_ctx - 4)
         {
-            FString ErrorMessage = FString::Printf(TEXT("prompt is too long (%d tokens, max %d)"), (int)embd_inp.size(), n_ctx - 4);
+            FString ErrorMessage = FString::Printf(TEXT("prompt is too long (%d tokens, max %d)"), (int)EmbdInput.size(), n_ctx - 4);
             EmitErrorMessage(ErrorMessage);
             UnsafeDeactivate();
             return;
@@ -734,9 +733,9 @@ namespace Internal
             llama_eval(Context, tmp.data(), tmp.size(), 0, Params.Threads);
             llama_reset_timings(Context);
         }
-        last_n_tokens.resize(n_ctx);
-        fill(last_n_tokens.begin(), last_n_tokens.end(), 0);
-        n_consumed = 0;
+        LastNTokens.resize(n_ctx);
+        fill(LastNTokens.begin(), LastNTokens.end(), 0);
+        NConsumed = 0;
     }
 
     void FLlama::UnsafeDeactivate()
@@ -755,7 +754,7 @@ namespace Internal
         Model = nullptr;
 
         //Reset signal.
-        qThreadToMain.enqueue([this] {
+        qThreadToMain.Enqueue([this] {
             if (!OnContextResetCb)
             {
                 return;
