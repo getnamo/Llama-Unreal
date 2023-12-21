@@ -698,8 +698,8 @@ namespace Internal
         UE_LOG(LogTemp, Warning, TEXT("%p model context set to %p"), this, Context);
 
         // tokenize the Prompt
-        string stdPrompt = string(" ") + TCHAR_TO_UTF8(*Params.Prompt);
-        EmbdInput = my_llama_tokenize(Context, stdPrompt, Res, true /* add bos */);
+        string StdPrompt = string(" ") + TCHAR_TO_UTF8(*Params.Prompt);
+        EmbdInput = my_llama_tokenize(Context, StdPrompt, Res, true /* add bos */);
         if (!Params.StopSequences.IsEmpty())
         {
             for (int i = 0; i < Params.StopSequences.Num(); ++i)
@@ -715,11 +715,11 @@ namespace Internal
         else
             StopSequences.clear();
 
-        const int n_ctx = llama_n_ctx(Context);
+        const int NCtx = llama_n_ctx(Context);
 
-        if ((int)EmbdInput.size() > n_ctx - 4)
+        if ((int)EmbdInput.size() > NCtx - 4)
         {
-            FString ErrorMessage = FString::Printf(TEXT("prompt is too long (%d tokens, max %d)"), (int)EmbdInput.size(), n_ctx - 4);
+            FString ErrorMessage = FString::Printf(TEXT("prompt is too long (%d tokens, max %d)"), (int)EmbdInput.size(), NCtx - 4);
             EmitErrorMessage(ErrorMessage);
             UnsafeDeactivate();
             return;
@@ -727,13 +727,13 @@ namespace Internal
 
         // do one empty run to warm up the model
         {
-            const vector tmp = {
+            const vector Tmp = {
                 llama_token_bos(Context),
             };
-            llama_eval(Context, tmp.data(), tmp.size(), 0, Params.Threads);
+            llama_eval(Context, Tmp.data(), Tmp.size(), 0, Params.Threads);
             llama_reset_timings(Context);
         }
-        LastNTokens.resize(n_ctx);
+        LastNTokens.resize(NCtx);
         fill(LastNTokens.begin(), LastNTokens.end(), 0);
         NConsumed = 0;
     }
