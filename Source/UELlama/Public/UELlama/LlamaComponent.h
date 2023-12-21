@@ -9,7 +9,7 @@
 
 namespace Internal
 {
-  class Llama;
+  class FLlama;
 }
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnErrorSignature, FString, ErrorMessage);
@@ -185,5 +185,5 @@ public:
     TArray<FString> DebugListDirectoryContent(const FString& InPath);
 
 private:
-    std::unique_ptr<Internal::Llama> llama;
+    std::unique_ptr<Internal::FLlama> llama;
 };
