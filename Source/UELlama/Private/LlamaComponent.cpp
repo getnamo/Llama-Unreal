@@ -284,8 +284,6 @@ namespace Internal
         const int NKeep = 0;
         const int NBatch = Params.BatchCount;
 
-        llama_set_n_threads(Context, Params.Threads, Params.Threads);   //NB: may need to be called later instead of here TBD
-
         while (bRunning)
         {
             while (qMainToThread.ProcessQ())
@@ -383,7 +381,7 @@ namespace Internal
                     {
                         UE_LOG(LogTemp, Warning, TEXT("%p eval tokens `%s`"), this, UTF8_TO_TCHAR(Str.c_str()));
                     }
-                    if (llama_eval(Context, &Embd[i], NEval, NPast, Params.Threads))
+                    if (llama_eval(Context, &Embd[i], NEval, NPast))
                     {
                         FString ErrorMsg = TEXT("failed to eval");
                         EmitErrorMessage(ErrorMsg);
@@ -405,7 +403,7 @@ namespace Internal
 
                 {
                     float* Logits = llama_get_logits(Context);
-                    int NVocab = llama_n_vocab(Context);
+                    int NVocab = llama_n_vocab(llama_get_model(Context));
 
                     vector<llama_token_data> Candidates;
                     Candidates.reserve(NVocab);
@@ -417,22 +415,19 @@ namespace Internal
                     llama_token_data_array CandidatesP = {Candidates.data(), Candidates.size(), false};
 
                     // Apply penalties
-                    float NLLogit = Logits[llama_token_nl(Context)];
+                    float NLLogit = Logits[llama_token_nl(llama_get_model(Context))];
                     int LastNRepeat = min(min((int)LastNTokens.size(), P.RepeatLastN), NCtx);
-                    llama_sample_repetition_penalty(Context,
-                                                    &CandidatesP,
-                                                    LastNTokens.data() + LastNTokens.size() - LastNRepeat,
-                                                    LastNRepeat,
-                                                    P.RepeatPenalty);
-                    llama_sample_frequency_and_presence_penalties(  Context,
-                                                                    &CandidatesP,
-                                                                    LastNTokens.data() + LastNTokens.size() - LastNRepeat,
-                                                                    LastNRepeat,
-                                                                    P.AlphaFrequency,
-                                                                    P.AlphaPresence);
+
+                    llama_sample_repetition_penalties(  Context,
+                                                        &CandidatesP,
+                                                        LastNTokens.data() + LastNTokens.size() - LastNRepeat,
+                                                        LastNRepeat,
+                                                        P.RepeatPenalty,
+                                                        P.AlphaFrequency,
+                                                        P.AlphaPresence);
                     if (!P.PenalizeNl)
                     {
-                        Logits[llama_token_nl(Context)] = NLLogit;
+                        Logits[llama_token_nl(llama_get_model(Context))] = NLLogit;
                     }
 
                     if (P.Temp <= 0)
@@ -445,14 +440,14 @@ namespace Internal
                         if (P.Mirostat == 1)
                         {
                             static float MirostatMu = 2.0f * P.MirostatTau;
-                            llama_sample_temperature(Context, &CandidatesP, P.Temp);
+                            llama_sample_temp(Context, &CandidatesP, P.Temp);
                             ID = llama_sample_token_mirostat(
                                 Context, &CandidatesP, P.MirostatTau, P.MirostatEta, P.MirostatM, &MirostatMu);
                         }
                         else if (P.Mirostat == 2)
                         {
                             static float MirostatMu = 2.0f * P.MirostatTau;
-                            llama_sample_temperature(Context, &CandidatesP, P.Temp);
+                            llama_sample_temp(Context, &CandidatesP, P.Temp);
                             ID = llama_sample_token_mirostat_v2(
                                 Context, &CandidatesP, P.MirostatTau, P.MirostatEta, &MirostatMu);
                         }
@@ -463,7 +458,7 @@ namespace Internal
                             llama_sample_tail_free(Context, &CandidatesP, P.TfsZ, 1);
                             llama_sample_typical(Context, &CandidatesP, P.TypicalP, 1);
                             llama_sample_top_p(Context, &CandidatesP, P.TopP, 1);
-                            llama_sample_temperature(Context, &CandidatesP, P.Temp);
+                            llama_sample_temp(Context, &CandidatesP, P.Temp);
                             ID = llama_sample_token(Context, &CandidatesP);
                         }
                     }
@@ -569,7 +564,7 @@ namespace Internal
                 return false;
             }();
 
-            if ((!Embd.empty() && Embd.back() == llama_token_eos(Context)) || HasStopSeq)
+            if ((!Embd.empty() && Embd.back() == llama_token_eos(llama_get_model(Context))) || HasStopSeq)
             {
                 UE_LOG(LogTemp, Warning, TEXT("%p EOS"), this);
                 Eos = true;
@@ -639,7 +634,6 @@ namespace Internal
         {
             llama_context_params lparams = llama_context_default_params();
             // -eps 1e-5 -t 8 -ngl 50
-            lparams.n_gpu_layers = Params.GPULayers;
             lparams.n_ctx = Params.MaxContextLength;
 
             bool bIsRandomSeed = Params.Seed == -1;
@@ -656,11 +650,14 @@ namespace Internal
             return lparams;
         }();
 
+        llama_model_params mParams = llama_model_default_params();
+        mParams.n_gpu_layers = Params.MaxContextLength;
+
         FString FullModelPath = ParsePathIntoFullPath(Params.PathToModel);
 
         UE_LOG(LogTemp, Log, TEXT("File at %s exists? %d"), *FullModelPath, FPaths::FileExists(FullModelPath));
 
-        Model = llama_load_model_from_file(TCHAR_TO_UTF8(*FullModelPath), lparams);
+        Model = llama_load_model_from_file(TCHAR_TO_UTF8(*FullModelPath), mParams);
         if (!Model)
         {
             FString ErrorMessage = FString::Printf(TEXT("%p unable to load model at %s"), this, *FullModelPath);
@@ -703,11 +700,13 @@ namespace Internal
         }
 
         // do one empty run to warm up the model
+        llama_set_n_threads(Context, Params.Threads, Params.Threads);
+
         {
-            const vector Tmp = {
-                llama_token_bos(Context),
+            vector<llama_token> Tmp = {
+                llama_token_bos(llama_get_model(Context)),
             };
-            llama_eval(Context, Tmp.data(), Tmp.size(), 0, Params.Threads);
+            llama_eval(Context, Tmp.data(), Tmp.size(), 0);
             llama_reset_timings(Context);
         }
         LastNTokens.resize(NCtx);
