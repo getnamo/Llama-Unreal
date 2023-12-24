@@ -52,6 +52,7 @@ SourceArt/**/*.tga
 # Binary Files
 Binaries/*
 Binaries/Win64/UnrealEditor.modules
+Binaries/Win64/llama.dll
 !Libraries/Win64/llama.dll
 
 # Builds
