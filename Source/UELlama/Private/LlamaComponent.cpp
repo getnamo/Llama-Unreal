@@ -9,6 +9,7 @@
 #include "HAL/PlatformTime.h"
 #include "Misc/Paths.h"
 #include "HAL/FileManager.h"
+#include "common/common.h"
 
 #if PLATFORM_ANDROID
 #include "Android/AndroidPlatformFile.h"
@@ -34,7 +35,7 @@ using namespace std;
 */
 ////////////////////////////////////////////////////////////////////////////////////////////////
 
-string llama_token_to_piece(const struct llama_context * ctx, llama_token token) {
+/*string llama_token_to_piece(const struct llama_context* ctx, llama_token token) {
     vector<char> result(8, 0);
     const int n_tokens = llama_token_to_piece(ctx, token, result.data(), result.size());
     if (n_tokens < 0) 
@@ -61,7 +62,7 @@ string llama_detokenize_bpe(llama_context * ctx, const vector<llama_token> & tok
         result += piece;
     }
     return result;
-}
+}*/
 
 ////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -106,7 +107,7 @@ namespace
         UE_LOG(LogTemp, Warning, TEXT("Tokenize `%s`"), UTF8_TO_TCHAR(Text.c_str()));
         // initialize to Prompt numer of chars, since n_tokens <= n_prompt_chars
         Res.resize(Text.size() + (int)AddBos);
-        const int n = llama_tokenize(Context, Text.c_str(), Text.length(), Res.data(), Res.size(), AddBos);
+        const int n = llama_tokenize(llama_get_model(Context), Text.c_str(), Text.length(), Res.data(), Res.size(), AddBos, true);   //last param may be false?
         Res.resize(n);
 
         return Res;
