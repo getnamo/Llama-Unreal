@@ -90,10 +90,9 @@ public class UELlama : ModuleRules
 		else if (Target.Platform == UnrealTargetPlatform.Win64)
 		{
 			PublicAdditionalLibraries.Add(Path.Combine(PluginLibPath, "Win64", "llama.lib"));
+			PublicAdditionalLibraries.Add(Path.Combine(PluginLibPath, "Win64", "ggml_static.lib"));
 
 			string LlamaDLLPath = Path.Combine(PluginLibPath, "Win64", "llama.dll");
-			//string LlamaDLLPath = Path.Combine(PluginBinariesPath, "Win64", "llama.dll");
-			//System.Console.WriteLine(LlamaDLLPath);
 
 			RuntimeDependencies.Add("$(BinaryOutputDir)/llama.dll", Path.Combine(LlamaDLLPath));
 		}
