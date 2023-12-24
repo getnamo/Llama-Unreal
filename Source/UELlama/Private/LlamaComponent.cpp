@@ -208,7 +208,7 @@ namespace Internal
         FLLMModelParams SafeParams = InParams;
         qMainToThread.Enqueue([this, SafeParams]() mutable
         {
-            Params = SafeParams;
+            this->Params = SafeParams;
         });
     }
 
@@ -612,7 +612,7 @@ namespace Internal
         
         qMainToThread.Enqueue([bReset, this, SafeParams]() mutable
         {
-            Params = SafeParams;
+            this->Params = SafeParams;
             UnsafeActivate(bReset);
         });
     }
