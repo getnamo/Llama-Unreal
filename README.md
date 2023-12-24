@@ -16,7 +16,6 @@ cd ..
 cmake --build build --config Release -j --verbose
 ```
 
-Then the .so or .lib file was copied into the `Libraries` directory and all the .h files were copied to the `Includes` directory. In Windows you should put the build/bin/llama.dll into `Binaries/Win64` directory.
+For Android build see: https://github.com/ggerganov/llama.cpp?tab=readme-ov-file#android
 
-# Resources
-[![🌸 This dude put LLaMA 2 inside UE5 🌸 41 / 100 🌸](https://img.youtube.com/vi/j_r5xWm3Xl8/maxresdefault.jpg)](https://www.youtube.com/watch?v=j_r5xWm3Xl8)
+Then the .so or .lib file was copied into the `Libraries` directory and all the .h files were copied to the `Includes` directory.
