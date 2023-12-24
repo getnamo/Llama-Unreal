@@ -26,46 +26,6 @@
 
 using namespace std;
 
-
-/*
- *    I copied these two functions from common.cpp file from ggerganov/llama.cpp until they
- *    update their code and create the function llama_detokenize in llama.h.
- *
- *    This is needed because we need support the string conversion of the new format GGUF.
-*/
-////////////////////////////////////////////////////////////////////////////////////////////////
-
-/*string llama_token_to_piece(const struct llama_context* ctx, llama_token token) {
-    vector<char> result(8, 0);
-    const int n_tokens = llama_token_to_piece(ctx, token, result.data(), result.size());
-    if (n_tokens < 0) 
-    {
-        result.resize(-n_tokens);
-        int check = llama_token_to_piece(ctx, token, result.data(), result.size());
-        GGML_ASSERT(check == -n_tokens);
-    } 
-    else
-    {
-        result.resize(n_tokens);
-    }
-
-    return std::string(result.data(), result.size());
-}
-
-string llama_detokenize_bpe(llama_context * ctx, const vector<llama_token> & tokens) {
-    string piece;
-    string result;
-
-    for (size_t i = 0; i < tokens.size(); ++i) {
-        piece = llama_token_to_piece(ctx, tokens[i]);
-
-        result += piece;
-    }
-    return result;
-}*/
-
-////////////////////////////////////////////////////////////////////////////////////////////////
-
 namespace
 {
     class Q
