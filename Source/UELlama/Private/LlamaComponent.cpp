@@ -284,6 +284,8 @@ namespace Internal
         const int NKeep = 0;
         const int NBatch = Params.BatchCount;
 
+        llama_set_n_threads(Context, Params.Threads, Params.Threads);   //NB: may need to be called later instead of here TBD
+
         while (bRunning)
         {
             while (qMainToThread.ProcessQ())
