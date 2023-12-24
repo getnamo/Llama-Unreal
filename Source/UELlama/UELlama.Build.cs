@@ -79,8 +79,9 @@ public class UELlama : ModuleRules
 		);
 
 		PublicIncludePaths.Add(Path.Combine(PluginDirectory, "Includes"));
+		PublicIncludePaths.Add(Path.Combine(PluginDirectory, "Includes"));
 
-		
+
 
 		if (Target.Platform == UnrealTargetPlatform.Linux)
 		{
@@ -92,9 +93,8 @@ public class UELlama : ModuleRules
 			PublicAdditionalLibraries.Add(Path.Combine(PluginLibPath, "Win64", "llama.lib"));
 			PublicAdditionalLibraries.Add(Path.Combine(PluginLibPath, "Win64", "ggml_static.lib"));
 
-			string LlamaDLLPath = Path.Combine(PluginLibPath, "Win64", "llama.dll");
-
-			RuntimeDependencies.Add("$(BinaryOutputDir)/llama.dll", Path.Combine(LlamaDLLPath));
+			//string LlamaDLLPath = Path.Combine(PluginLibPath, "Win64", "llama.dll");
+			//RuntimeDependencies.Add("$(BinaryOutputDir)/llama.dll", Path.Combine(LlamaDLLPath));
 		}
 		else if (Target.Platform == UnrealTargetPlatform.Mac)
 		{

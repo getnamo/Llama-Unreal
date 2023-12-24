@@ -4,14 +4,14 @@ Forked for usability fixes with a CPU focused build to also obviate CUDA issues 
 
 # Llama.cpp Build Parameters
 
-Forked Plugin [Llama.cpp](https://github.com/ggerganov/llama.cpp) was built from git hash: [a40f2b656fab364ce0aff98dbefe9bd9c3721cc9](https://github.com/ggerganov/llama.cpp/tree/a40f2b656fab364ce0aff98dbefe9bd9c3721cc9)
+Forked Plugin [Llama.cpp](https://github.com/ggerganov/llama.cpp) was built from git hash: [708e179e8562c2604240df95a2241dea17fd808b](https://github.com/ggerganov/llama.cpp/tree/708e179e8562c2604240df95a2241dea17fd808b)
 
-With the following build commands (cpu build only, CUDA ignored, see upstream for GPU version):
+With the following build commands for windows (cpu build only, CUDA ignored, see upstream for GPU version):
 
 ```
 mkdir build
 cd build/
-cmake .. -DBUILD_SHARED_LIBS=ON
+cmake ..
 cd ..
 cmake --build build --config Release -j --verbose
 ```

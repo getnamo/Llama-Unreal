@@ -26,6 +26,90 @@
 
 using namespace std;
 
+
+/*std::vector<llama_token> llama_tokenize(
+    const struct llama_context* ctx,
+    const std::string& text,
+    bool   add_bos,
+    bool   special) {
+    return llama_tokenize(llama_get_model(ctx), text, add_bos, special);
+}*/
+
+/*std::vector<llama_token> llama_tokenize(
+    const struct llama_model* model,
+    const std::string& text,
+    bool   add_bos,
+    bool   special) {
+    // upper limit for the number of tokens
+    int n_tokens = text.length() + add_bos;
+    std::vector<llama_token> result(n_tokens);
+    n_tokens = llama_tokenize(model, text.data(), text.length(), result.data(), result.size(), add_bos, special);
+    if (n_tokens < 0) {
+        result.resize(-n_tokens);
+        int check = llama_tokenize(model, text.data(), text.length(), result.data(), result.size(), add_bos, special);
+        GGML_ASSERT(check == -n_tokens);
+    }
+    else {
+        result.resize(n_tokens);
+    }
+    return result;
+}
+
+std::string llama_token_to_piece(const struct llama_context* ctx, llama_token token) {
+    std::vector<char> result(8, 0);
+    const int n_tokens = llama_token_to_piece(llama_get_model(ctx), token, result.data(), result.size());
+    if (n_tokens < 0) {
+        result.resize(-n_tokens);
+        int check = llama_token_to_piece(llama_get_model(ctx), token, result.data(), result.size());
+        GGML_ASSERT(check == -n_tokens);
+    }
+    else {
+        result.resize(n_tokens);
+    }
+
+    return std::string(result.data(), result.size());
+}
+
+std::string llama_detokenize_spm(llama_context* ctx, const std::vector<llama_token>& tokens) {
+    const llama_token bos_id = llama_token_bos(llama_get_model(ctx));
+
+    std::string piece;
+    std::string result;
+
+    for (size_t i = 0; i < tokens.size(); ++i) {
+        piece = llama_token_to_piece(ctx, tokens[i]);
+
+        // remove the leading space of the first non-BOS token
+        if (((tokens[0] == bos_id && i == 1) || (tokens[0] != bos_id && i == 0)) && piece[0] == ' ') {
+            piece = piece.substr(1);
+        }
+
+        result += piece;
+    }
+
+    return result;
+}
+
+std::string llama_detokenize_bpe(llama_context* ctx, const std::vector<llama_token>& tokens) {
+    std::string piece;
+    std::string result;
+
+    for (size_t i = 0; i < tokens.size(); ++i) {
+        piece = llama_token_to_piece(ctx, tokens[i]);
+
+        result += piece;
+    }
+
+    // NOTE: the original tokenizer decodes bytes after collecting the pieces.
+    return result;
+}
+
+bool llama_should_add_bos_token(const llama_model* model) {
+    const int add_bos = llama_add_bos_token(model);
+
+    return add_bos != -1 ? bool(add_bos) : (llama_vocab_type(model) == LLAMA_VOCAB_TYPE_SPM);
+}*/
+
 namespace
 {
     class Q
@@ -67,7 +151,7 @@ namespace
         UE_LOG(LogTemp, Warning, TEXT("Tokenize `%s`"), UTF8_TO_TCHAR(Text.c_str()));
         // initialize to Prompt numer of chars, since n_tokens <= n_prompt_chars
         Res.resize(Text.size() + (int)AddBos);
-        const int n = llama_tokenize(llama_get_model(Context), Text.c_str(), Text.length(), Res.data(), Res.size(), AddBos, true);   //last param may be false?
+        const int n = llama_tokenize(llama_get_model(Context), Text.c_str(), Text.length(), Res.data(), Res.size(), AddBos, false);   //do not tokenize special for first pass
         Res.resize(n);
 
         return Res;
