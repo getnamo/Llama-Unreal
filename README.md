@@ -10,11 +10,22 @@ Forked Plugin [Llama.cpp](https://github.com/ggerganov/llama.cpp) was built from
 ### Windows build
 With the following build commands for windows (cpu build only, CUDA ignored, see upstream for GPU version):
 
+#### CPU Only
+
 ```
 mkdir build
 cd build/
 cmake ..
 cmake --build . --config Release -j --verbose
+```
+
+#### CUDA
+
+```
+mkdir build
+cd build
+cmake .. -DLLAMA_CUBLAS=ON
+cmake --build . --config Release
 ```
 
 ### Mac build
