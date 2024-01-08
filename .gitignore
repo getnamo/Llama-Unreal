@@ -79,3 +79,6 @@ Plugins/*/Intermediate/*
 # Cache files for the editor to use
 DerivedDataCache/*
 Content/Models/*
+Libraries/Win64/cudart.lib
+Libraries/Win64/cublas.lib
+Libraries/Win64/cuda.lib
