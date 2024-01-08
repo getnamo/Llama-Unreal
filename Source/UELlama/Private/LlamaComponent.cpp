@@ -824,6 +824,11 @@ void ULlamaComponent::Activate(bool bReset)
 {
     Super::Activate(bReset);
 
+    //Check our role
+    if (ModelParams.ModelRole != EChatTemplateRole::Unknown)
+    {
+    }
+
     //if it hasn't been started, this will start it
     llama->StartStopThread(true);
     llama->bShouldLog = bDebugLogModelOutput;
@@ -849,7 +854,7 @@ void ULlamaComponent::InsertPrompt(const FString& Prompt)
     llama->InsertPrompt(Prompt);
 }
 
-void ULlamaComponent::InsertPromptTemplated(const FString& Content, EChatTemplateRole Role)
+FString ULlamaComponent::WrapPromptForRole(const FString& Content, EChatTemplateRole Role, bool AppendModelRolePrefix)
 {
     FString FinalInputText = TEXT("");
     if (Role == EChatTemplateRole::User)
@@ -866,10 +871,43 @@ void ULlamaComponent::InsertPromptTemplated(const FString& Content, EChatTemplat
     }
     else
     {
-        FinalInputText = Content;
+        return Content;
     }
 
-    llama->InsertPrompt(Content);
+    if (AppendModelRolePrefix) 
+    {
+        //Preset role reply
+        FinalInputText += GetModelRolePrefix();
+    }
+
+    return FinalInputText;
+}
+
+FString ULlamaComponent::GetModelRolePrefix()
+{
+    FString Prefix = TEXT("");
+
+    if (ModelParams.ModelRole != EChatTemplateRole::Unknown)
+    {
+        if (ModelParams.ModelRole == EChatTemplateRole::Assistant)
+        {
+            Prefix += ModelParams.ChatTemplate.Assistant + ModelParams.ChatTemplate.Delimiter;
+        }
+        else if (ModelParams.ModelRole == EChatTemplateRole::User)
+        {
+            Prefix += ModelParams.ChatTemplate.User + ModelParams.ChatTemplate.Delimiter;
+        }
+        else if (ModelParams.ModelRole == EChatTemplateRole::System)
+        {
+            Prefix += ModelParams.ChatTemplate.System + ModelParams.ChatTemplate.Delimiter;
+        }
+    }
+    return Prefix;
+}
+
+void ULlamaComponent::InsertPromptTemplated(const FString& Content, EChatTemplateRole Role)
+{
+    llama->InsertPrompt(WrapPromptForRole(Content, Role, true));
 }
 
 void ULlamaComponent::StartStopQThread(bool bShouldRun)
@@ -897,9 +935,9 @@ FString ULlamaComponent::GetTemplateStrippedPrompt()
     FString CleanPrompt;
     
     CleanPrompt = ModelState.PromptHistory.Replace(*ModelParams.ChatTemplate.User, TEXT(""));
-    CleanPrompt = ModelState.PromptHistory.Replace(*ModelParams.ChatTemplate.Assistant, TEXT(""));
-    CleanPrompt = ModelState.PromptHistory.Replace(*ModelParams.ChatTemplate.System, TEXT(""));
-    CleanPrompt = ModelState.PromptHistory.Replace(*ModelParams.ChatTemplate.CommonSuffix, TEXT(""));
+    CleanPrompt = CleanPrompt.Replace(*ModelParams.ChatTemplate.Assistant, TEXT(""));
+    CleanPrompt = CleanPrompt.Replace(*ModelParams.ChatTemplate.System, TEXT(""));
+    CleanPrompt = CleanPrompt.Replace(*ModelParams.ChatTemplate.CommonSuffix, TEXT(""));
 
     return CleanPrompt;
 }

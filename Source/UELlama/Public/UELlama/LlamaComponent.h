@@ -64,6 +64,15 @@ struct FLLMModelAdvancedParams
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
     bool PenalizeNl = true;
+
+    //automatically loads template from gguf. Use Empty default template to not override this value.
+    //not yet properly implemented
+    //UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
+    bool bLoadTemplateFromGGUFIfAvailable = true;
+
+    //If true, upon EOS, it will cleanup history such that correct EOS is placed
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
+    bool bEnforceModelEOSFormat = true;
 };
 
 UENUM(BlueprintType)
@@ -135,9 +144,9 @@ struct FLLMModelParams
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
     FChatTemplate ChatTemplate;
 
-    //automatically loads template from gguf. Use Empty default template to not override this value.
+    //If set anything other than unknown, AI chat role will be enforced
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
-    bool bLoadTemplateFromGGUFIfAvailable = true;
+    EChatTemplateRole ModelRole = EChatTemplateRole::Unknown;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
     TArray<FString> StopSequences;
@@ -232,9 +241,16 @@ public:
     UFUNCTION(BlueprintCallable)
     void InsertPrompt(const FString &Text);
 
+    UFUNCTION(BlueprintPure)
+    FString WrapPromptForRole(const FString& Text, EChatTemplateRole Role, bool AppendModelRolePrefix=false);
+
+    UFUNCTION(BlueprintPure)
+    FString GetModelRolePrefix();
+
     //This will wrap your input given the specific role using chat template specified
     UFUNCTION(BlueprintCallable)
     void InsertPromptTemplated(const FString& Text, EChatTemplateRole Role);
+
 
     UFUNCTION(BlueprintCallable)
     void StartStopQThread(bool bShouldRun = true);
