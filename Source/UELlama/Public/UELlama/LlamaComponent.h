@@ -66,6 +66,41 @@ struct FLLMModelAdvancedParams
     bool PenalizeNl = true;
 };
 
+//Easy user-specified chat template, or use common templates. Don't specify if you wish to load GGUF template.
+USTRUCT(BlueprintType)
+struct FChatTemplate
+{
+    GENERATED_USTRUCT_BODY();
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chat Template")
+    FString System;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chat Template")
+    FString User;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chat Template")
+    FString Assistant;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chat Template")
+    FString StopString;
+
+    FChatTemplate()
+    {
+        System = TEXT("");
+        User = TEXT("");
+        Assistant = TEXT("");
+        StopString = TEXT("");
+    }
+    bool IsEmptyTemplate()
+    {
+        return (
+            System == TEXT("") &&
+            User == TEXT("") &&
+            Assistant == TEXT("") &&
+            StopString == TEXT(""));
+    }
+};
+
 //Initial state fed into the model
 USTRUCT(BlueprintType)
 struct FLLMModelParams
@@ -78,9 +113,13 @@ struct FLLMModelParams
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
     FString Prompt = "You are a helpful assistant.";
 
-    //Currently unsupported - should add support for this and filter results
-    //UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
-    //FString PromptTemplate = "ChatML";
+    //If not different than default empty, no template will be applied
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
+    FChatTemplate ChatTemplate;
+
+    //automatically loads template from gguf. Use Empty default template to not override this value.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
+    bool bLoadTemplateFromGGUFIfAvailable = true;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
     TArray<FString> StopSequences;
@@ -168,6 +207,9 @@ public:
     //toggle to pay copy cost or not, default true
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Component")
     bool bSyncPromptHistory = true;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Component")
+    TMap<FString, FChatTemplate> CommonChatTemplates;
 
     UFUNCTION(BlueprintCallable)
     void InsertPrompt(const FString &Text);

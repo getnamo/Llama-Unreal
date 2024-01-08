@@ -687,7 +687,9 @@ namespace Internal
             }
         }
         else
+        {
             StopSequences.clear();
+        }
 
         const int NCtx = llama_n_ctx(Context);
 
@@ -776,6 +778,16 @@ ULlamaComponent::ULlamaComponent(const FObjectInitializer &ObjectInitializer)
     {
         OnError.Broadcast(ErrorMessage);
     };
+
+    //NB this list should be static...
+    //For now just add Chat ML
+    FChatTemplate Template;
+    Template.System = TEXT("<|im_start|>system\n\r");
+    Template.User = TEXT("<|im_start|>user\n\r");
+    Template.Assistant = TEXT("<|im_start|>assistant\n\r");
+    Template.StopString = TEXT("<|im_end|>");
+
+    CommonChatTemplates.Add(TEXT("ChatML"), Template);
 }
 
 ULlamaComponent::~ULlamaComponent() = default;
