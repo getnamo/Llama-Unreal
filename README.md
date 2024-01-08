@@ -25,7 +25,7 @@ cmake --build . --config Release -j --verbose
 mkdir build
 cd build
 cmake .. -DLLAMA_CUBLAS=ON -DLLAMA_CUDA_DMMV_X=64 -DLLAMA_CUDA_MMV_Y=2 -DLLAMA_CUDA_F16=true -DBUILD_SHARED_LIBS=ON
-cmake --build --config Release -j --verbose
+cmake --build . --config Release -j --verbose
 ```
 
 ### Mac build
