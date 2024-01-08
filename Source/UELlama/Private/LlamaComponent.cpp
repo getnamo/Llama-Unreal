@@ -381,7 +381,9 @@ namespace Internal
                     {
                         UE_LOG(LogTemp, Warning, TEXT("%p eval tokens `%s`"), this, UTF8_TO_TCHAR(Str.c_str()));
                     }
-                    if (llama_eval(Context, &Embd[i], NEval, NPast))
+
+                    llama_batch Batch = llama_batch_get_one(&Embd[i], NEval, NPast, 0);
+                    if (llama_decode(Context, Batch))
                     {
                         FString ErrorMsg = TEXT("failed to eval");
                         EmitErrorMessage(ErrorMsg);
@@ -708,7 +710,8 @@ namespace Internal
             vector<llama_token> Tmp = {
                 llama_token_bos(llama_get_model(Context)),
             };
-            llama_eval(Context, Tmp.data(), Tmp.size(), 0);
+            llama_batch Batch = llama_batch_get_one(Tmp.data(), Tmp.size(), 0, 0);
+            llama_decode(Context, Batch);
             llama_reset_timings(Context);
         }
         LastNTokens.resize(NCtx);
