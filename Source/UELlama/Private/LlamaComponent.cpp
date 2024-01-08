@@ -364,26 +364,27 @@ namespace Internal
 
                 // evaluate tokens in batches
                 // embd is typically prepared beforehand to fit within a batch, but not always
-
                 for (int i = 0; i < (int)Embd.size(); i += NBatch)
                 {
+
                     int NEval = (int)Embd.size() - i;
                     if (NEval > NBatch)
                     {
                         NEval = NBatch;
                     }
-                    string Str = string{};
-                    for (auto j = 0; j < NEval; ++j)
-                        //    TODO: Replace this llama_detokenize_bpe with llama_detokenize when can be possible.
-                        Str += llama_detokenize_bpe(Context, {Embd[i + j]});
+                    
 
                     if (bShouldLog)
                     {
+                        string Str = string{};
+                        for (auto j = 0; j < NEval; ++j)
+                        {
+                            Str += llama_detokenize_bpe(Context, { Embd[i + j] });
+                        }
                         UE_LOG(LogTemp, Warning, TEXT("%p eval tokens `%s`"), this, UTF8_TO_TCHAR(Str.c_str()));
                     }
 
-                    llama_batch Batch = llama_batch_get_one(&Embd[i], NEval, NPast, 0);
-                    if (llama_decode(Context, Batch))
+                    if (llama_decode(Context, llama_batch_get_one(&Embd[i], NEval, NPast, 0)))
                     {
                         FString ErrorMsg = TEXT("failed to eval");
                         EmitErrorMessage(ErrorMsg);
@@ -392,6 +393,7 @@ namespace Internal
                     }
                     NPast += NEval;
                 }
+
             }
 
             Embd.clear();
@@ -710,8 +712,7 @@ namespace Internal
             vector<llama_token> Tmp = {
                 llama_token_bos(llama_get_model(Context)),
             };
-            llama_batch Batch = llama_batch_get_one(Tmp.data(), Tmp.size(), 0, 0);
-            llama_decode(Context, Batch);
+            llama_decode(Context, llama_batch_get_one(Tmp.data(), Tmp.size(), 0, 0));
             llama_reset_timings(Context);
         }
         LastNTokens.resize(NCtx);
