@@ -96,7 +96,7 @@ public class UELlama : ModuleRules
 			//PublicAdditionalLibraries.Add(Path.Combine(PluginLibPath, "Win64", "ggml_shared.lib"));
 
 			//toggle this on for cuda build
-			bool bUseCuda = true;
+			bool bUseCuda = false;
 			if (bUseCuda)
 			{
 				//These are usually found in NVIDIA GPU Computing Toolkit\CUDA\v12.2\lib\x64
