@@ -21,10 +21,16 @@ cmake --build . --config Release -j --verbose
 
 #### CUDA
 
+NB: 
+
+- We build statically due to dll runtime load bug so you need to copy `cudart.lib` `cublas.lib` and `cuda.lib` into your libraries/win64 path. These are ignored atm.
+- You also need to update `bUseCuda = true;` in .build.cs to add CUDA libs to build.
+- Ideally this needs a variant that build with `-DBUILD_SHARED_LIBS=ON`
+
 ```
 mkdir build
 cd build
-cmake .. -DLLAMA_CUBLAS=ON -DLLAMA_CUDA_DMMV_X=64 -DLLAMA_CUDA_MMV_Y=2 -DLLAMA_CUDA_F16=true -DBUILD_SHARED_LIBS=ON
+cmake .. -DLLAMA_CUBLAS=ON -DLLAMA_CUDA_DMMV_X=64 -DLLAMA_CUDA_MMV_Y=2 -DLLAMA_CUDA_F16=true
 cmake --build . --config Release -j --verbose
 ```
 
