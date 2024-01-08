@@ -66,30 +66,47 @@ struct FLLMModelAdvancedParams
     bool PenalizeNl = true;
 };
 
+UENUM(BlueprintType)
+enum class EChatTemplateRole : uint8
+{
+    User,
+    Assistant,
+    System,
+    Unknown = 255
+};
+
+
 //Easy user-specified chat template, or use common templates. Don't specify if you wish to load GGUF template.
 USTRUCT(BlueprintType)
 struct FChatTemplate
 {
     GENERATED_USTRUCT_BODY();
 
+    //Role: System
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chat Template")
     FString System;
 
+    //Role: User
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chat Template")
     FString User;
 
+    //Role: Assistant
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chat Template")
     FString Assistant;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chat Template")
-    FString StopString;
+    FString CommonSuffix;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chat Template")
+    FString Delimiter;
 
     FChatTemplate()
     {
         System = TEXT("");
         User = TEXT("");
         Assistant = TEXT("");
-        StopString = TEXT("");
+        CommonSuffix = TEXT("");
+        Delimiter = TEXT("");
     }
     bool IsEmptyTemplate()
     {
@@ -97,7 +114,8 @@ struct FChatTemplate
             System == TEXT("") &&
             User == TEXT("") &&
             Assistant == TEXT("") &&
-            StopString == TEXT(""));
+            CommonSuffix == TEXT("") && 
+            Delimiter == TEXT(""));
     }
 };
 
@@ -214,6 +232,10 @@ public:
     UFUNCTION(BlueprintCallable)
     void InsertPrompt(const FString &Text);
 
+    //This will wrap your input given the specific role using chat template specified
+    UFUNCTION(BlueprintCallable)
+    void InsertPromptTemplated(const FString& Text, EChatTemplateRole Role);
+
     UFUNCTION(BlueprintCallable)
     void StartStopQThread(bool bShouldRun = true);
 
@@ -226,6 +248,10 @@ public:
 
     UFUNCTION(BlueprintCallable)
     void SyncParamsToLlama();
+
+
+    UFUNCTION(BlueprintPure)
+    FString GetTemplateStrippedPrompt();
 
 
     //Utility function for debugging model location and file enumeration

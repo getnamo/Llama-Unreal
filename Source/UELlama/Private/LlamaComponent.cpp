@@ -10,6 +10,7 @@
 #include "Misc/Paths.h"
 #include "HAL/FileManager.h"
 #include "common/common.h"
+#include "common/gguf.h"
 
 #if PLATFORM_ANDROID
 #include "Android/AndroidPlatformFile.h"
@@ -523,7 +524,8 @@ namespace Internal
             });
             ////////////////////////////////////////////////////////////////////////
 
-            bool const HasStopSeq = [&]
+                
+            auto StringStopTest = [&]
             {
                 if (StopSequences.empty())
                     return false;
@@ -548,7 +550,7 @@ namespace Internal
                     }
                     if (EndString.Contains(Sequence))
                     {
-                        UE_LOG(LogTemp, Log, TEXT("String match found, eos triggered."));
+                        UE_LOG(LogTemp, Warning, TEXT("String match found, String EOS triggered."));
                         return true;
                     }
                     
@@ -566,13 +568,27 @@ namespace Internal
                         return true;
                 }
                 return false;
-            }();
+            };
 
-            if ((!Embd.empty() && Embd.back() == llama_token_eos(llama_get_model(Context))) || HasStopSeq)
+            bool EOSTriggered = false;
+            bool bStandardTokenEOS = (!Embd.empty() && Embd.back() == llama_token_eos(llama_get_model(Context)));
+
+            //check
+            if (!bStandardTokenEOS)
             {
-                UE_LOG(LogTemp, Warning, TEXT("%p EOS"), this);
+                EOSTriggered = StringStopTest();
+            }
+            else
+            {
+                UE_LOG(LogTemp, Warning, TEXT("%p Standard EOS triggered"), this);
+                EOSTriggered = true;
+            }
+
+            if (EOSTriggered)
+            {
+                //UE_LOG(LogTemp, Warning, TEXT("%p EOS"), this);
                 Eos = true;
-                const bool StopSeqSafe = HasStopSeq;
+                const bool StopSeqSafe = EOSTriggered;
                 const int32 DeltaTokens = NewContextLength - StartContextLength;
                 const double EosTime = FPlatformTime::Seconds();
                 const float TokensPerSecond = double(DeltaTokens) / (EosTime - StartEvalTime);
@@ -670,6 +686,10 @@ namespace Internal
             UnsafeDeactivate();
             return;
         }
+
+        //Read GGUF info
+        gguf_ex_read_0(TCHAR_TO_UTF8(*FullModelPath));
+
         Context = llama_new_context_with_model(Model, lparams);
         NPast = 0;
 
@@ -786,12 +806,16 @@ ULlamaComponent::ULlamaComponent(const FObjectInitializer &ObjectInitializer)
     //NB this list should be static...
     //For now just add Chat ML
     FChatTemplate Template;
-    Template.System = TEXT("<|im_start|>system\n\r");
-    Template.User = TEXT("<|im_start|>user\n\r");
-    Template.Assistant = TEXT("<|im_start|>assistant\n\r");
-    Template.StopString = TEXT("<|im_end|>");
+    Template.System = TEXT("<|im_start|>system");
+    Template.User = TEXT("<|im_start|>user");
+    Template.Assistant = TEXT("<|im_start|>assistant");
+    Template.CommonSuffix = TEXT("<|im_end|>");
+    Template.Delimiter = TEXT("\n");
 
     CommonChatTemplates.Add(TEXT("ChatML"), Template);
+
+    //Temp hack default to ChatML
+    ModelParams.ChatTemplate = Template;
 }
 
 ULlamaComponent::~ULlamaComponent() = default;
@@ -825,6 +849,29 @@ void ULlamaComponent::InsertPrompt(const FString& Prompt)
     llama->InsertPrompt(Prompt);
 }
 
+void ULlamaComponent::InsertPromptTemplated(const FString& Content, EChatTemplateRole Role)
+{
+    FString FinalInputText = TEXT("");
+    if (Role == EChatTemplateRole::User)
+    {
+        FinalInputText = ModelParams.ChatTemplate.User + ModelParams.ChatTemplate.Delimiter + Content + ModelParams.ChatTemplate.CommonSuffix + ModelParams.ChatTemplate.Delimiter;
+    }
+    else if (Role == EChatTemplateRole::Assistant)
+    {
+        FinalInputText = ModelParams.ChatTemplate.Assistant + ModelParams.ChatTemplate.Delimiter + Content + ModelParams.ChatTemplate.CommonSuffix + ModelParams.ChatTemplate.Delimiter;
+    }
+    else if (Role == EChatTemplateRole::System)
+    {
+        FinalInputText = ModelParams.ChatTemplate.System + ModelParams.ChatTemplate.Delimiter + Content + ModelParams.ChatTemplate.CommonSuffix + ModelParams.ChatTemplate.Delimiter;
+    }
+    else
+    {
+        FinalInputText = Content;
+    }
+
+    llama->InsertPrompt(Content);
+}
+
 void ULlamaComponent::StartStopQThread(bool bShouldRun)
 {
     llama->StartStopThread(bShouldRun);
@@ -843,6 +890,18 @@ void ULlamaComponent::ResumeGenerating()
 void ULlamaComponent::SyncParamsToLlama()
 {
     llama->UpdateParams(ModelParams);
+}
+
+FString ULlamaComponent::GetTemplateStrippedPrompt()
+{
+    FString CleanPrompt;
+    
+    CleanPrompt = ModelState.PromptHistory.Replace(*ModelParams.ChatTemplate.User, TEXT(""));
+    CleanPrompt = ModelState.PromptHistory.Replace(*ModelParams.ChatTemplate.Assistant, TEXT(""));
+    CleanPrompt = ModelState.PromptHistory.Replace(*ModelParams.ChatTemplate.System, TEXT(""));
+    CleanPrompt = ModelState.PromptHistory.Replace(*ModelParams.ChatTemplate.CommonSuffix, TEXT(""));
+
+    return CleanPrompt;
 }
 
 TArray<FString> ULlamaComponent::DebugListDirectoryContent(const FString& InPath)
