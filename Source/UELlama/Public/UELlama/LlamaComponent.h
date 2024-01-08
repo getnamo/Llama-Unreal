@@ -84,6 +84,26 @@ enum class EChatTemplateRole : uint8
     Unknown = 255
 };
 
+USTRUCT(BlueprintType)
+struct FStructuredChatMessage
+{
+    GENERATED_USTRUCT_BODY();
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Structured Chat Message")
+    EChatTemplateRole Role;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Structured Chat Message")
+    FString Content;
+};
+
+USTRUCT(BlueprintType)
+struct FStructuredChatHistory
+{
+    GENERATED_USTRUCT_BODY();
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Structured Chat History")
+    TArray<FStructuredChatMessage> History;
+};
+
 
 //Easy user-specified chat template, or use common templates. Don't specify if you wish to load GGUF template.
 USTRUCT(BlueprintType)
@@ -268,6 +288,13 @@ public:
 
     UFUNCTION(BlueprintPure)
     FString GetTemplateStrippedPrompt();
+
+    FStructuredChatMessage FirstChatMessageInHistory(const FString& History, FString& Remainder);
+
+    UFUNCTION(BlueprintPure)
+    FStructuredChatHistory GetStructuredHistory();
+
+    
 
 
     //Utility function for debugging model location and file enumeration

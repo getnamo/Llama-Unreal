@@ -942,6 +942,117 @@ FString ULlamaComponent::GetTemplateStrippedPrompt()
     return CleanPrompt;
 }
 
+FStructuredChatMessage ULlamaComponent::FirstChatMessageInHistory(const FString& History, FString& Remainder)
+{
+    FStructuredChatMessage Message;
+    Message.Role = EChatTemplateRole::Unknown;
+
+    int32 StartIndex = INDEX_NONE;
+    FString StartRole = TEXT("");
+    int32 StartSystem = History.Find(ModelParams.ChatTemplate.System, ESearchCase::CaseSensitive, ESearchDir::FromStart, -1);
+    int32 StartAssistant = History.Find(ModelParams.ChatTemplate.Assistant, ESearchCase::CaseSensitive, ESearchDir::FromStart, -1);
+    int32 StartUser = History.Find(ModelParams.ChatTemplate.User, ESearchCase::CaseSensitive, ESearchDir::FromStart, -1);
+
+    //Early exit
+    if (StartSystem == INDEX_NONE &&
+        StartAssistant == INDEX_NONE &&
+        StartUser == INDEX_NONE)
+    {
+        //Failed end find
+        Remainder = TEXT("");
+        return Message;
+    }
+
+    //so they aren't the lowest (-1)
+    if (StartSystem == INDEX_NONE)
+    {
+        StartSystem = INT32_MAX;
+    }
+    if (StartAssistant == INDEX_NONE)
+    {
+        StartAssistant = INT32_MAX;
+    }
+    if (StartUser == INDEX_NONE)
+    {
+        StartUser = INT32_MAX;
+    }
+
+    
+    if (StartSystem <= StartAssistant &&
+        StartSystem <= StartUser)
+    {
+        StartIndex = StartSystem;
+        StartRole = ModelParams.ChatTemplate.System;
+        Message.Role = EChatTemplateRole::System;
+    }
+
+    else if (
+        StartUser <= StartAssistant &&
+        StartUser <= StartSystem)
+    {
+        StartIndex = StartUser;
+        StartRole = ModelParams.ChatTemplate.User;
+        Message.Role = EChatTemplateRole::User;
+    }
+
+    else if (
+        StartAssistant <= StartUser &&
+        StartAssistant <= StartSystem)
+    {
+        StartIndex = StartAssistant;
+        StartRole = ModelParams.ChatTemplate.Assistant;
+        Message.Role = EChatTemplateRole::Assistant;
+    }
+
+    //Look for system role first
+    if (StartIndex != INDEX_NONE)
+    {
+        const FString& CommonSuffix = ModelParams.ChatTemplate.CommonSuffix;
+
+        StartIndex = StartIndex + StartRole.Len();
+
+        int32 EndIndex = History.Find(CommonSuffix, ESearchCase::CaseSensitive, ESearchDir::FromStart, StartIndex);
+
+        if (EndIndex != INDEX_NONE)
+        {
+            int32 Count = EndIndex - StartIndex;
+            Message.Content = History.Mid(StartIndex, Count).TrimStartAndEnd();
+
+            EndIndex = EndIndex + CommonSuffix.Len();
+
+            Remainder = History.RightChop(EndIndex);
+        }
+        else
+        {
+            //No ending, assume all content belongs to this bit
+            Message.Content = History.RightChop(StartIndex).TrimStartAndEnd();
+            Remainder = TEXT("");
+        }
+    }
+    return Message;
+}
+
+FStructuredChatHistory ULlamaComponent::GetStructuredHistory()
+{
+    FString WorkingHistory = ModelState.PromptHistory;
+    FStructuredChatHistory Chat;
+
+
+    while (!WorkingHistory.IsEmpty())
+    {
+        FStructuredChatMessage Message = FirstChatMessageInHistory(WorkingHistory, WorkingHistory);
+
+        //Only add proper role messages
+        if (Message.Role != EChatTemplateRole::Unknown)
+        {
+            Chat.History.Add(Message);
+        }
+    }
+    return Chat;
+}
+
+
+
 TArray<FString> ULlamaComponent::DebugListDirectoryContent(const FString& InPath)
 {
     TArray<FString> Entries;
