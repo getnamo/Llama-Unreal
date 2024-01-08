@@ -73,6 +73,10 @@ struct FLLMModelAdvancedParams
     //If true, upon EOS, it will cleanup history such that correct EOS is placed
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
     bool bEnforceModelEOSFormat = true;
+
+    //synced per eos
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
+    bool bSyncStructuredChatHistory = true;
 };
 
 UENUM(BlueprintType)
@@ -200,6 +204,10 @@ struct FLLMModelState
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model State")
     FString PromptHistory;
 
+    //Where prompt history is raw, chat is an ordered structure. May not be relevant for non-chat type llm data
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model State")
+    FStructuredChatHistory ChatHistory;
+
     //Synced with current context length
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model State")
     int32 ContextLength = 0;
@@ -293,8 +301,6 @@ public:
 
     UFUNCTION(BlueprintPure)
     FStructuredChatHistory GetStructuredHistory();
-
-    
 
 
     //Utility function for debugging model location and file enumeration

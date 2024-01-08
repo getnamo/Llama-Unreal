@@ -784,6 +784,11 @@ ULlamaComponent::ULlamaComponent(const FObjectInitializer &ObjectInitializer)
     llama->OnEosCb = [this](bool StopTokenCausedEos, float TokensPerSecond)
     {
         ModelState.LastTokensPerSecond = TokensPerSecond;
+
+        if (ModelParams.Advanced.bSyncStructuredChatHistory)
+        {
+            ModelState.ChatHistory = GetStructuredHistory();
+        }
         OnEndOfStream.Broadcast(StopTokenCausedEos, TokensPerSecond);
     };
     llama->OnStartEvalCb = [this]()
