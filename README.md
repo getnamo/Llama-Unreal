@@ -4,6 +4,8 @@ Forked for usability fixes with a CPU focused build to also obviate CUDA issues 
 
 # Llama.cpp Build Parameters
 
+Note that these build instructions should be run from the cloned llama.cpp root directory, not the plugin.
+
 Forked Plugin [Llama.cpp](https://github.com/ggerganov/llama.cpp) was built from git hash: [b7e7982953f80a656e03feb5cfb17a17a173eb26](https://github.com/ggerganov/llama.cpp/tree/b7e7982953f80a656e03feb5cfb17a17a173eb26)
 
 
