@@ -2,9 +2,17 @@
 
 Forked for usability fixes with a CPU focused build to also obviate CUDA issues for larger release compatibility. It's fast enough for decent 7B models.
 
-# Llama.cpp Build Parameters
+# Install & Setup
 
-Note that these build instructions should be run from the cloned llama.cpp root directory, not the plugin.
+1. [Download Latest Release](https://github.com/getnamo/Llama-Unreal/releases) Ensure to use the `Llama-Unreal-UEx.x-vx.x.x.7z` link which contains compiled binaries, *not* the Source Code (zip) link.
+2. Create new or choose desired unreal project.
+3. Browse to your project folder (project root)
+4. Copy *Plugins* folder from .7z release into your project root.
+5. Plugin should now be ready to use.
+
+# Llama.cpp Build Instructions
+
+If you want to do builds for your own use case or replace the llama.cpp backend. Note that these build instructions should be run from the cloned llama.cpp root directory, not the plugin.
 
 Forked Plugin [Llama.cpp](https://github.com/ggerganov/llama.cpp) was built from git hash: [b7e7982953f80a656e03feb5cfb17a17a173eb26](https://github.com/ggerganov/llama.cpp/tree/b7e7982953f80a656e03feb5cfb17a17a173eb26)
 
