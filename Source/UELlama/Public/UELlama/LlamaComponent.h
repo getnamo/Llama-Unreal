@@ -14,6 +14,7 @@ namespace Internal
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnErrorSignature, FString, ErrorMessage);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnNewTokenGeneratedSignature, FString, NewToken);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPartialSignature, const FString&, Partial);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPromptHistorySignature, FString, History);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnEndOfStreamSignature, bool, bStopSequenceTriggered, float, TokensPerSecond);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FVoidEventSignature);
@@ -77,6 +78,14 @@ struct FLLMModelAdvancedParams
     //synced per eos
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
     bool bSyncStructuredChatHistory = true;
+
+    //run processing to emit e.g. sentence level breakups
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
+    bool bEmitPartials = true;
+
+    //usually . ? !
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
+    TArray<FString> PartialsSeparators;
 };
 
 UENUM(BlueprintType)
@@ -208,6 +217,10 @@ struct FLLMModelState
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model State")
     FStructuredChatHistory ChatHistory;
 
+    //Optional split according to partials
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model State")
+    TArray<FString> Partials;
+
     //Synced with current context length
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model State")
     int32 ContextLength = 0;
@@ -234,6 +247,10 @@ public:
     //Main callback
     UPROPERTY(BlueprintAssignable)
     FOnNewTokenGeneratedSignature OnNewTokenGenerated;
+
+    //Utility split emit e.g. sentence level emits, useful for speech generation
+    UPROPERTY(BlueprintAssignable)
+    FOnPartialSignature OnPartialParsed;
 
     UPROPERTY(BlueprintAssignable)
     FVoidEventSignature OnStartEval;
@@ -301,6 +318,11 @@ public:
 
     UFUNCTION(BlueprintPure)
     FStructuredChatHistory GetStructuredHistory();
+
+
+    //String Utility
+    bool IsSentenceEndingPunctuation(const TCHAR Char);
+    FString GetLastSentence(const FString& InputString);
 
 
     //Utility function for debugging model location and file enumeration

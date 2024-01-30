@@ -777,6 +777,42 @@ ULlamaComponent::ULlamaComponent(const FObjectInitializer &ObjectInitializer)
         if (bSyncPromptHistory)
         {
             ModelState.PromptHistory.Append(NewToken);
+
+            //Track partials - Sentences
+            if (ModelParams.Advanced.bEmitPartials)
+            {
+                bool bSplitFound = false;
+                //Check new token for separators
+                for (const FString& Separator : ModelParams.Advanced.PartialsSeparators)
+                {
+                    if (NewToken.Contains(Separator))
+                    {
+                        bSplitFound = true;
+                    }
+                }
+
+                if (bSplitFound)
+                {
+                    //Sync Chat history on partial period
+                    ModelState.ChatHistory = GetStructuredHistory();
+
+                    //Grab partial from last message
+                    const FStructuredChatMessage& Message = ModelState.ChatHistory.History.Last();
+
+                    //Confirm it's from the assistant
+                    if (Message.Role == EChatTemplateRole::Assistant)
+                    {
+                        //Look for period preceding this one
+                        FString Sentence = GetLastSentence(Message.Content);
+
+                        if (!Sentence.IsEmpty())
+                        {
+                            OnPartialParsed.Broadcast(Sentence);
+                        }
+                    }
+                }
+
+            }
         }
         ModelState.ContextLength = NewContextLength;
         OnNewTokenGenerated.Broadcast(std::move(NewToken));
@@ -821,6 +857,12 @@ ULlamaComponent::ULlamaComponent(const FObjectInitializer &ObjectInitializer)
 
     //Temp hack default to ChatML
     ModelParams.ChatTemplate = Template;
+
+
+    //All sentence ending formatting.
+    ModelParams.Advanced.PartialsSeparators.Add(TEXT("."));
+    ModelParams.Advanced.PartialsSeparators.Add(TEXT("?"));
+    ModelParams.Advanced.PartialsSeparators.Add(TEXT("!"));
 }
 
 ULlamaComponent::~ULlamaComponent() = default;
@@ -1131,5 +1173,47 @@ TArray<FString> ULlamaComponent::DebugListDirectoryContent(const FString& InPath
     }
 
     return Entries;
+}
+
+//Simple utility functions to find the last sentence
+bool ULlamaComponent::IsSentenceEndingPunctuation(const TCHAR Char)
+{
+    return Char == TEXT('.') || Char == TEXT('!') || Char == TEXT('?');
+}
+
+FString ULlamaComponent::GetLastSentence(const FString& InputString)
+{
+    int32 LastPunctuationIndex = INDEX_NONE;
+    int32 PrecedingPunctuationIndex = INDEX_NONE;
+
+    // Find the last sentence-ending punctuation
+    for (int32 i = InputString.Len() - 1; i >= 0; --i)
+    {
+        if (IsSentenceEndingPunctuation(InputString[i]))
+        {
+            LastPunctuationIndex = i;
+            break;
+        }
+    }
+
+    // If no punctuation found, return the entire string
+    if (LastPunctuationIndex == INDEX_NONE)
+    {
+        return InputString;
+    }
+
+    // Find the preceding sentence-ending punctuation
+    for (int32 i = LastPunctuationIndex - 1; i >= 0; --i)
+    {
+        if (IsSentenceEndingPunctuation(InputString[i]))
+        {
+            PrecedingPunctuationIndex = i;
+            break;
+        }
+    }
+
+    // Extract the last sentence
+    int32 StartIndex = PrecedingPunctuationIndex == INDEX_NONE ? 0 : PrecedingPunctuationIndex + 1;
+    return InputString.Mid(StartIndex, LastPunctuationIndex - StartIndex + 1).TrimStartAndEnd();
 }
 
