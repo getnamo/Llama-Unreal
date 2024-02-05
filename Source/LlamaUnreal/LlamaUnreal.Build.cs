@@ -79,9 +79,6 @@ public class LlamaUnreal : ModuleRules
 		);
 
 		PublicIncludePaths.Add(Path.Combine(PluginDirectory, "Includes"));
-		PublicIncludePaths.Add(Path.Combine(PluginDirectory, "Includes"));
-
-
 
 		if (Target.Platform == UnrealTargetPlatform.Linux)
 		{
