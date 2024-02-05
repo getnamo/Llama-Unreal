@@ -1,8 +1,8 @@
 {
 	"FileVersion": 3,
 	"Version": 1,
-	"VersionName": "0.3.9",
-	"FriendlyName": "LlamaUnreal",
+	"VersionName": "0.3.10",
+	"FriendlyName": "Llama",
 	"Description": "Integration plugin for Llama.cpp. Getnamo Fork.",
 	"Category": "LLM",
 	"CreatedBy": "Mika Pi & Getnamo",
