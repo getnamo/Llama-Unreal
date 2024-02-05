@@ -177,9 +177,9 @@ struct FLLMModelParams
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
     FChatTemplate ChatTemplate;
 
-    //If set anything other than unknown, AI chat role will be enforced
+    //If set anything other than unknown, AI chat role will be enforced. Assistant is default
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
-    EChatTemplateRole ModelRole = EChatTemplateRole::Unknown;
+    EChatTemplateRole ModelRole = EChatTemplateRole::Assistant;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
     TArray<FString> StopSequences;
