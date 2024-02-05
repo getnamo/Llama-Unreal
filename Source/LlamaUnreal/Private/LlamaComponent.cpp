@@ -1,6 +1,6 @@
 // 2023 (c) Mika Pi, Modifications Getnamo
 
-#include "UELlama/LlamaComponent.h"
+#include "LlamaComponent.h"
 #include <atomic>
 #include <deque>
 #include <thread>

@@ -4,7 +4,7 @@ using UnrealBuildTool;
 using System.IO;
 using EpicGames.Core;
 
-public class UELlama : ModuleRules
+public class LlamaUnreal : ModuleRules
 {
 	private string PluginBinariesPath
 	{
@@ -13,7 +13,7 @@ public class UELlama : ModuleRules
 
 	private string PluginLibPath
 	{
-		get { return Path.GetFullPath(Path.Combine(ModuleDirectory, "../../Libraries")); }
+		get { return Path.GetFullPath(Path.Combine(ModuleDirectory, "../../ThirdParty/LlamaCpp")); }
 	}
 
 	private void LinkDyLib(string DyLib)
@@ -24,7 +24,7 @@ public class UELlama : ModuleRules
 		RuntimeDependencies.Add(Path.Combine(PluginLibPath, MacPlatform, DyLib));
 	}
 
-	public UELlama(ReadOnlyTargetRules Target) : base(Target)
+	public LlamaUnreal(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = ModuleRules.PCHUsageMode.UseExplicitOrSharedPCHs;
 

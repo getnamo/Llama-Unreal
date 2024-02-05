@@ -231,7 +231,7 @@ struct FLLMModelState
 };
 
 UCLASS(Category = "LLM", BlueprintType, meta = (BlueprintSpawnableComponent))
-class UELLAMA_API ULlamaComponent : public UActorComponent
+class LLAMAUNREAL_API ULlamaComponent : public UActorComponent
 {
     GENERATED_BODY()
 public:
