@@ -88,7 +88,7 @@ public class LlamaCore : ModuleRules
 		else if (Target.Platform == UnrealTargetPlatform.Win64)
 		{
 			//toggle this on for cuda build
-			bool bUseCuda = false;
+			bool bUseCuda = true;
 			if (bUseCuda)
 			{
 				//NB: Creates cuda runtime .dll dependencies, proper import path not defined yet
