@@ -1,6 +1,6 @@
 // 2023 (c) Mika Pi, Modifications Getnamo
 
-#include "UELlama/LlamaComponent.h"
+#include "LlamaComponent.h"
 #include <atomic>
 #include <deque>
 #include <thread>
@@ -10,6 +10,7 @@
 #include "Misc/Paths.h"
 #include "HAL/FileManager.h"
 #include "common/common.h"
+#include "common/gguf.h"
 
 #if PLATFORM_ANDROID
 #include "Android/AndroidPlatformFile.h"
@@ -364,24 +365,27 @@ namespace Internal
 
                 // evaluate tokens in batches
                 // embd is typically prepared beforehand to fit within a batch, but not always
-
                 for (int i = 0; i < (int)Embd.size(); i += NBatch)
                 {
+
                     int NEval = (int)Embd.size() - i;
                     if (NEval > NBatch)
                     {
                         NEval = NBatch;
                     }
-                    string Str = string{};
-                    for (auto j = 0; j < NEval; ++j)
-                        //    TODO: Replace this llama_detokenize_bpe with llama_detokenize when can be possible.
-                        Str += llama_detokenize_bpe(Context, {Embd[i + j]});
+                    
 
                     if (bShouldLog)
                     {
+                        string Str = string{};
+                        for (auto j = 0; j < NEval; ++j)
+                        {
+                            Str += llama_detokenize_bpe(Context, { Embd[i + j] });
+                        }
                         UE_LOG(LogTemp, Warning, TEXT("%p eval tokens `%s`"), this, UTF8_TO_TCHAR(Str.c_str()));
                     }
-                    if (llama_eval(Context, &Embd[i], NEval, NPast))
+
+                    if (llama_decode(Context, llama_batch_get_one(&Embd[i], NEval, NPast, 0)))
                     {
                         FString ErrorMsg = TEXT("failed to eval");
                         EmitErrorMessage(ErrorMsg);
@@ -390,6 +394,7 @@ namespace Internal
                     }
                     NPast += NEval;
                 }
+
             }
 
             Embd.clear();
@@ -519,7 +524,8 @@ namespace Internal
             });
             ////////////////////////////////////////////////////////////////////////
 
-            bool const HasStopSeq = [&]
+                
+            auto StringStopTest = [&]
             {
                 if (StopSequences.empty())
                     return false;
@@ -544,7 +550,7 @@ namespace Internal
                     }
                     if (EndString.Contains(Sequence))
                     {
-                        UE_LOG(LogTemp, Log, TEXT("String match found, eos triggered."));
+                        UE_LOG(LogTemp, Warning, TEXT("String match found, String EOS triggered."));
                         return true;
                     }
                     
@@ -562,13 +568,27 @@ namespace Internal
                         return true;
                 }
                 return false;
-            }();
+            };
 
-            if ((!Embd.empty() && Embd.back() == llama_token_eos(llama_get_model(Context))) || HasStopSeq)
+            bool EOSTriggered = false;
+            bool bStandardTokenEOS = (!Embd.empty() && Embd.back() == llama_token_eos(llama_get_model(Context)));
+
+            //check
+            if (!bStandardTokenEOS)
             {
-                UE_LOG(LogTemp, Warning, TEXT("%p EOS"), this);
+                EOSTriggered = StringStopTest();
+            }
+            else
+            {
+                UE_LOG(LogTemp, Warning, TEXT("%p Standard EOS triggered"), this);
+                EOSTriggered = true;
+            }
+
+            if (EOSTriggered)
+            {
+                //UE_LOG(LogTemp, Warning, TEXT("%p EOS"), this);
                 Eos = true;
-                const bool StopSeqSafe = HasStopSeq;
+                const bool StopSeqSafe = EOSTriggered;
                 const int32 DeltaTokens = NewContextLength - StartContextLength;
                 const double EosTime = FPlatformTime::Seconds();
                 const float TokensPerSecond = double(DeltaTokens) / (EosTime - StartEvalTime);
@@ -666,6 +686,10 @@ namespace Internal
             UnsafeDeactivate();
             return;
         }
+
+        //Read GGUF info
+        gguf_ex_read_0(TCHAR_TO_UTF8(*FullModelPath));
+
         Context = llama_new_context_with_model(Model, lparams);
         NPast = 0;
 
@@ -687,7 +711,9 @@ namespace Internal
             }
         }
         else
+        {
             StopSequences.clear();
+        }
 
         const int NCtx = llama_n_ctx(Context);
 
@@ -706,7 +732,7 @@ namespace Internal
             vector<llama_token> Tmp = {
                 llama_token_bos(llama_get_model(Context)),
             };
-            llama_eval(Context, Tmp.data(), Tmp.size(), 0);
+            llama_decode(Context, llama_batch_get_one(Tmp.data(), Tmp.size(), 0, 0));
             llama_reset_timings(Context);
         }
         LastNTokens.resize(NCtx);
@@ -751,6 +777,42 @@ ULlamaComponent::ULlamaComponent(const FObjectInitializer &ObjectInitializer)
         if (bSyncPromptHistory)
         {
             ModelState.PromptHistory.Append(NewToken);
+
+            //Track partials - Sentences
+            if (ModelParams.Advanced.bEmitPartials)
+            {
+                bool bSplitFound = false;
+                //Check new token for separators
+                for (const FString& Separator : ModelParams.Advanced.PartialsSeparators)
+                {
+                    if (NewToken.Contains(Separator))
+                    {
+                        bSplitFound = true;
+                    }
+                }
+
+                if (bSplitFound)
+                {
+                    //Sync Chat history on partial period
+                    ModelState.ChatHistory = GetStructuredHistory();
+
+                    //Grab partial from last message
+                    const FStructuredChatMessage& Message = ModelState.ChatHistory.History.Last();
+
+                    //Confirm it's from the assistant
+                    if (Message.Role == EChatTemplateRole::Assistant)
+                    {
+                        //Look for period preceding this one
+                        FString Sentence = GetLastSentence(Message.Content);
+
+                        if (!Sentence.IsEmpty())
+                        {
+                            OnPartialParsed.Broadcast(Sentence);
+                        }
+                    }
+                }
+
+            }
         }
         ModelState.ContextLength = NewContextLength;
         OnNewTokenGenerated.Broadcast(std::move(NewToken));
@@ -758,6 +820,11 @@ ULlamaComponent::ULlamaComponent(const FObjectInitializer &ObjectInitializer)
     llama->OnEosCb = [this](bool StopTokenCausedEos, float TokensPerSecond)
     {
         ModelState.LastTokensPerSecond = TokensPerSecond;
+
+        if (ModelParams.Advanced.bSyncStructuredChatHistory)
+        {
+            ModelState.ChatHistory = GetStructuredHistory();
+        }
         OnEndOfStream.Broadcast(StopTokenCausedEos, TokensPerSecond);
     };
     llama->OnStartEvalCb = [this]()
@@ -776,6 +843,26 @@ ULlamaComponent::ULlamaComponent(const FObjectInitializer &ObjectInitializer)
     {
         OnError.Broadcast(ErrorMessage);
     };
+
+    //NB this list should be static...
+    //For now just add Chat ML
+    FChatTemplate Template;
+    Template.System = TEXT("<|im_start|>system");
+    Template.User = TEXT("<|im_start|>user");
+    Template.Assistant = TEXT("<|im_start|>assistant");
+    Template.CommonSuffix = TEXT("<|im_end|>");
+    Template.Delimiter = TEXT("\n");
+
+    CommonChatTemplates.Add(TEXT("ChatML"), Template);
+
+    //Temp hack default to ChatML
+    ModelParams.ChatTemplate = Template;
+
+
+    //All sentence ending formatting.
+    ModelParams.Advanced.PartialsSeparators.Add(TEXT("."));
+    ModelParams.Advanced.PartialsSeparators.Add(TEXT("?"));
+    ModelParams.Advanced.PartialsSeparators.Add(TEXT("!"));
 }
 
 ULlamaComponent::~ULlamaComponent() = default;
@@ -783,6 +870,11 @@ ULlamaComponent::~ULlamaComponent() = default;
 void ULlamaComponent::Activate(bool bReset)
 {
     Super::Activate(bReset);
+
+    //Check our role
+    if (ModelParams.ModelRole != EChatTemplateRole::Unknown)
+    {
+    }
 
     //if it hasn't been started, this will start it
     llama->StartStopThread(true);
@@ -809,6 +901,62 @@ void ULlamaComponent::InsertPrompt(const FString& Prompt)
     llama->InsertPrompt(Prompt);
 }
 
+FString ULlamaComponent::WrapPromptForRole(const FString& Content, EChatTemplateRole Role, bool AppendModelRolePrefix)
+{
+    FString FinalInputText = TEXT("");
+    if (Role == EChatTemplateRole::User)
+    {
+        FinalInputText = ModelParams.ChatTemplate.User + ModelParams.ChatTemplate.Delimiter + Content + ModelParams.ChatTemplate.CommonSuffix + ModelParams.ChatTemplate.Delimiter;
+    }
+    else if (Role == EChatTemplateRole::Assistant)
+    {
+        FinalInputText = ModelParams.ChatTemplate.Assistant + ModelParams.ChatTemplate.Delimiter + Content + ModelParams.ChatTemplate.CommonSuffix + ModelParams.ChatTemplate.Delimiter;
+    }
+    else if (Role == EChatTemplateRole::System)
+    {
+        FinalInputText = ModelParams.ChatTemplate.System + ModelParams.ChatTemplate.Delimiter + Content + ModelParams.ChatTemplate.CommonSuffix + ModelParams.ChatTemplate.Delimiter;
+    }
+    else
+    {
+        return Content;
+    }
+
+    if (AppendModelRolePrefix) 
+    {
+        //Preset role reply
+        FinalInputText += GetModelRolePrefix();
+    }
+
+    return FinalInputText;
+}
+
+FString ULlamaComponent::GetModelRolePrefix()
+{
+    FString Prefix = TEXT("");
+
+    if (ModelParams.ModelRole != EChatTemplateRole::Unknown)
+    {
+        if (ModelParams.ModelRole == EChatTemplateRole::Assistant)
+        {
+            Prefix += ModelParams.ChatTemplate.Assistant + ModelParams.ChatTemplate.Delimiter;
+        }
+        else if (ModelParams.ModelRole == EChatTemplateRole::User)
+        {
+            Prefix += ModelParams.ChatTemplate.User + ModelParams.ChatTemplate.Delimiter;
+        }
+        else if (ModelParams.ModelRole == EChatTemplateRole::System)
+        {
+            Prefix += ModelParams.ChatTemplate.System + ModelParams.ChatTemplate.Delimiter;
+        }
+    }
+    return Prefix;
+}
+
+void ULlamaComponent::InsertPromptTemplated(const FString& Content, EChatTemplateRole Role)
+{
+    llama->InsertPrompt(WrapPromptForRole(Content, Role, true));
+}
+
 void ULlamaComponent::StartStopQThread(bool bShouldRun)
 {
     llama->StartStopThread(bShouldRun);
@@ -828,6 +976,129 @@ void ULlamaComponent::SyncParamsToLlama()
 {
     llama->UpdateParams(ModelParams);
 }
+
+FString ULlamaComponent::GetTemplateStrippedPrompt()
+{
+    FString CleanPrompt;
+    
+    CleanPrompt = ModelState.PromptHistory.Replace(*ModelParams.ChatTemplate.User, TEXT(""));
+    CleanPrompt = CleanPrompt.Replace(*ModelParams.ChatTemplate.Assistant, TEXT(""));
+    CleanPrompt = CleanPrompt.Replace(*ModelParams.ChatTemplate.System, TEXT(""));
+    CleanPrompt = CleanPrompt.Replace(*ModelParams.ChatTemplate.CommonSuffix, TEXT(""));
+
+    return CleanPrompt;
+}
+
+FStructuredChatMessage ULlamaComponent::FirstChatMessageInHistory(const FString& History, FString& Remainder)
+{
+    FStructuredChatMessage Message;
+    Message.Role = EChatTemplateRole::Unknown;
+
+    int32 StartIndex = INDEX_NONE;
+    FString StartRole = TEXT("");
+    int32 StartSystem = History.Find(ModelParams.ChatTemplate.System, ESearchCase::CaseSensitive, ESearchDir::FromStart, -1);
+    int32 StartAssistant = History.Find(ModelParams.ChatTemplate.Assistant, ESearchCase::CaseSensitive, ESearchDir::FromStart, -1);
+    int32 StartUser = History.Find(ModelParams.ChatTemplate.User, ESearchCase::CaseSensitive, ESearchDir::FromStart, -1);
+
+    //Early exit
+    if (StartSystem == INDEX_NONE &&
+        StartAssistant == INDEX_NONE &&
+        StartUser == INDEX_NONE)
+    {
+        //Failed end find
+        Remainder = TEXT("");
+        return Message;
+    }
+
+    //so they aren't the lowest (-1)
+    if (StartSystem == INDEX_NONE)
+    {
+        StartSystem = INT32_MAX;
+    }
+    if (StartAssistant == INDEX_NONE)
+    {
+        StartAssistant = INT32_MAX;
+    }
+    if (StartUser == INDEX_NONE)
+    {
+        StartUser = INT32_MAX;
+    }
+
+    
+    if (StartSystem <= StartAssistant &&
+        StartSystem <= StartUser)
+    {
+        StartIndex = StartSystem;
+        StartRole = ModelParams.ChatTemplate.System;
+        Message.Role = EChatTemplateRole::System;
+    }
+
+    else if (
+        StartUser <= StartAssistant &&
+        StartUser <= StartSystem)
+    {
+        StartIndex = StartUser;
+        StartRole = ModelParams.ChatTemplate.User;
+        Message.Role = EChatTemplateRole::User;
+    }
+
+    else if (
+        StartAssistant <= StartUser &&
+        StartAssistant <= StartSystem)
+    {
+        StartIndex = StartAssistant;
+        StartRole = ModelParams.ChatTemplate.Assistant;
+        Message.Role = EChatTemplateRole::Assistant;
+    }
+
+    //Look for system role first
+    if (StartIndex != INDEX_NONE)
+    {
+        const FString& CommonSuffix = ModelParams.ChatTemplate.CommonSuffix;
+
+        StartIndex = StartIndex + StartRole.Len();
+
+        int32 EndIndex = History.Find(CommonSuffix, ESearchCase::CaseSensitive, ESearchDir::FromStart, StartIndex);
+
+        if (EndIndex != INDEX_NONE)
+        {
+            int32 Count = EndIndex - StartIndex;
+            Message.Content = History.Mid(StartIndex, Count).TrimStartAndEnd();
+
+            EndIndex = EndIndex + CommonSuffix.Len();
+
+            Remainder = History.RightChop(EndIndex);
+        }
+        else
+        {
+            //No ending, assume all content belongs to this bit
+            Message.Content = History.RightChop(StartIndex).TrimStartAndEnd();
+            Remainder = TEXT("");
+        }
+    }
+    return Message;
+}
+
+FStructuredChatHistory ULlamaComponent::GetStructuredHistory()
+{
+    FString WorkingHistory = ModelState.PromptHistory;
+    FStructuredChatHistory Chat;
+
+
+    while (!WorkingHistory.IsEmpty())
+    {
+        FStructuredChatMessage Message = FirstChatMessageInHistory(WorkingHistory, WorkingHistory);
+
+        //Only add proper role messages
+        if (Message.Role != EChatTemplateRole::Unknown)
+        {
+            Chat.History.Add(Message);
+        }
+    }
+    return Chat;
+}
+
+
 
 TArray<FString> ULlamaComponent::DebugListDirectoryContent(const FString& InPath)
 {
@@ -902,5 +1173,47 @@ TArray<FString> ULlamaComponent::DebugListDirectoryContent(const FString& InPath
     }
 
     return Entries;
+}
+
+//Simple utility functions to find the last sentence
+bool ULlamaComponent::IsSentenceEndingPunctuation(const TCHAR Char)
+{
+    return Char == TEXT('.') || Char == TEXT('!') || Char == TEXT('?');
+}
+
+FString ULlamaComponent::GetLastSentence(const FString& InputString)
+{
+    int32 LastPunctuationIndex = INDEX_NONE;
+    int32 PrecedingPunctuationIndex = INDEX_NONE;
+
+    // Find the last sentence-ending punctuation
+    for (int32 i = InputString.Len() - 1; i >= 0; --i)
+    {
+        if (IsSentenceEndingPunctuation(InputString[i]))
+        {
+            LastPunctuationIndex = i;
+            break;
+        }
+    }
+
+    // If no punctuation found, return the entire string
+    if (LastPunctuationIndex == INDEX_NONE)
+    {
+        return InputString;
+    }
+
+    // Find the preceding sentence-ending punctuation
+    for (int32 i = LastPunctuationIndex - 1; i >= 0; --i)
+    {
+        if (IsSentenceEndingPunctuation(InputString[i]))
+        {
+            PrecedingPunctuationIndex = i;
+            break;
+        }
+    }
+
+    // Extract the last sentence
+    int32 StartIndex = PrecedingPunctuationIndex == INDEX_NONE ? 0 : PrecedingPunctuationIndex + 1;
+    return InputString.Mid(StartIndex, LastPunctuationIndex - StartIndex + 1).TrimStartAndEnd();
 }
 

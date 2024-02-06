@@ -1,6 +1,7 @@
 # Getnamo Fork notes
 
-Forked for usability fixes with a CPU focused build to also obviate CUDA issues for larger release compatibility. It's fast enough for decent 7B models.
+Cuda variant
+- atm built for CUDA 12.2 runtime
 
 # Install & Setup
 

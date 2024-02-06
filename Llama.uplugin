@@ -1,11 +1,11 @@
 {
 	"FileVersion": 3,
 	"Version": 1,
-	"VersionName": "0.3.3",
-	"FriendlyName": "UELlama",
-	"Description": "Integration plugin for Llama.cpp",
+	"VersionName": "0.3.11",
+	"FriendlyName": "Llama",
+	"Description": "Integration plugin for Llama.cpp. Getnamo Fork.",
 	"Category": "LLM",
-	"CreatedBy": "Mika Pi & Getnamo",
+	"CreatedBy": "Getnamo & Mika Pi",
 	"CreatedByURL": "https://github.com/getnamo/",
 	"EnabledByDefault": true,
 	"DocsURL": "https://github.com/getnamo/Llama-Unreal",
@@ -17,7 +17,7 @@
 	"Installed": false,
 	"Modules": [
 		{
-			"Name": "UELlama",
+			"Name": "LlamaCore",
 			"Type": "Runtime",
 			"LoadingPhase": "Default"
 		}
