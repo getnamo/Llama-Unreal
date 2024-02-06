@@ -4,7 +4,7 @@ using UnrealBuildTool;
 using System.IO;
 using EpicGames.Core;
 
-public class LlamaUnreal : ModuleRules
+public class LlamaCore : ModuleRules
 {
 	private string PluginBinariesPath
 	{
@@ -24,7 +24,7 @@ public class LlamaUnreal : ModuleRules
 		RuntimeDependencies.Add(Path.Combine(PluginLibPath, MacPlatform, DyLib));
 	}
 
-	public LlamaUnreal(ReadOnlyTargetRules Target) : base(Target)
+	public LlamaCore(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = ModuleRules.PCHUsageMode.UseExplicitOrSharedPCHs;
 
