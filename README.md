@@ -1,7 +1,8 @@
-# Getnamo Fork notes
+# Llama Unreal
 
-Cuda variant
-- atm built for CUDA 12.2 runtime
+An Unreal API wrapper for llama.cpp. Forked to focus on drastically improved API with wider support for builds (CPU, CUDA, Android, Mac).
+
+Early releases, api still pretty unstable YMMV.
 
 # Install & Setup
 
@@ -31,6 +32,8 @@ cmake --build . --config Release -j --verbose
 ```
 
 #### CUDA
+
+ATM built for CUDA 12.2 runtime
 
 - Use `cuda` branch if you want cuda enabled.
 - We build statically due to dll runtime load bug so you need to copy `cudart.lib` `cublas.lib` and `cuda.lib` into your libraries/win64 path. These are ignored atm.
