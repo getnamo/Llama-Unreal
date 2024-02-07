@@ -4,6 +4,8 @@ An Unreal focused API wrapper for [llama.cpp](https://github.com/ggerganov/llama
 
 Early releases, api still pretty unstable YMMV.
 
+[Discord Server](https://discord.gg/qfJUyxaW4s)
+
 # Install & Setup
 
 1. [Download Latest Release](https://github.com/getnamo/Llama-Unreal/releases) Ensure to use the `Llama-Unreal-UEx.x-vx.x.x.7z` link which contains compiled binaries, *not* the Source Code (zip) link.
