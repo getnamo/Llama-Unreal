@@ -4,7 +4,7 @@ An Unreal focused API wrapper for [llama.cpp](https://github.com/ggerganov/llama
 
 Early releases, api still pretty unstable YMMV.
 
-NB: currently has #7 issue which may require you to do your own static llama.cpp build until resolved.
+NB: currently has [#7 issue](https://github.com/getnamo/Llama-Unreal/issues/7) which may require you to do your own static llama.cpp build until resolved.
 
 [Discord Server](https://discord.gg/qfJUyxaW4s)
 
