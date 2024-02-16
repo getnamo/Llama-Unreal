@@ -1,8 +1,8 @@
 // Copyright (c) 2022 Mika Pi
 
 using System;
-using UnrealBuildTool;
 using System.IO;
+using UnrealBuildTool;
 using EpicGames.Core;
 
 public class LlamaCore : ModuleRules
@@ -30,7 +30,7 @@ public class LlamaCore : ModuleRules
 		PCHUsage = ModuleRules.PCHUsageMode.UseExplicitOrSharedPCHs;
 
 
-        PublicIncludePaths.AddRange(
+        	PublicIncludePaths.AddRange(
 			new string[] {
 				// ... add public include paths required here ...
 			}
@@ -84,14 +84,12 @@ public class LlamaCore : ModuleRules
 
 		if (Target.Platform == UnrealTargetPlatform.Linux)
 		{
-			
 			PublicAdditionalLibraries.Add(Path.Combine(PluginDirectory, "Libraries", "Linux", "libllama.so"));
 		} 
 		else if (Target.Platform == UnrealTargetPlatform.Win64)
 		{
 			//toggle this off for cpu build if cude is setup
 			bool bUseCuda = true;
-
 			//assumes previous installation of llama, defaults to preinstalled location
 			string llama = Environment.GetEnvironmentVariable("LLAMA_PATH");
 			if (string.IsNullOrEmpty(llama)) { llama = "Win64/Cuda"; }
