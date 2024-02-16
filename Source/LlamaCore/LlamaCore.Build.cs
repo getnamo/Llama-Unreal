@@ -98,7 +98,7 @@ public class LlamaCore : ModuleRules
 			if(bTryToUseCuda)
 			{			
 				//First try to load cuda in plugin path, these won't exist unless you're in cuda branch
-				string CudaPath =  Path.Combine(PluginLibPath, "Win64/Cuda");
+				string CudaPath =  Path.Combine(PluginLibPath, "Win64", "Cuda");
 
 				//test to see if we contain cuda.lib locally
 				bLocalCudaFound = File.Exists(Path.Combine(CudaPath, "cuda.lib"));
@@ -114,6 +114,8 @@ public class LlamaCore : ModuleRules
 					PublicAdditionalLibraries.Add(Path.Combine(CudaPath, "cudart.lib"));
 					PublicAdditionalLibraries.Add(Path.Combine(CudaPath, "cublas.lib"));
 					PublicAdditionalLibraries.Add(Path.Combine(CudaPath, "cuda.lib"));
+
+					System.Console.WriteLine("Llama-Unreal building using cuda at path " + CudaPath);
 				}
 			}
 
@@ -124,16 +126,18 @@ public class LlamaCore : ModuleRules
 			{
 				if(bLocalCudaFound)
 				{
-					LlamaPath = Path.Combine(PluginLibPath, "Win64/Cuda");
+					LlamaPath = Path.Combine(PluginLibPath, "Win64", "Cuda");
 				}
 				else
 				{
-					LlamaPath = Path.Combine(PluginLibPath, "Win64/Cpu");
+					LlamaPath = Path.Combine(PluginLibPath, "Win64", "Cpu");
 				} 
 			}
 
 			PublicAdditionalLibraries.Add(Path.Combine(LlamaPath, "llama.lib"));
             PublicAdditionalLibraries.Add(Path.Combine(LlamaPath, "ggml_static.lib"));
+
+			System.Console.WriteLine("Llama-Unreal building using llama.lib at path " + LlamaPath);
 
 			//We do not use shared dll atm
 			//string WinLibDLLPath = Path.Combine(PluginLibPath, "Win64");
