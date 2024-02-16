@@ -92,7 +92,7 @@ public class LlamaCore : ModuleRules
 			bool bTryToUseCuda = true;
 
 			//First try to load env path llama builds
-			bool bLocalCudaFound = false;
+			bool bCudaFound = false;
 
 			//Check cuda lib status first
 			if(bTryToUseCuda)
@@ -101,15 +101,16 @@ public class LlamaCore : ModuleRules
 				string CudaPath =  Path.Combine(PluginLibPath, "Win64", "Cuda");
 
 				//test to see if we contain cuda.lib locally
-				bLocalCudaFound = File.Exists(Path.Combine(CudaPath, "cuda.lib"));
+				bCudaFound = File.Exists(Path.Combine(CudaPath, "cuda.lib"));
 
-				if(!bLocalCudaFound)
+				if(!bCudaFound)
 				{
 					//local cuda not found, try environment path
 					CudaPath = Environment.GetEnvironmentVariable("CUDA_PATH") + "/lib/x64";
+					bCudaFound = !string.IsNullOrEmpty(CudaPath);
 				}
 
-				if (!string.IsNullOrEmpty(CudaPath))
+				if (bCudaFound)
 				{
 					PublicAdditionalLibraries.Add(Path.Combine(CudaPath, "cudart.lib"));
 					PublicAdditionalLibraries.Add(Path.Combine(CudaPath, "cublas.lib"));
@@ -124,7 +125,7 @@ public class LlamaCore : ModuleRules
 
 			if (!bUsingLlamaEnvPath) 
 			{
-				if(bLocalCudaFound)
+				if(bCudaFound)
 				{
 					LlamaPath = Path.Combine(PluginLibPath, "Win64", "Cuda");
 				}
