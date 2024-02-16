@@ -88,27 +88,56 @@ public class LlamaCore : ModuleRules
 		} 
 		else if (Target.Platform == UnrealTargetPlatform.Win64)
 		{
-			//toggle this off for cpu build if cude is setup
-			bool bUseCuda = true;
-			//assumes previous installation of llama, defaults to preinstalled location
-			string llama = Environment.GetEnvironmentVariable("LLAMA_PATH");
-			if (string.IsNullOrEmpty(llama)) { llama = "Win64/Cuda"; }
+			//toggle this off to stop searching for cuda related setup in build.cs. Will default to CPU build if cuda path fails
+			bool bTryToUseCuda = true;
 
-			string cuda = Environment.GetEnvironmentVariable("CUDA_PATH") + "/lib/x64";
+			//First try to load env path llama builds
+			bool bLocalCudaFound = false;
 
-			if (!string.IsNullOrEmpty(cuda) && bUseCuda)
+			//Check cuda lib status first
+			if(bTryToUseCuda)
+			{			
+				//First try to load cuda in plugin path, these won't exist unless you're in cuda branch
+				string CudaPath =  Path.Combine(PluginLibPath, "Win64/Cuda");
+
+				//test to see if we contain cuda.lib locally
+				bLocalCudaFound = File.Exists(Path.Combine(CudaPath, "cuda.lib"));
+
+				if(!bLocalCudaFound)
+				{
+					//local cuda not found, try environment path
+					CudaPath = Environment.GetEnvironmentVariable("CUDA_PATH") + "/lib/x64";
+				}
+
+				if (!string.IsNullOrEmpty(CudaPath))
+				{
+					PublicAdditionalLibraries.Add(Path.Combine(CudaPath, "cudart.lib"));
+					PublicAdditionalLibraries.Add(Path.Combine(CudaPath, "cublas.lib"));
+					PublicAdditionalLibraries.Add(Path.Combine(CudaPath, "cuda.lib"));
+				}
+			}
+
+			string LlamaPath = Environment.GetEnvironmentVariable("LLAMA_PATH");
+			bool bUsingLlamaEnvPath = !string.IsNullOrEmpty(LlamaPath);
+
+			if (!bUsingLlamaEnvPath) 
 			{
-                PublicAdditionalLibraries.Add(Path.Combine(PluginLibPath, cuda, "cudart.lib"));
-                PublicAdditionalLibraries.Add(Path.Combine(PluginLibPath, cuda, "cublas.lib"));
-                PublicAdditionalLibraries.Add(Path.Combine(PluginLibPath, cuda, "cuda.lib"));
-            }
+				if(bLocalCudaFound)
+				{
+					LlamaPath = Path.Combine(PluginLibPath, "Win64/Cuda");
+				}
+				else
+				{
+					LlamaPath = Path.Combine(PluginLibPath, "Win64/Cpu");
+				} 
+			}
 
-            PublicAdditionalLibraries.Add(Path.Combine(PluginLibPath, llama, "llama.lib"));
-            PublicAdditionalLibraries.Add(Path.Combine(PluginLibPath, llama, "ggml_static.lib"));
-
-			//string WinLibDLLPath = Path.Combine(PluginLibPath, "Win64");
+			PublicAdditionalLibraries.Add(Path.Combine(LlamaPath, "llama.lib"));
+            PublicAdditionalLibraries.Add(Path.Combine(LlamaPath, "ggml_static.lib"));
 
 			//We do not use shared dll atm
+			//string WinLibDLLPath = Path.Combine(PluginLibPath, "Win64");
+
 			//RuntimeDependencies.Add("$(BinaryOutputDir)/llama.dll", Path.Combine(WinLibDLLPath, "llama.dll));
 			//RuntimeDependencies.Add("$(BinaryOutputDir)/ggml_shared.dll", Path.Combine(WinLibDLLPath, "ggml_shared.dll"));
 		}
