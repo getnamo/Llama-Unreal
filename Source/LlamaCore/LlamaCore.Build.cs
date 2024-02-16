@@ -88,7 +88,8 @@ public class LlamaCore : ModuleRules
 		} 
 		else if (Target.Platform == UnrealTargetPlatform.Win64)
 		{
-			//toggle this off to stop searching for cuda related setup in build.cs. Will default to CPU build if cuda path fails
+			//Toggle this off if your CUDA_PATH is not compatible with the build version or
+			//you definitely only want CPU build
 			bool bTryToUseCuda = true;
 
 			//First try to load env path llama builds
@@ -96,17 +97,18 @@ public class LlamaCore : ModuleRules
 
 			//Check cuda lib status first
 			if(bTryToUseCuda)
-			{			
-				//First try to load cuda in plugin path, these won't exist unless you're in cuda branch
+			{
+				//Almost every dev setup has a CUDA_PATH so try to load cuda in plugin path first;
+				//these won't exist unless you're in plugin 'cuda' branch.
 				string CudaPath =  Path.Combine(PluginLibPath, "Win64", "Cuda");
 
-				//test to see if we contain cuda.lib locally
+				//Test to see if we have a cuda.lib
 				bCudaFound = File.Exists(Path.Combine(CudaPath, "cuda.lib"));
 
 				if(!bCudaFound)
 				{
 					//local cuda not found, try environment path
-					CudaPath = Environment.GetEnvironmentVariable("CUDA_PATH") + "/lib/x64";
+					CudaPath = Path.Combine(Environment.GetEnvironmentVariable("CUDA_PATH"), "lib", "x64");
 					bCudaFound = !string.IsNullOrEmpty(CudaPath);
 				}
 
@@ -120,6 +122,7 @@ public class LlamaCore : ModuleRules
 				}
 			}
 
+			//If you specify LLAMA_PATH, it will take precedence over local path
 			string LlamaPath = Environment.GetEnvironmentVariable("LLAMA_PATH");
 			bool bUsingLlamaEnvPath = !string.IsNullOrEmpty(LlamaPath);
 
