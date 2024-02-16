@@ -1,5 +1,6 @@
 // Copyright (c) 2022 Mika Pi
 
+using System;
 using UnrealBuildTool;
 using System.IO;
 using EpicGames.Core;
@@ -28,7 +29,8 @@ public class LlamaCore : ModuleRules
 	{
 		PCHUsage = ModuleRules.PCHUsageMode.UseExplicitOrSharedPCHs;
 
-		PublicIncludePaths.AddRange(
+
+        PublicIncludePaths.AddRange(
 			new string[] {
 				// ... add public include paths required here ...
 			}
@@ -87,27 +89,24 @@ public class LlamaCore : ModuleRules
 		} 
 		else if (Target.Platform == UnrealTargetPlatform.Win64)
 		{
-			//toggle this on for cuda build
-			bool bUseCuda = false;
-			if (bUseCuda)
-			{
-				//NB: Creates cuda runtime .dll dependencies, proper import path not defined yet
-				//These are usually found in NVIDIA GPU Computing Toolkit\CUDA\v12.2\lib\x64
-				PublicAdditionalLibraries.Add(Path.Combine(PluginLibPath, "Win64/Cuda", "cudart.lib"));
-				PublicAdditionalLibraries.Add(Path.Combine(PluginLibPath, "Win64/Cuda", "cublas.lib"));
-				PublicAdditionalLibraries.Add(Path.Combine(PluginLibPath, "Win64/Cuda", "cuda.lib"));
+			//toggle this off for cpu build if cude is setup
+			bool bUseCuda = true;
 
-				PublicAdditionalLibraries.Add(Path.Combine(PluginLibPath, "Win64/Cuda", "llama.lib"));
-				PublicAdditionalLibraries.Add(Path.Combine(PluginLibPath, "Win64/Cuda", "ggml_static.lib"));
-			}
-			else
-			{
-				//We do not use shared dll atm
-				//PublicAdditionalLibraries.Add(Path.Combine(PluginLibPath, "Win64", "ggml_shared.lib"));
+			//assumes previous installation of llama, defaults to preinstalled location
+			string llama = Environment.GetEnvironmentVariable("LLAMA_PATH");
+			if (string.IsNullOrEmpty(llama)) { llama = "Win64/Cuda"; }
 
-				PublicAdditionalLibraries.Add(Path.Combine(PluginLibPath, "Win64", "llama.lib"));
-				PublicAdditionalLibraries.Add(Path.Combine(PluginLibPath, "Win64", "ggml_static.lib"));
-			}
+			string cuda = Environment.GetEnvironmentVariable("CUDA_PATH") + "/lib/x64";
+
+			if (!string.IsNullOrEmpty(cuda) && bUseCuda)
+			{
+                PublicAdditionalLibraries.Add(Path.Combine(PluginLibPath, cuda, "cudart.lib"));
+                PublicAdditionalLibraries.Add(Path.Combine(PluginLibPath, cuda, "cublas.lib"));
+                PublicAdditionalLibraries.Add(Path.Combine(PluginLibPath, cuda, "cuda.lib"));
+            }
+
+            PublicAdditionalLibraries.Add(Path.Combine(PluginLibPath, llama, "llama.lib"));
+            PublicAdditionalLibraries.Add(Path.Combine(PluginLibPath, llama, "ggml_static.lib"));
 
 			//string WinLibDLLPath = Path.Combine(PluginLibPath, "Win64");
 
