@@ -1,7 +1,8 @@
 // Copyright (c) 2022 Mika Pi
 
-using UnrealBuildTool;
+using System;
 using System.IO;
+using UnrealBuildTool;
 using EpicGames.Core;
 
 public class LlamaCore : ModuleRules
@@ -28,7 +29,8 @@ public class LlamaCore : ModuleRules
 	{
 		PCHUsage = ModuleRules.PCHUsageMode.UseExplicitOrSharedPCHs;
 
-		PublicIncludePaths.AddRange(
+
+        	PublicIncludePaths.AddRange(
 			new string[] {
 				// ... add public include paths required here ...
 			}
@@ -82,36 +84,68 @@ public class LlamaCore : ModuleRules
 
 		if (Target.Platform == UnrealTargetPlatform.Linux)
 		{
-			
 			PublicAdditionalLibraries.Add(Path.Combine(PluginDirectory, "Libraries", "Linux", "libllama.so"));
 		} 
 		else if (Target.Platform == UnrealTargetPlatform.Win64)
 		{
-			//toggle this on for cuda build
-			bool bUseCuda = false;
-			if (bUseCuda)
+			//Toggle this off if your CUDA_PATH is not compatible with the build version or
+			//you definitely only want CPU build
+			bool bTryToUseCuda = true;
+
+			//First try to load env path llama builds
+			bool bCudaFound = false;
+
+			//Check cuda lib status first
+			if(bTryToUseCuda)
 			{
-				//NB: Creates cuda runtime .dll dependencies, proper import path not defined yet
-				//These are usually found in NVIDIA GPU Computing Toolkit\CUDA\v12.2\lib\x64
-				PublicAdditionalLibraries.Add(Path.Combine(PluginLibPath, "Win64/Cuda", "cudart.lib"));
-				PublicAdditionalLibraries.Add(Path.Combine(PluginLibPath, "Win64/Cuda", "cublas.lib"));
-				PublicAdditionalLibraries.Add(Path.Combine(PluginLibPath, "Win64/Cuda", "cuda.lib"));
+				//Almost every dev setup has a CUDA_PATH so try to load cuda in plugin path first;
+				//these won't exist unless you're in plugin 'cuda' branch.
+				string CudaPath =  Path.Combine(PluginLibPath, "Win64", "Cuda");
 
-				PublicAdditionalLibraries.Add(Path.Combine(PluginLibPath, "Win64/Cuda", "llama.lib"));
-				PublicAdditionalLibraries.Add(Path.Combine(PluginLibPath, "Win64/Cuda", "ggml_static.lib"));
+				//Test to see if we have a cuda.lib
+				bCudaFound = File.Exists(Path.Combine(CudaPath, "cuda.lib"));
+
+				if(!bCudaFound)
+				{
+					//local cuda not found, try environment path
+					CudaPath = Path.Combine(Environment.GetEnvironmentVariable("CUDA_PATH"), "lib", "x64");
+					bCudaFound = !string.IsNullOrEmpty(CudaPath);
+				}
+
+				if (bCudaFound)
+				{
+					PublicAdditionalLibraries.Add(Path.Combine(CudaPath, "cudart.lib"));
+					PublicAdditionalLibraries.Add(Path.Combine(CudaPath, "cublas.lib"));
+					PublicAdditionalLibraries.Add(Path.Combine(CudaPath, "cuda.lib"));
+
+					System.Console.WriteLine("Llama-Unreal building using cuda at path " + CudaPath);
+				}
 			}
-			else
+
+			//If you specify LLAMA_PATH, it will take precedence over local path
+			string LlamaPath = Environment.GetEnvironmentVariable("LLAMA_PATH");
+			bool bUsingLlamaEnvPath = !string.IsNullOrEmpty(LlamaPath);
+
+			if (!bUsingLlamaEnvPath) 
 			{
-				//We do not use shared dll atm
-				//PublicAdditionalLibraries.Add(Path.Combine(PluginLibPath, "Win64", "ggml_shared.lib"));
-
-				PublicAdditionalLibraries.Add(Path.Combine(PluginLibPath, "Win64", "llama.lib"));
-				PublicAdditionalLibraries.Add(Path.Combine(PluginLibPath, "Win64", "ggml_static.lib"));
+				if(bCudaFound)
+				{
+					LlamaPath = Path.Combine(PluginLibPath, "Win64", "Cuda");
+				}
+				else
+				{
+					LlamaPath = Path.Combine(PluginLibPath, "Win64", "Cpu");
+				} 
 			}
 
-			//string WinLibDLLPath = Path.Combine(PluginLibPath, "Win64");
+			PublicAdditionalLibraries.Add(Path.Combine(LlamaPath, "llama.lib"));
+            PublicAdditionalLibraries.Add(Path.Combine(LlamaPath, "ggml_static.lib"));
+
+			System.Console.WriteLine("Llama-Unreal building using llama.lib at path " + LlamaPath);
 
 			//We do not use shared dll atm
+			//string WinLibDLLPath = Path.Combine(PluginLibPath, "Win64");
+
 			//RuntimeDependencies.Add("$(BinaryOutputDir)/llama.dll", Path.Combine(WinLibDLLPath, "llama.dll));
 			//RuntimeDependencies.Add("$(BinaryOutputDir)/ggml_shared.dll", Path.Combine(WinLibDLLPath, "ggml_shared.dll"));
 		}
