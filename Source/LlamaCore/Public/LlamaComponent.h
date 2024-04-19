@@ -283,40 +283,40 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Component")
     TMap<FString, FChatTemplate> CommonChatTemplates;
 
-    UFUNCTION(BlueprintCallable)
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
     void InsertPrompt(const FString &Text);
 
-    UFUNCTION(BlueprintPure)
+    UFUNCTION(BlueprintPure, Category = "LLM Model Component")
     FString WrapPromptForRole(const FString& Text, EChatTemplateRole Role, bool AppendModelRolePrefix=false);
 
-    UFUNCTION(BlueprintPure)
+    UFUNCTION(BlueprintPure, Category = "LLM Model Component")
     FString GetModelRolePrefix();
 
     //This will wrap your input given the specific role using chat template specified
-    UFUNCTION(BlueprintCallable)
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
     void InsertPromptTemplated(const FString& Text, EChatTemplateRole Role);
 
 
-    UFUNCTION(BlueprintCallable)
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
     void StartStopQThread(bool bShouldRun = true);
 
     //Force stop generating new tokens
-    UFUNCTION(BlueprintCallable)
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
     void StopGenerating();
 
-    UFUNCTION(BlueprintCallable)
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
     void ResumeGenerating();
 
-    UFUNCTION(BlueprintCallable)
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
     void SyncParamsToLlama();
 
 
-    UFUNCTION(BlueprintPure)
+    UFUNCTION(BlueprintPure, Category = "LLM Model Component")
     FString GetTemplateStrippedPrompt();
 
     FStructuredChatMessage FirstChatMessageInHistory(const FString& History, FString& Remainder);
 
-    UFUNCTION(BlueprintPure)
+    UFUNCTION(BlueprintPure, Category = "LLM Model Component")
     FStructuredChatHistory GetStructuredHistory();
 
 
@@ -326,7 +326,7 @@ public:
 
 
     //Utility function for debugging model location and file enumeration
-    UFUNCTION(BlueprintCallable)
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
     TArray<FString> DebugListDirectoryContent(const FString& InPath);
 
 private:
