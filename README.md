@@ -72,4 +72,4 @@ cmake -DCMAKE_TOOLCHAIN_FILE=$NDK/build/cmake/android.toolchain.cmake -DANDROID_
 $ make
 ```
 
-Then the .so or .lib file was copied into the `Libraries` directory and all the .h files were copied to the `Includes` directory.
+Then the .so or .lib file was copied into e.g. `ThirdParty/LlamaCpp/Win64/cpu` directory and all the .h files were copied to the `Includes` directory.
