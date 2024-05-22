@@ -15,14 +15,14 @@
 
 void FLlamaCoreModule::StartupModule()
 {
-  llama_backend_init(true /*numa*/);
-  IModuleInterface::StartupModule();
+	llama_backend_init();
+	IModuleInterface::StartupModule();
 }
 
 void FLlamaCoreModule::ShutdownModule()
 {
-  IModuleInterface::ShutdownModule();
-  llama_backend_free();
+	IModuleInterface::ShutdownModule();
+	llama_backend_free();
 }
 
 #undef LOCTEXT_NAMESPACE
