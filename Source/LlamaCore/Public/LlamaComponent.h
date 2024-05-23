@@ -228,6 +228,9 @@ struct FLLMModelState
     //Stored the last speed reading on this model
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model State")
     float LastTokensPerSecond = 0.f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model State")
+    EChatTemplateRole LastRole = EChatTemplateRole::Unknown;
 };
 
 UCLASS(Category = "LLM", BlueprintType, meta = (BlueprintSpawnableComponent))
@@ -286,11 +289,18 @@ public:
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
     void InsertPrompt(const FString &Text);
 
+    /** 
+    * Use this function to bypass input from AI, e.g. streaming input from another source. 
+    * All downstream event functions will trigger from this call as if it came from the LLM.
+    * Won't make a new message split until role is swapped from last. */
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
+    void UserImpersonateText(const FString& Text, EChatTemplateRole Role = EChatTemplateRole::Assistant,  bool bIsEos = false);
+
     UFUNCTION(BlueprintPure, Category = "LLM Model Component")
     FString WrapPromptForRole(const FString& Text, EChatTemplateRole Role, bool AppendModelRolePrefix=false);
 
     UFUNCTION(BlueprintPure, Category = "LLM Model Component")
-    FString GetModelRolePrefix();
+    FString GetRolePrefix(EChatTemplateRole Role = EChatTemplateRole::Assistant);
 
     //This will wrap your input given the specific role using chat template specified
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
@@ -324,6 +334,8 @@ public:
     bool IsSentenceEndingPunctuation(const TCHAR Char);
     FString GetLastSentence(const FString& InputString);
 
+    EChatTemplateRole LastRoleFromStructuredHistory();
+
 
     //Utility function for debugging model location and file enumeration
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
@@ -331,4 +343,6 @@ public:
 
 private:
     std::unique_ptr<Internal::FLlama> llama;
+
+    TFunction<void(FString, int32)> TokenCallbackInternal;
 };

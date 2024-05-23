@@ -772,8 +772,9 @@ ULlamaComponent::ULlamaComponent(const FObjectInitializer &ObjectInitializer)
 {
     PrimaryComponentTick.bCanEverTick = true;
     PrimaryComponentTick.bStartWithTickEnabled = true;
-    llama->OnTokenCb = [this](FString NewToken, int32 NewContextLength) 
-    { 
+
+    TokenCallbackInternal = [this](FString NewToken, int32 NewContextLength)
+    {
         if (bSyncPromptHistory)
         {
             ModelState.PromptHistory.Append(NewToken);
@@ -796,6 +797,12 @@ ULlamaComponent::ULlamaComponent(const FObjectInitializer &ObjectInitializer)
                     //Sync Chat history on partial period
                     ModelState.ChatHistory = GetStructuredHistory();
 
+                    //Don't update it to an unknown role (means we haven't properly set it
+                    if (LastRoleFromStructuredHistory() != EChatTemplateRole::Unknown)
+                    {
+                        ModelState.LastRole = LastRoleFromStructuredHistory();
+                    }
+
                     //Grab partial from last message
                     const FStructuredChatMessage& Message = ModelState.ChatHistory.History.Last();
 
@@ -817,6 +824,9 @@ ULlamaComponent::ULlamaComponent(const FObjectInitializer &ObjectInitializer)
         ModelState.ContextLength = NewContextLength;
         OnNewTokenGenerated.Broadcast(std::move(NewToken));
     };
+
+    llama->OnTokenCb = TokenCallbackInternal;
+
     llama->OnEosCb = [this](bool StopTokenCausedEos, float TokensPerSecond)
     {
         ModelState.LastTokensPerSecond = TokensPerSecond;
@@ -824,6 +834,7 @@ ULlamaComponent::ULlamaComponent(const FObjectInitializer &ObjectInitializer)
         if (ModelParams.Advanced.bSyncStructuredChatHistory)
         {
             ModelState.ChatHistory = GetStructuredHistory();
+            ModelState.LastRole = LastRoleFromStructuredHistory();
         }
         OnEndOfStream.Broadcast(StopTokenCausedEos, TokensPerSecond);
     };
@@ -901,6 +912,28 @@ void ULlamaComponent::InsertPrompt(const FString& Prompt)
     llama->InsertPrompt(Prompt);
 }
 
+void ULlamaComponent::UserImpersonateText(const FString& Text, EChatTemplateRole Role, bool bIsEos)
+{
+    FString CombinedText = Text;
+
+    //Check last role, ensure we give ourselves an assistant role if we haven't yet.
+    if (ModelState.LastRole != Role)
+    {
+        CombinedText = GetRolePrefix(Role) + Text;
+
+        //Modify the role
+        ModelState.LastRole = Role;
+    }
+
+    //If this was the last text in the stream, auto-wrap suffix
+    if (bIsEos)
+    {
+        CombinedText += ModelParams.ChatTemplate.CommonSuffix + ModelParams.ChatTemplate.Delimiter;
+    }
+
+    TokenCallbackInternal(CombinedText, ModelState.ContextLength + CombinedText.Len());
+}
+
 FString ULlamaComponent::WrapPromptForRole(const FString& Content, EChatTemplateRole Role, bool AppendModelRolePrefix)
 {
     FString FinalInputText = TEXT("");
@@ -924,27 +957,27 @@ FString ULlamaComponent::WrapPromptForRole(const FString& Content, EChatTemplate
     if (AppendModelRolePrefix) 
     {
         //Preset role reply
-        FinalInputText += GetModelRolePrefix();
+        FinalInputText += GetRolePrefix(EChatTemplateRole::Assistant);
     }
 
     return FinalInputText;
 }
 
-FString ULlamaComponent::GetModelRolePrefix()
+FString ULlamaComponent::GetRolePrefix(EChatTemplateRole Role)
 {
     FString Prefix = TEXT("");
 
-    if (ModelParams.ModelRole != EChatTemplateRole::Unknown)
+    if (Role != EChatTemplateRole::Unknown)
     {
-        if (ModelParams.ModelRole == EChatTemplateRole::Assistant)
+        if (Role == EChatTemplateRole::Assistant)
         {
             Prefix += ModelParams.ChatTemplate.Assistant + ModelParams.ChatTemplate.Delimiter;
         }
-        else if (ModelParams.ModelRole == EChatTemplateRole::User)
+        else if (Role == EChatTemplateRole::User)
         {
             Prefix += ModelParams.ChatTemplate.User + ModelParams.ChatTemplate.Delimiter;
         }
-        else if (ModelParams.ModelRole == EChatTemplateRole::System)
+        else if (Role == EChatTemplateRole::System)
         {
             Prefix += ModelParams.ChatTemplate.System + ModelParams.ChatTemplate.Delimiter;
         }
@@ -1023,7 +1056,6 @@ FStructuredChatMessage ULlamaComponent::FirstChatMessageInHistory(const FString&
     {
         StartUser = INT32_MAX;
     }
-
     
     if (StartSystem <= StartAssistant &&
         StartSystem <= StartUser)
@@ -1215,5 +1247,17 @@ FString ULlamaComponent::GetLastSentence(const FString& InputString)
     // Extract the last sentence
     int32 StartIndex = PrecedingPunctuationIndex == INDEX_NONE ? 0 : PrecedingPunctuationIndex + 1;
     return InputString.Mid(StartIndex, LastPunctuationIndex - StartIndex + 1).TrimStartAndEnd();
+}
+
+EChatTemplateRole ULlamaComponent::LastRoleFromStructuredHistory()
+{
+    if (ModelState.ChatHistory.History.Num() > 0)
+    {
+        return ModelState.ChatHistory.History.Last().Role;
+    }
+    else
+    {
+        return EChatTemplateRole::Unknown;
+    }
 }
 
