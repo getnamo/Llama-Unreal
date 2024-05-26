@@ -20,7 +20,7 @@ NB: currently has [#7 issue](https://github.com/getnamo/Llama-Unreal/issues/7) w
 
 If you want to do builds for your own use case or replace the llama.cpp backend. Note that these build instructions should be run from the cloned llama.cpp root directory, not the plugin root.
 
-Forked Plugin [Llama.cpp](https://github.com/ggerganov/llama.cpp) was built from git hash: [b7e7982953f80a656e03feb5cfb17a17a173eb26](https://github.com/ggerganov/llama.cpp/tree/b7e7982953f80a656e03feb5cfb17a17a173eb26)
+Forked Plugin [Llama.cpp](https://github.com/ggerganov/llama.cpp) was built from git hash: [917dc8cfa67a72fb7c8bf7392270da3bf4833af4](https://github.com/ggerganov/llama.cpp/tree/917dc8cfa67a72fb7c8bf7392270da3bf4833af4)
 
 
 ### Windows build
