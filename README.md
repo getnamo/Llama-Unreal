@@ -15,6 +15,7 @@ NB: currently has [#7 issue](https://github.com/getnamo/Llama-Unreal/issues/7) w
 3. Browse to your project folder (project root)
 4. Copy *Plugins* folder from .7z release into your project root.
 5. Plugin should now be ready to use.
+NB: You may need to manually copy `ggml.dll` and `llama.dll` to your project binaries folder for it to run correctly. (v0.5.0 issue)
 
 # Llama.cpp Build Instructions
 
