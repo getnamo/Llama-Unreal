@@ -10,7 +10,7 @@
 #include "Misc/Paths.h"
 #include "HAL/FileManager.h"
 #include "common/common.h"
-#include "common/gguf.h"
+//#include "common/gguf.h"
 
 #if PLATFORM_ANDROID
 #include "Android/AndroidPlatformFile.h"
@@ -380,7 +380,7 @@ namespace Internal
                         string Str = string{};
                         for (auto j = 0; j < NEval; ++j)
                         {
-                            Str += llama_detokenize_bpe(Context, { Embd[i + j] });
+                            Str += llama_detokenize(Context, { Embd[i + j] });
                         }
                         UE_LOG(LogTemp, Warning, TEXT("%p eval tokens `%s`"), this, UTF8_TO_TCHAR(Str.c_str()));
                     }
@@ -506,7 +506,7 @@ namespace Internal
             //     });
             // }
             
-            FString Token = UTF8_TO_TCHAR(llama_detokenize_bpe(Context, Embd).c_str());
+            FString Token = UTF8_TO_TCHAR(llama_detokenize(Context, Embd).c_str());
 
             //Debug block
             //NB: appears full history is not being input back to the model,
@@ -534,7 +534,7 @@ namespace Internal
 
                 for (vector<llama_token> StopSeq : StopSequences)
                 {
-                    FString Sequence = UTF8_TO_TCHAR(llama_detokenize_bpe(Context, StopSeq).c_str());
+                    FString Sequence = UTF8_TO_TCHAR(llama_detokenize(Context, StopSeq).c_str());
                     Sequence = Sequence.TrimStartAndEnd();
 
                     vector<llama_token> EndSeq;
@@ -542,7 +542,7 @@ namespace Internal
                     {
                         EndSeq.push_back(LastNTokens[LastNTokens.size() - StopSeq.size() + i]);
                     }
-                    FString EndString = UTF8_TO_TCHAR(llama_detokenize_bpe(Context, EndSeq).c_str());
+                    FString EndString = UTF8_TO_TCHAR(llama_detokenize(Context, EndSeq).c_str());
                     
                     if (bShouldLog) 
                     {

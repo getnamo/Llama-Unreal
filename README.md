@@ -20,7 +20,7 @@ NB: currently has [#7 issue](https://github.com/getnamo/Llama-Unreal/issues/7) w
 
 If you want to do builds for your own use case or replace the llama.cpp backend. Note that these build instructions should be run from the cloned llama.cpp root directory, not the plugin root.
 
-Forked Plugin [Llama.cpp](https://github.com/ggerganov/llama.cpp) was built from git hash: [917dc8cfa67a72fb7c8bf7392270da3bf4833af4](https://github.com/ggerganov/llama.cpp/tree/917dc8cfa67a72fb7c8bf7392270da3bf4833af4)
+Forked Plugin [Llama.cpp](https://github.com/ggerganov/llama.cpp) was built from git hash: [2f3c1466ff46a2413b0e363a5005c46538186ee6](https://github.com/ggerganov/llama.cpp/tree/2f3c1466ff46a2413b0e363a5005c46538186ee6)
 
 
 ### Windows build
@@ -41,13 +41,13 @@ ATM built for CUDA 12.2 runtime
 
 - Use `cuda` branch if you want cuda enabled.
 - We build statically due to dll runtime load bug so you need to copy `cudart.lib` `cublas.lib` and `cuda.lib` into your libraries/win64 path. These are ignored atm.
-- You also need to update `bUseCuda = true;` in .build.cs to add CUDA libs to build.
-- Ideally this needs a variant that build with `-DBUILD_SHARED_LIBS=ON`
+- Ensure `bTryToUseCuda = true;` is set in LlamaCore.build.cs to add CUDA libs to build.
+- NB help wanted: Ideally this needs a variant that build with `-DBUILD_SHARED_LIBS=ON`
 
 ```
 mkdir build
 cd build
-cmake .. -DLLAMA_CUBLAS=ON -DLLAMA_CUDA_DMMV_X=64 -DLLAMA_CUDA_MMV_Y=2 -DLLAMA_CUDA_F16=true
+cmake .. -DGGML_CUDA=ON
 cmake --build . --config Release -j --verbose
 ```
 

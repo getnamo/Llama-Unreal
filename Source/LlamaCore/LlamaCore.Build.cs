@@ -114,9 +114,9 @@ public class LlamaCore : ModuleRules
 
 				if (bCudaFound)
 				{
-					PublicAdditionalLibraries.Add(Path.Combine(CudaPath, "cudart.lib"));
-					PublicAdditionalLibraries.Add(Path.Combine(CudaPath, "cublas.lib"));
-					PublicAdditionalLibraries.Add(Path.Combine(CudaPath, "cuda.lib"));
+					// PublicAdditionalLibraries.Add(Path.Combine(CudaPath, "cudart.lib"));
+					// PublicAdditionalLibraries.Add(Path.Combine(CudaPath, "cublas.lib"));
+					// PublicAdditionalLibraries.Add(Path.Combine(CudaPath, "cuda.lib"));
 
 					System.Console.WriteLine("Llama-Unreal building using cuda at path " + CudaPath);
 				}
@@ -139,14 +139,24 @@ public class LlamaCore : ModuleRules
 			}
 
 			PublicAdditionalLibraries.Add(Path.Combine(LlamaPath, "llama.lib"));
-            PublicAdditionalLibraries.Add(Path.Combine(LlamaPath, "ggml_static.lib"));
+			PublicAdditionalLibraries.Add(Path.Combine(LlamaPath, "ggml.lib"));
+			//PublicAdditionalLibraries.Add(Path.Combine(LlamaPath, "common.lib"));
+
+			//temp
+			string WinLibDLLPath = LlamaPath;
+
+			PublicDelayLoadDLLs.Add("ggml.dll");
+			PublicDelayLoadDLLs.Add("llama.dll");
+
+			RuntimeDependencies.Add("$(BinaryOutputDir)/ggml.dll", Path.Combine(WinLibDLLPath, "ggml.dll"));
+			RuntimeDependencies.Add("$(BinaryOutputDir)/llama.dll", Path.Combine(WinLibDLLPath, "llama.dll"));
+            
 
 			System.Console.WriteLine("Llama-Unreal building using llama.lib at path " + LlamaPath);
 
 			//We do not use shared dll atm
-			//string WinLibDLLPath = Path.Combine(PluginLibPath, "Win64");
+			
 
-			//RuntimeDependencies.Add("$(BinaryOutputDir)/llama.dll", Path.Combine(WinLibDLLPath, "llama.dll));
 			//RuntimeDependencies.Add("$(BinaryOutputDir)/ggml_shared.dll", Path.Combine(WinLibDLLPath, "ggml_shared.dll"));
 		}
 		else if (Target.Platform == UnrealTargetPlatform.Mac)
