@@ -542,24 +542,27 @@ private:
                     auto nums = split(curly_brackets.substr(1, curly_brackets.length() - 2), ",");
                     int min_times = 0;
                     int max_times = std::numeric_limits<int>::max();
-                    try {
-                        if (nums.size() == 1) {
-                            min_times = max_times = std::stoi(nums[0]);
-                        } else if (nums.size() != 2) {
-                            _errors.push_back("Wrong number of values in curly brackets");
-                        } else {
-                            if (!nums[0].empty()) {
-                                min_times = std::stoi(nums[0]);
-                            }
-                            if (!nums[1].empty()) {
-                                max_times = std::stoi(nums[1]);
-                            }
+                    if (nums.size() == 1) {
+                        min_times = max_times = std::stoi(nums[0]);
+                    }
+                    else if (nums.size() != 2) {
+                        _errors.push_back("Wrong number of values in curly brackets");
+                    }
+                    else {
+                        if (!nums[0].empty()) {
+                            min_times = std::stoi(nums[0]);
                         }
+                        if (!nums[1].empty()) {
+                            max_times = std::stoi(nums[1]);
+                        }
+                    }
+                    /*try {
+                        
                     } catch (const std::invalid_argument & e) {
                         e;
                         _errors.push_back("Invalid number in curly brackets");
                         return std::make_pair("", false);
-                    }
+                    }*/
                     auto &last = seq.back();
                     auto &sub = last.first;
                     auto sub_is_literal = last.second;

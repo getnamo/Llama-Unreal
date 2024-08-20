@@ -361,36 +361,37 @@ namespace grammar_parser {
     }
 
     parse_state parse(const char * src) {
-        try {
-            parse_state state;
-            const char * pos = parse_space(src, true);
-            while (*pos) {
-                pos = parse_rule(state, pos);
+        parse_state state;
+        const char* pos = parse_space(src, true);
+        while (*pos) {
+            pos = parse_rule(state, pos);
+        }
+        // Validate the state to ensure that all rules are defined
+        for (const auto& rule : state.rules) {
+            if (rule.empty()) {
+                throw std::runtime_error("Undefined rule");
             }
-            // Validate the state to ensure that all rules are defined
-            for (const auto & rule : state.rules) {
-                if (rule.empty()) {
-                    throw std::runtime_error("Undefined rule");
-                }
-                for (const auto & elem : rule) {
-                    if (elem.type == LLAMA_GRETYPE_RULE_REF) {
-                        // Ensure that the rule at that location exists
-                        if (elem.value >= state.rules.size() || state.rules[elem.value].empty()) {
-                            // Get the name of the rule that is missing
-                            for (const auto & kv : state.symbol_ids) {
-                                if (kv.second == elem.value) {
-                                    throw std::runtime_error("Undefined rule identifier '" + kv.first + "'");
-                                }
+            for (const auto& elem : rule) {
+                if (elem.type == LLAMA_GRETYPE_RULE_REF) {
+                    // Ensure that the rule at that location exists
+                    if (elem.value >= state.rules.size() || state.rules[elem.value].empty()) {
+                        // Get the name of the rule that is missing
+                        for (const auto& kv : state.symbol_ids) {
+                            if (kv.second == elem.value) {
+                                throw std::runtime_error("Undefined rule identifier '" + kv.first + "'");
                             }
                         }
                     }
                 }
             }
-            return state;
+        }
+        return state;/*
+        try {
+            
         } catch (const std::exception & err) {
             fprintf(stderr, "%s: error parsing grammar: %s\n", __func__, err.what());
             return parse_state();
-        }
+        }*/
     }
 
     static void print_grammar_char(FILE * file, uint32_t c) {
@@ -512,20 +513,21 @@ namespace grammar_parser {
     }
 
     void print_grammar(FILE * file, const parse_state & state) {
-        try {
-            std::map<uint32_t, std::string> symbol_id_names;
-            for (const auto & kv : state.symbol_ids) {
-                symbol_id_names[kv.second] = kv.first;
-            }
-            for (size_t i = 0, end = state.rules.size(); i < end; i++) {
-                // fprintf(file, "%zu: ", i);
-                // print_rule_binary(file, state.rules[i]);
-                print_rule(file, uint32_t(i), state.rules[i], symbol_id_names);
-                // fprintf(file, "\n");
-            }
+        std::map<uint32_t, std::string> symbol_id_names;
+        for (const auto& kv : state.symbol_ids) {
+            symbol_id_names[kv.second] = kv.first;
+        }
+        for (size_t i = 0, end = state.rules.size(); i < end; i++) {
+            // fprintf(file, "%zu: ", i);
+            // print_rule_binary(file, state.rules[i]);
+            print_rule(file, uint32_t(i), state.rules[i], symbol_id_names);
+            // fprintf(file, "\n");
+        }
+        /*try {
+            
         } catch (const std::exception & err) {
             fprintf(stderr, "\n%s: error printing grammar: %s\n", __func__, err.what());
-        }
+        }*/
     }
 
     std::vector<const llama_grammar_element *> parse_state::c_rules() {

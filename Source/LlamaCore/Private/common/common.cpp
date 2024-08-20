@@ -296,7 +296,13 @@ bool gpt_params_parse_ex(int argc, char ** argv, gpt_params & params) {
 bool gpt_params_parse(int argc, char ** argv, gpt_params & params) {
     const auto params_org = params; // the example can modify the default params
 
-    try {
+    if (!gpt_params_parse_ex(argc, argv, params) || params.usage) {
+        params = params_org;
+        params.usage = true;
+        return false;
+    }
+
+    /*try {
         if (!gpt_params_parse_ex(argc, argv, params) || params.usage) {
             params = params_org;
             params.usage = true;
@@ -306,7 +312,7 @@ bool gpt_params_parse(int argc, char ** argv, gpt_params & params) {
         fprintf(stderr, "%s\n", ex.what());
         params = params_org;
         return false;
-    }
+    }*/
 
     return true;
 }
@@ -1050,7 +1056,11 @@ bool gpt_params_find_arg(int argc, char ** argv, const std::string & arg, gpt_pa
         llama_token key;
         char sign;
         std::string value_str;
-        try {
+        if (ss >> key && ss >> sign && std::getline(ss, value_str) && (sign == '+' || sign == '-')) {
+            sparams.logit_bias[key] = std::stof(value_str) * ((sign == '-') ? -1.0f : 1.0f);
+        }
+
+        /*try {
             if (ss >> key && ss >> sign && std::getline(ss, value_str) && (sign == '+' || sign == '-')) {
                 sparams.logit_bias[key] = std::stof(value_str) * ((sign == '-') ? -1.0f : 1.0f);
             }
@@ -1061,7 +1071,7 @@ bool gpt_params_find_arg(int argc, char ** argv, const std::string & arg, gpt_pa
         catch (const std::exception&) {
             invalid_param = true;
             return true;
-        }
+        }*/
         return true;
     }
     if (arg == "-h" || arg == "--help" || arg == "--usage"  ) {
@@ -1922,19 +1932,21 @@ bool fs_validate_filename(const std::string & filename) {
     }
 
     std::u32string filename_utf32;
-    try {
-        std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> converter;
-        filename_utf32 = converter.from_bytes(filename);
+    std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> converter;
+    filename_utf32 = converter.from_bytes(filename);
 
-        // If the reverse conversion mismatches, it means overlong UTF-8 sequences were used,
-        // or invalid encodings were encountered. Reject such attempts
-        std::string filename_reencoded = converter.to_bytes(filename_utf32);
-        if (filename_reencoded != filename) {
-            return false;
-        }
-    } catch (const std::exception &) {
+    // If the reverse conversion mismatches, it means overlong UTF-8 sequences were used,
+    // or invalid encodings were encountered. Reject such attempts
+    std::string filename_reencoded = converter.to_bytes(filename_utf32);
+    if (filename_reencoded != filename) {
         return false;
     }
+
+    /*try {
+        
+    } catch (const std::exception &) {
+        return false;
+    }*/
 
     // Check for forbidden codepoints:
     // - Control characters
@@ -2985,11 +2997,12 @@ static llama_control_vector_data llama_control_vector_load_one(const llama_contr
         // split on '.'
         size_t dotpos = name.find('.');
         if (dotpos != std::string::npos && name.substr(0, dotpos) == "direction") {
-            try {
+            layer_idx = std::stoi(name.substr(dotpos + 1));
+            /*try {
                 layer_idx = std::stoi(name.substr(dotpos + 1));
             } catch (...) {
                 layer_idx = -1;
-            }
+            }*/
         }
         if (layer_idx < 0) {
             fprintf(stderr, "%s: invalid/unparsable direction tensor layer index in %s\n", __func__, load_info.fname.c_str());
