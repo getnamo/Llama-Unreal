@@ -75,6 +75,12 @@
 #define LLAMA_CURL_MAX_URL_LENGTH 2084 // Maximum URL Length in Chrome: 2083
 #endif // LLAMA_USE_CURL
 
+// Define build info
+int LLAMA_BUILD_NUMBER = 0;
+char const* LLAMA_COMMIT = "2f3c1466ff46a2413b0e363a5005c46538186ee6";
+char const* LLAMA_COMPILER = "";
+char const* LLAMA_BUILD_TARGET = "";
+
 using json = nlohmann::ordered_json;
 
 //
