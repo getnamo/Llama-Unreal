@@ -768,8 +768,10 @@ namespace Internal
 } // namespace Internal
 
 ULlamaComponent::ULlamaComponent(const FObjectInitializer &ObjectInitializer)
-    : UActorComponent(ObjectInitializer), llama(make_unique<Internal::FLlama>())
+    : UActorComponent(ObjectInitializer)
 {
+    llama = new Internal::FLlama();
+
     PrimaryComponentTick.bCanEverTick = true;
     PrimaryComponentTick.bStartWithTickEnabled = true;
 
@@ -876,7 +878,14 @@ ULlamaComponent::ULlamaComponent(const FObjectInitializer &ObjectInitializer)
     ModelParams.Advanced.PartialsSeparators.Add(TEXT("!"));
 }
 
-ULlamaComponent::~ULlamaComponent() = default;
+ULlamaComponent::~ULlamaComponent()
+{
+	if (llama)
+	{
+		delete llama;
+		llama = nullptr;
+	}
+}
 
 void ULlamaComponent::Activate(bool bReset)
 {
