@@ -145,8 +145,8 @@ public class LlamaCore : ModuleRules
 			//temp
 			string WinLibDLLPath = LlamaPath;
 
-			PublicDelayLoadDLLs.Add("ggml.dll");
-			PublicDelayLoadDLLs.Add("llama.dll");
+			// PublicDelayLoadDLLs.Add("ggml.dll");
+			// PublicDelayLoadDLLs.Add("llama.dll");
 
 			RuntimeDependencies.Add("$(BinaryOutputDir)/ggml.dll", Path.Combine(WinLibDLLPath, "ggml.dll"));
 			RuntimeDependencies.Add("$(BinaryOutputDir)/llama.dll", Path.Combine(WinLibDLLPath, "llama.dll"));
