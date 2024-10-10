@@ -3,7 +3,6 @@
 #pragma once
 #include <Components/ActorComponent.h>
 #include <CoreMinimal.h>
-#include <memory>
 
 #include "LlamaComponent.generated.h"
 
@@ -342,7 +341,7 @@ public:
     TArray<FString> DebugListDirectoryContent(const FString& InPath);
 
 private:
-    std::unique_ptr<Internal::FLlama> llama;
+    class Internal::FLlama* llama;
 
     TFunction<void(FString, int32)> TokenCallbackInternal;
 };
