@@ -170,7 +170,7 @@ struct FLLMModelParams
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
     FString PathToModel = "./model.gguf";
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params", meta=(MultiLine=true))
     FString Prompt = "You are a helpful assistant.";
 
     //If not different than default empty, no template will be applied
@@ -287,7 +287,7 @@ public:
     TMap<FString, FChatTemplate> CommonChatTemplates;
 
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
-    void InsertPrompt(const FString &Text);
+    void InsertPrompt(UPARAM(meta=(MultiLine=true)) const FString &Text);
 
     /** 
     * Use this function to bypass input from AI, e.g. streaming input from another source. 
@@ -304,7 +304,7 @@ public:
 
     //This will wrap your input given the specific role using chat template specified
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
-    void InsertPromptTemplated(const FString& Text, EChatTemplateRole Role);
+    void InsertPromptTemplated(UPARAM(meta=(MultiLine=true)) const FString& Text, EChatTemplateRole Role);
 
 
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")

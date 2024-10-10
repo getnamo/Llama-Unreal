@@ -802,19 +802,21 @@ ULlamaComponent::ULlamaComponent(const FObjectInitializer &ObjectInitializer)
                     {
                         ModelState.LastRole = LastRoleFromStructuredHistory();
                     }
-
                     //Grab partial from last message
-                    const FStructuredChatMessage& Message = ModelState.ChatHistory.History.Last();
-
-                    //Confirm it's from the assistant
-                    if (Message.Role == EChatTemplateRole::Assistant)
+                    
+                    if(ModelState.ChatHistory.History.Num() > 0)
                     {
-                        //Look for period preceding this one
-                        FString Sentence = GetLastSentence(Message.Content);
-
-                        if (!Sentence.IsEmpty())
+                        const FStructuredChatMessage &Message = ModelState.ChatHistory.History.Last();
+                        //Confirm it's from the assistant
+                        if (Message.Role == EChatTemplateRole::Assistant)
                         {
-                            OnPartialParsed.Broadcast(Sentence);
+                            //Look for period preceding this one
+                            FString Sentence = GetLastSentence(Message.Content);
+
+                            if (!Sentence.IsEmpty())
+                            {
+                                OnPartialParsed.Broadcast(Sentence);
+                            }
                         }
                     }
                 }
