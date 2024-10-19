@@ -32,29 +32,29 @@ namespace
     class Q
     {
     public:
-        void Enqueue(function<void()>);
+        void Enqueue(TFunction<void()>);
         bool ProcessQ();
 
     private:
-        deque<function<void()>> q;
-        mutex mutex_;
+        TQueue<TFunction<void()>> q;
+        FCriticalSection mutex_;
     };
 
-    void Q::Enqueue(function<void()> v)
+    void Q::Enqueue(TFunction<void()> v)
     {
-        lock_guard l(mutex_);
-        q.emplace_back(std::move(v));
+        FScopeLock l(&mutex_);
+        q.Enqueue(MoveTemp(v));
     }
 
-    bool Q::ProcessQ() {
-        function<void()> v;
+    bool Q::ProcessQ()
+    {
+        TFunction<void()> v;
         {
-            lock_guard l(mutex_);
-            if (q.empty()) {
+            FScopeLock l(&mutex_);
+            if (!q.Dequeue(v))
+            {
                 return false;
             }
-            v = std::move(q.front());
-            q.pop_front();
         }
         v();
         return true;
