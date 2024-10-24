@@ -8,7 +8,7 @@
 
 namespace Internal
 {
-  class FLlama;
+    class FLlama;
 }
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnErrorSignature, FString, ErrorMessage);

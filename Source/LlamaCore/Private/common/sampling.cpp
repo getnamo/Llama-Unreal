@@ -411,9 +411,9 @@ static llama_token_data_array llama_sampling_prepare_impl(
                 penalty_tokens_used_size, penalty_repeat, penalty_freq, penalty_present);
 
         if (!penalize_nl) {
-            for (size_t idx = 0; idx < cur_p.size; idx++) {
-                if (cur_p.data[idx].id == llama_token_nl(llama_get_model(ctx_main))) {
-                    cur_p.data[idx].logit = nl_logit;
+            for (size_t idxl = 0; idxl < cur_p.size; idxl++) {
+                if (cur_p.data[idxl].id == llama_token_nl(llama_get_model(ctx_main))) {
+                    cur_p.data[idxl].logit = nl_logit;
                     break;
                 }
             }
