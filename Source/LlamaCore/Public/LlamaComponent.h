@@ -166,6 +166,7 @@ struct FLLMModelParams
 {
     GENERATED_USTRUCT_BODY();
 
+    //If path begins with a . it's considered relative to Saved/Models path, otherwise it's an absolute path.
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
     FString PathToModel = "./model.gguf";
 

@@ -76,8 +76,8 @@ namespace
 
     struct Params
     {
-        FString Prompt = "Hello";
-        FString PathToModel = "/media/mika/Michigan/prj/llama-2-13b-chat.ggmlv3.q8_0.bin";
+        FString Prompt = "You are a helpful assistant.";
+        FString PathToModel = "./model.gguf";
         TArray<FString> StopSequences;
     };
 } // namespace
