@@ -341,7 +341,7 @@ public:
     TArray<FString> DebugListDirectoryContent(const FString& InPath);
 
 private:
-    class Internal::FLlama* llama;
+    class Internal::FLlama* Llama;
 
     TFunction<void(FString, int32)> TokenCallbackInternal;
 };

@@ -770,7 +770,7 @@ namespace Internal
 ULlamaComponent::ULlamaComponent(const FObjectInitializer &ObjectInitializer)
     : UActorComponent(ObjectInitializer)
 {
-    llama = new Internal::FLlama();
+    Llama = new Internal::FLlama();
 
     PrimaryComponentTick.bCanEverTick = true;
     PrimaryComponentTick.bStartWithTickEnabled = true;
@@ -829,9 +829,9 @@ ULlamaComponent::ULlamaComponent(const FObjectInitializer &ObjectInitializer)
         OnNewTokenGenerated.Broadcast(std::move(NewToken));
     };
 
-    llama->OnTokenCb = TokenCallbackInternal;
+    Llama->OnTokenCb = TokenCallbackInternal;
 
-    llama->OnEosCb = [this](bool StopTokenCausedEos, float TokensPerSecond)
+    Llama->OnEosCb = [this](bool StopTokenCausedEos, float TokensPerSecond)
     {
         ModelState.LastTokensPerSecond = TokensPerSecond;
 
@@ -842,11 +842,11 @@ ULlamaComponent::ULlamaComponent(const FObjectInitializer &ObjectInitializer)
         }
         OnEndOfStream.Broadcast(StopTokenCausedEos, TokensPerSecond);
     };
-    llama->OnStartEvalCb = [this]()
+    Llama->OnStartEvalCb = [this]()
     {
         OnStartEval.Broadcast();
     };
-    llama->OnContextResetCb = [this]()
+    Llama->OnContextResetCb = [this]()
     {
         if (bSyncPromptHistory) 
         {
@@ -854,7 +854,7 @@ ULlamaComponent::ULlamaComponent(const FObjectInitializer &ObjectInitializer)
         }
         OnContextReset.Broadcast();
     };
-    llama->OnErrorCb = [this](FString ErrorMessage)
+    Llama->OnErrorCb = [this](FString ErrorMessage)
     {
         OnError.Broadcast(ErrorMessage);
     };
@@ -882,10 +882,10 @@ ULlamaComponent::ULlamaComponent(const FObjectInitializer &ObjectInitializer)
 
 ULlamaComponent::~ULlamaComponent()
 {
-	if (llama)
+	if (Llama)
 	{
-		delete llama;
-		llama = nullptr;
+		delete Llama;
+		Llama = nullptr;
 	}
 }
 
@@ -899,14 +899,14 @@ void ULlamaComponent::Activate(bool bReset)
     }
 
     //if it hasn't been started, this will start it
-    llama->StartStopThread(true);
-    llama->bShouldLog = bDebugLogModelOutput;
-    llama->Activate(bReset, ModelParams);
+    Llama->StartStopThread(true);
+    Llama->bShouldLog = bDebugLogModelOutput;
+    Llama->Activate(bReset, ModelParams);
 }
 
 void ULlamaComponent::Deactivate()
 {
-    llama->Deactivate();
+    Llama->Deactivate();
     Super::Deactivate();
 }
 
@@ -915,12 +915,12 @@ void ULlamaComponent::TickComponent(float DeltaTime,
                                     FActorComponentTickFunction* ThisTickFunction)
 {
     Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
-    llama->Process();
+    Llama->Process();
 }
 
 void ULlamaComponent::InsertPrompt(const FString& Prompt)
 {
-    llama->InsertPrompt(Prompt);
+    Llama->InsertPrompt(Prompt);
 }
 
 void ULlamaComponent::UserImpersonateText(const FString& Text, EChatTemplateRole Role, bool bIsEos)
@@ -998,27 +998,27 @@ FString ULlamaComponent::GetRolePrefix(EChatTemplateRole Role)
 
 void ULlamaComponent::InsertPromptTemplated(const FString& Content, EChatTemplateRole Role)
 {
-    llama->InsertPrompt(WrapPromptForRole(Content, Role, true));
+    Llama->InsertPrompt(WrapPromptForRole(Content, Role, true));
 }
 
 void ULlamaComponent::StartStopQThread(bool bShouldRun)
 {
-    llama->StartStopThread(bShouldRun);
+    Llama->StartStopThread(bShouldRun);
 }
 
 void ULlamaComponent::StopGenerating()
 {
-    llama->StopGenerating();
+    Llama->StopGenerating();
 }
 
 void ULlamaComponent::ResumeGenerating()
 {
-    llama->ResumeGenerating();
+    Llama->ResumeGenerating();
 }
 
 void ULlamaComponent::SyncParamsToLlama()
 {
-    llama->UpdateParams(ModelParams);
+    Llama->UpdateParams(ModelParams);
 }
 
 FString ULlamaComponent::GetTemplateStrippedPrompt()
