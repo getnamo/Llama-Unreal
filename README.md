@@ -63,7 +63,7 @@ cmake --build . --config Release -j --verbose
 
 ### Android build
 
-For Android build see: https://github.com/ggerganov/llama.cpp?tab=readme-ov-file#android
+For Android build see: https://github.com/ggerganov/llama.cpp/blob/master/docs/android.md#cross-compile-using-android-ndk
 
 ```
 mkdir build-android
