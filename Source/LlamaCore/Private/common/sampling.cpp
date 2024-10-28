@@ -32,7 +32,7 @@ struct llama_sampling_context * llama_sampling_init(const struct llama_sampling_
                 grammar_rules.data(),
                 grammar_rules.size(), result->parsed_grammar.symbol_ids.at("root"));
         if (grammar == nullptr) {
-            throw std::runtime_error("Failed to initialize llama_grammar");
+            //throw std::runtime_error("Failed to initialize llama_grammar");
         }
         result->grammar = grammar;
     }
@@ -67,7 +67,7 @@ void llama_sampling_reset(llama_sampling_context * ctx) {
                 grammar_rules.data(),
                 grammar_rules.size(), ctx->parsed_grammar.symbol_ids.at("root"));
         if (grammar == nullptr) {
-            throw std::runtime_error("Failed to initialize llama_grammar");
+            //throw std::runtime_error("Failed to initialize llama_grammar");
         }
         ctx->grammar = grammar;
     }

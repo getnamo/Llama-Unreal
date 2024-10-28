@@ -72,7 +72,12 @@ namespace grammar_parser {
             }
         }
         if (pos != end) {
+
+#if PLATFORM_WINDOWS
             throw std::runtime_error("expecting " + std::to_string(size) + " hex chars at " + src);
+#else
+            return std::make_pair(value, pos);
+#endif
         }
         return std::make_pair(value, pos);
     }
@@ -98,7 +103,11 @@ namespace grammar_parser {
             pos++;
         }
         if (pos == src) {
+#if PLATFORM_WINDOWS
             throw std::runtime_error(std::string("expecting name at ") + src);
+#else
+            return pos;
+#endif            
         }
         return pos;
     }
@@ -109,7 +118,11 @@ namespace grammar_parser {
             pos++;
         }
         if (pos == src) {
-            throw std::runtime_error(std::string("expecting integer at ") + src);
+#if PLATFORM_WINDOWS
+            throw std::runtime_error(std::string("expecting integer at ") + src); 
+#else
+            return pos;
+#endif
         }
         return pos;
     }
@@ -129,12 +142,15 @@ namespace grammar_parser {
                 case ']':
                     return std::make_pair(src[1], src + 2);
                 default:
-                    throw std::runtime_error(std::string("unknown escape at ") + src);
+                    return std::make_pair(src[1], src + 2);
+                    //throw std::runtime_error(std::string("unknown escape at ") + src);
             }
         } else if (*src) {
             return decode_utf8(src);
         }
-        throw std::runtime_error("unexpected end of input");
+
+        return decode_utf8(src);
+        //throw std::runtime_error("unexpected end of input");
     }
 
     const char * parse_alternates(
@@ -156,7 +172,7 @@ namespace grammar_parser {
         auto handle_repetitions = [&](int min_times, int max_times) {
 
             if (last_sym_start == out_elements.size()) {
-                throw std::runtime_error(std::string("expecting preceding item to */+/?/{ at ") + pos);
+                //throw std::runtime_error(std::string("expecting preceding item to */+/?/{ at ") + pos);
             }
 
             // apply transformation to previous symbol (last_sym_start to end) according to
@@ -212,7 +228,7 @@ namespace grammar_parser {
                 last_sym_start = out_elements.size();
                 while (*pos != '"') {
                     if (!*pos) {
-                        throw std::runtime_error("unexpected end of input");
+                        //throw std::runtime_error("unexpected end of input");
                     }
                     auto char_pair = parse_char(pos);
                          pos       = char_pair.second;
@@ -229,7 +245,7 @@ namespace grammar_parser {
                 last_sym_start = out_elements.size();
                 while (*pos != ']') {
                     if (!*pos) {
-                        throw std::runtime_error("unexpected end of input");
+                        //throw std::runtime_error("unexpected end of input");
                     }
                     auto char_pair = parse_char(pos);
                          pos       = char_pair.second;
@@ -240,7 +256,7 @@ namespace grammar_parser {
                     out_elements.push_back({type, char_pair.first});
                     if (pos[0] == '-' && pos[1] != ']') {
                         if (!pos[1]) {
-                            throw std::runtime_error("unexpected end of input");
+                            //throw std::runtime_error("unexpected end of input");
                         }
                         auto endchar_pair = parse_char(pos + 1);
                              pos          = endchar_pair.second;
@@ -263,7 +279,7 @@ namespace grammar_parser {
                 // output reference to synthesized rule
                 out_elements.push_back({LLAMA_GRETYPE_RULE_REF, sub_rule_id});
                 if (*pos != ')') {
-                    throw std::runtime_error(std::string("expecting ')' at ") + pos);
+                    //throw std::runtime_error(std::string("expecting ')' at ") + pos);
                 }
                 pos = parse_space(pos + 1, is_nested);
             } else if (*pos == '.') { // any char
@@ -283,7 +299,7 @@ namespace grammar_parser {
                 pos = parse_space(pos + 1, is_nested);
 
                 if (!is_digit_char(*pos)) {
-                    throw std::runtime_error(std::string("expecting an int at ") + pos);
+                    //throw std::runtime_error(std::string("expecting an int at ") + pos);
                 }
                 const char * int_end = parse_int(pos);
                 int min_times = std::stoul(std::string(pos, int_end - pos));
@@ -304,11 +320,11 @@ namespace grammar_parser {
                     }
 
                     if (*pos != '}') {
-                        throw std::runtime_error(std::string("expecting '}' at ") + pos);
+                        //throw std::runtime_error(std::string("expecting '}' at ") + pos);
                     }
                     pos = parse_space(pos + 1, is_nested);
                 } else {
-                    throw std::runtime_error(std::string("expecting ',' at ") + pos);
+                    //throw std::runtime_error(std::string("expecting ',' at ") + pos);
                 }
                 handle_repetitions(min_times, max_times);
             } else {
@@ -344,7 +360,7 @@ namespace grammar_parser {
         const std::string name(src, name_len);
 
         if (!(pos[0] == ':' && pos[1] == ':' && pos[2] == '=')) {
-            throw std::runtime_error(std::string("expecting ::= at ") + pos);
+            //throw std::runtime_error(std::string("expecting ::= at ") + pos);
         }
         pos = parse_space(pos + 3, true);
 
@@ -355,7 +371,7 @@ namespace grammar_parser {
         } else if (*pos == '\n') {
             pos++;
         } else if (*pos) {
-            throw std::runtime_error(std::string("expecting newline or end at ") + pos);
+            //throw std::runtime_error(std::string("expecting newline or end at ") + pos);
         }
         return parse_space(pos, true);
     }
@@ -369,7 +385,7 @@ namespace grammar_parser {
         // Validate the state to ensure that all rules are defined
         for (const auto& rule : state.rules) {
             if (rule.empty()) {
-                throw std::runtime_error("Undefined rule");
+                //throw std::runtime_error("Undefined rule");
             }
             for (const auto& elem : rule) {
                 if (elem.type == LLAMA_GRETYPE_RULE_REF) {
@@ -378,7 +394,7 @@ namespace grammar_parser {
                         // Get the name of the rule that is missing
                         for (const auto& kv : state.symbol_ids) {
                             if (kv.second == elem.value) {
-                                throw std::runtime_error("Undefined rule identifier '" + kv.first + "'");
+                                //throw std::runtime_error("Undefined rule identifier '" + kv.first + "'");
                             }
                         }
                     }
@@ -452,17 +468,18 @@ namespace grammar_parser {
             const std::vector<llama_grammar_element> & rule,
             const std::map<uint32_t, std::string>    & symbol_id_names) {
         if (rule.empty() || rule.back().type != LLAMA_GRETYPE_END) {
-            throw std::runtime_error(
-                "malformed rule, does not end with LLAMA_GRETYPE_END: " + std::to_string(rule_id));
+            //throw std::runtime_error(
+            //    "malformed rule, does not end with LLAMA_GRETYPE_END: " + std::to_string(rule_id));
         }
         fprintf(file, "%s ::= ", symbol_id_names.at(rule_id).c_str());
         for (size_t i = 0, end = rule.size() - 1; i < end; i++) {
             llama_grammar_element elem = rule[i];
             switch (elem.type) {
                 case LLAMA_GRETYPE_END:
-                    throw std::runtime_error(
-                        "unexpected end of rule: " + std::to_string(rule_id) + "," +
-                        std::to_string(i));
+                    //throw std::runtime_error(
+                    //    "unexpected end of rule: " + std::to_string(rule_id) + "," +
+                    //    std::to_string(i));
+                    break;
                 case LLAMA_GRETYPE_ALT:
                     fprintf(file, "| ");
                     break;
@@ -479,18 +496,20 @@ namespace grammar_parser {
                     break;
                 case LLAMA_GRETYPE_CHAR_RNG_UPPER:
                     if (i == 0 || !is_char_element(rule[i - 1])) {
-                        throw std::runtime_error(
-                            "LLAMA_GRETYPE_CHAR_RNG_UPPER without preceding char: " +
-                            std::to_string(rule_id) + "," + std::to_string(i));
+                        //throw std::runtime_error(
+                        //    "LLAMA_GRETYPE_CHAR_RNG_UPPER without preceding char: " +
+                        //   std::to_string(rule_id) + "," + std::to_string(i));
+                        break;
                     }
                     fprintf(file, "-");
                     print_grammar_char(file, elem.value);
                     break;
                 case LLAMA_GRETYPE_CHAR_ALT:
                     if (i == 0 || !is_char_element(rule[i - 1])) {
-                        throw std::runtime_error(
-                            "LLAMA_GRETYPE_CHAR_ALT without preceding char: " +
-                            std::to_string(rule_id) + "," + std::to_string(i));
+                        //throw std::runtime_error(
+                        //    "LLAMA_GRETYPE_CHAR_ALT without preceding char: " +
+                        //    std::to_string(rule_id) + "," + std::to_string(i));
+                        break;
                     }
                     print_grammar_char(file, elem.value);
                     break;

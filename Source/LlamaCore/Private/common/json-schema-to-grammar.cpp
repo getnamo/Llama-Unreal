@@ -71,7 +71,7 @@ public:
     char operator[](size_t pos) const {
         auto index = _start + pos;
         if (index >= _end) {
-            throw std::out_of_range("string_view index out of range");
+            //throw std::out_of_range("string_view index out of range");
         }
         return _str[_start + pos];
     }
@@ -264,7 +264,7 @@ static void _build_min_max_int(int min_value, int max_value, std::stringstream &
         return;
     }
 
-    throw std::runtime_error("At least one of min_value or max_value must be set");
+    //throw std::runtime_error("At least one of min_value or max_value must be set");
 }
 
 const std::string SPACE_RULE = "| \" \" | \"\\n\" [ \\t]{0,20}";
@@ -1023,7 +1023,7 @@ public:
 
     void check_errors() {
         if (!_errors.empty()) {
-            throw std::runtime_error("JSON schema conversion failed:\n" + join(_errors.begin(), _errors.end(), "\n"));
+            //throw std::runtime_error("JSON schema conversion failed:\n" + join(_errors.begin(), _errors.end(), "\n"));
         }
         if (!_warnings.empty()) {
             fprintf(stderr, "WARNING: JSON schema conversion was incomplete: %s\n", join(_warnings.begin(), _warnings.end(), "; ").c_str());

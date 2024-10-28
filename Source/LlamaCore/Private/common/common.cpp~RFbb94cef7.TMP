@@ -2062,11 +2062,11 @@ bool fs_create_directory_with_parents(const std::string & path) {
     // process path from front to back, procedurally creating directories
     while ((pos_slash = path.find('/', pos_slash)) != std::string::npos) {
         const std::string subpath = path.substr(0, pos_slash);
-        struct stat info2;
+        struct stat info;
 
         // if the path already exists, ensure that it's a directory
-        if (stat(subpath.c_str(), &info2) == 0) {
-            if (!S_ISDIR(info2.st_mode)) {
+        if (stat(subpath.c_str(), &info) == 0) {
+            if (!S_ISDIR(info.st_mode)) {
                 return false;
             }
         } else {
@@ -2118,12 +2118,7 @@ std::string fs_get_cache_file(const std::string & filename) {
     std::string cache_directory = fs_get_cache_directory();
     const bool success = fs_create_directory_with_parents(cache_directory);
     if (!success) {
-
-#if PLATFORM_WINDOWS
         throw std::runtime_error("failed to create cache directory: " + cache_directory);
-#else
-        return std::string();
-#endif
     }
     return cache_directory + filename;
 }
@@ -2298,12 +2293,7 @@ static ggml_type kv_cache_type_from_str(const std::string & s) {
         return GGML_TYPE_Q5_1;
     }
 
-#if PLATFORM_WINDOWS
     throw std::runtime_error("Invalid cache type: " + s);
-#else
-    return GGML_TYPE_F32;
-#endif
-    
 }
 
 struct llama_context_params llama_context_params_from_gpt_params(const gpt_params & params) {
@@ -2811,12 +2801,7 @@ std::string llama_chat_apply_template(const struct llama_model * model,
         if (ptr_tmpl != nullptr) {
             // if the custom "tmpl" is not supported, we throw an error
             // this is a bit redundant (for good), since we're not sure if user validated the custom template with llama_chat_verify_template()
-#if PLATFORM_WINDOWS
             throw std::runtime_error("this custom template is not supported");
-#else
-            return std::string();
-#endif
-            
         } else {
             // If the built-in template is not supported, we default to chatml
             res = llama_chat_apply_template(nullptr, "chatml", chat.data(), chat.size(), add_ass, buf.data(), buf.size());
