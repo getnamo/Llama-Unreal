@@ -102,7 +102,7 @@ struct FStructuredChatMessage
     GENERATED_USTRUCT_BODY();
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Structured Chat Message")
-    EChatTemplateRole Role;
+    EChatTemplateRole Role = EChatTemplateRole::Assistant;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Structured Chat Message")
     FString Content;
