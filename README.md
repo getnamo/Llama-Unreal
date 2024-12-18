@@ -1,6 +1,6 @@
 # Llama Unreal
 
-An Unreal focused API wrapper for [llama.cpp](https://github.com/ggerganov/llama.cpp) to support embedding LLMs into your games locally. Forked from upstream to focus on improved API with wider support for builds (CPU, CUDA, Android, Mac).
+An Unreal focused API wrapper for [llama.cpp](https://github.com/ggerganov/llama.cpp) to support embedding LLMs into your games locally. Forked from [upstream](https://github.com/mika314/UELlama) to focus on improved API with wider support for builds (CPU, CUDA, Android, Mac).
 
 Early releases, api still pretty unstable YMMV.
 
