@@ -17,6 +17,21 @@ NB: currently has [#7 issue](https://github.com/getnamo/Llama-Unreal/issues/7) w
 5. Plugin should now be ready to use.
 NB: You may need to manually copy `ggml.dll` and `llama.dll` to your project binaries folder for it to run correctly. (v0.5.0 issue)
 
+# How to use - Basics
+
+NB: Early days of API, unstable.
+
+Everything is wrapped inside a [`ULlamaComponent`](https://github.com/getnamo/Llama-Unreal/blob/5b149eabccd2832fb630bb08f0d9f0c14325ed82/Source/LlamaCore/Public/LlamaComponent.h#L237) which interfaces internally via [`FLlama`](https://github.com/getnamo/Llama-Unreal/blob/5b149eabccd2832fb630bb08f0d9f0c14325ed82/Source/LlamaCore/Private/LlamaComponent.cpp#L87).
+
+1) Setup your [`ModelParams`](https://github.com/getnamo/Llama-Unreal/blob/5b149eabccd2832fb630bb08f0d9f0c14325ed82/Source/LlamaCore/Public/LlamaComponent.h#L273) of type [`FLLMModelParams`](https://github.com/getnamo/Llama-Unreal/blob/5b149eabccd2832fb630bb08f0d9f0c14325ed82/Source/LlamaCore/Public/LlamaComponent.h#L165) 
+
+2) Call [`InsertPromptTemplated`](https://github.com/getnamo/Llama-Unreal/blob/5b149eabccd2832fb630bb08f0d9f0c14325ed82/Source/LlamaCore/Public/LlamaComponent.h#L307) (or [`InsertPrompt`](https://github.com/getnamo/Llama-Unreal/blob/5b149eabccd2832fb630bb08f0d9f0c14325ed82/Source/LlamaCore/Public/LlamaComponent.h#L290) if you're doing raw input style without formatting. NB: only `ChatML` templating is currently specified for templated input.
+
+3) You should receive replies via [`OnNewTokenGenerated`](https://github.com/getnamo/Llama-Unreal/blob/5b149eabccd2832fb630bb08f0d9f0c14325ed82/Source/LlamaCore/Public/LlamaComponent.h#L252) callback
+
+Explore [LlamaComponent.h](https://github.com/getnamo/Llama-Unreal/blob/main/Source/LlamaCore/Public/LlamaComponent.h) for detailed API.
+
+
 # Llama.cpp Build Instructions
 
 If you want to do builds for your own use case or replace the llama.cpp backend. Note that these build instructions should be run from the cloned llama.cpp root directory, not the plugin root.
