@@ -43,10 +43,10 @@ struct llama_lora_adapter_container : llama_lora_adapter_info {
 };
 
 // build info
-extern int LLAMA_BUILD_NUMBER;
-extern char const * LLAMA_COMMIT;
-extern char const * LLAMA_COMPILER;
-extern char const * LLAMA_BUILD_TARGET;
+inline extern int LLAMA_BUILD_NUMBER = 0;
+inline extern char const * LLAMA_COMMIT = "2f3c1466ff46a2413b0e363a5005c46538186ee6";
+inline extern char const * LLAMA_COMPILER = "";
+inline extern char const * LLAMA_BUILD_TARGET = "";
 
 struct llama_control_vector_load_info;
 
