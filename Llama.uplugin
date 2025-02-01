@@ -11,7 +11,7 @@
 	"DocsURL": "https://github.com/getnamo/Llama-Unreal",
 	"MarketplaceURL": "",
 	"SupportURL": "",
-	"CanContainContent": true,
+	"CanContainContent": false,
 	"IsBetaVersion": false,
 	"IsExperimentalVersion": false,
 	"Installed": false,
