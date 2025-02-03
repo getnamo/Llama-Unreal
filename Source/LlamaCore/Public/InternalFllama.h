@@ -8,11 +8,12 @@
 #include <thread>
 #include <deque>
 #include <mutex>
+#include <string>
+#include <vector>
 #include "CoreMinimal.h"
 #include "FLLMModelParams.h"
 #include "llama.h"
 #include "Q.h"
-
 
 
 namespace Internal
