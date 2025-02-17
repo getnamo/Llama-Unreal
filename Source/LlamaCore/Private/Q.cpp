@@ -1,20 +1,21 @@
 ﻿#include "Q.h"
 
-void Q::Enqueue(std::function<void()> func) {
-	std::lock_guard<std::mutex> lock(mutex_);
-	queue.push_back(std::move(func));
+void Q::Enqueue(TFunction<void()> v)
+{
+	FScopeLock l(&mutex_);
+	queue.Enqueue(MoveTemp(v));
 }
 
-bool Q::ProcessQ() {
-	std::function<void()> func;
+bool Q::ProcessQ()
+{
+	TFunction<void()> v;
 	{
-		std::lock_guard<std::mutex> lock(mutex_);
-		if (queue.empty()) {
+		FScopeLock l(&mutex_);
+		if (!queue.Dequeue(v))
+		{
 			return false;
 		}
-		func = std::move(queue.front());
-		queue.pop_front();
 	}
-	func();
+	v();
 	return true;
 }

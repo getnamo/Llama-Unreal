@@ -54,8 +54,8 @@ namespace Internal
         );
 
     private:
-        llama_model* Model = nullptr;           // Necesario para usar la biblioteca llama
-        llama_context* Context = nullptr;       // Contexto del modelo de llama
+        llama_model* Model = nullptr;
+        llama_context* Context = nullptr;
 
         Q qMainToThread;
         Q qThreadToMain;

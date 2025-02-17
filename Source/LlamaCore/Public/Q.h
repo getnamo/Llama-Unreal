@@ -5,11 +5,11 @@
 #include <mutex>
 
 class Q {
-    public:
-        void Enqueue(std::function<void()> func);
-        bool ProcessQ();
+public:
+	void Enqueue(TFunction<void()>);
+	bool ProcessQ();
 
-    private:
-        std::deque<std::function<void()>> queue;
-        std::mutex mutex_;
+private:
+	TQueue<TFunction<void()>> queue;
+	FCriticalSection mutex_;
 };
