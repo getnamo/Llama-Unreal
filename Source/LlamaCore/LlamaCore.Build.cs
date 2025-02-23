@@ -144,7 +144,7 @@ public class LlamaCore : ModuleRules
 			PublicAdditionalLibraries.Add(Path.Combine(LlamaPath, "ggml-cpu.lib"));
 			PublicAdditionalLibraries.Add(Path.Combine(LlamaPath, "ggml-cuda.lib"));
 
-			//PublicAdditionalLibraries.Add(Path.Combine(LlamaPath, "common.lib"));
+			PublicAdditionalLibraries.Add(Path.Combine(LlamaPath, "common.lib"));
 
 			//temp
 			string WinLibDLLPath = LlamaPath;
