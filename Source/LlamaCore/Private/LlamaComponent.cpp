@@ -677,7 +677,7 @@ namespace Internal
 
         UE_LOG(LogTemp, Log, TEXT("File at %s exists? %d"), *FullModelPath, FPaths::FileExists(FullModelPath));
 
-        Model = llama_load_model_from_file(TCHAR_TO_UTF8(*FullModelPath), mParams);
+        Model = llama_model_load_from_file(TCHAR_TO_UTF8(*FullModelPath), mParams);
         if (!Model)
         {
             FString ErrorMessage = FString::Printf(TEXT("%p unable to load model at %s"), this, *FullModelPath);
@@ -690,7 +690,7 @@ namespace Internal
         //Read GGUF info
         gguf_ex_read_0(TCHAR_TO_UTF8(*FullModelPath));
 
-        Context = llama_new_context_with_model(Model, lparams);
+        Context = llama_init_from_model(Model, lparams);
         NPast = 0;
 
         UE_LOG(LogTemp, Warning, TEXT("%p model context set to %p"), this, Context);
@@ -733,7 +733,7 @@ namespace Internal
                 llama_token_bos(llama_get_model(Context)),
             };
             llama_decode(Context, llama_batch_get_one(Tmp.data(), Tmp.size(), 0, 0));
-            llama_reset_timings(Context);
+            //llama_reset_timings(Context);
         }
         LastNTokens.resize(NCtx);
         fill(LastNTokens.begin(), LastNTokens.end(), 0);
@@ -747,12 +747,12 @@ namespace Internal
         UE_LOG(LogTemp, Warning, TEXT("%p Unloading LLM model %p"), this, Model);
         if (!Model)
             return;
-        llama_print_timings(Context);
+        //llama_print_timings(Context);
         llama_free(Context);
         Context = nullptr;
 
         //Todo: potentially not reset model if same model is loaded
-        llama_free_model(Model);
+        llama_model_free(Model);
         Model = nullptr;
 
         //Reset signal.
