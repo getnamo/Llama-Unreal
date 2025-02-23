@@ -68,7 +68,8 @@ namespace
         UE_LOG(LogTemp, Warning, TEXT("Tokenize `%s`"), UTF8_TO_TCHAR(Text.c_str()));
         // initialize to Prompt numer of chars, since n_tokens <= n_prompt_chars
         Res.resize(Text.size() + (int)AddBos);
-        const int n = llama_tokenize(llama_get_model(Context), Text.c_str(), Text.length(), Res.data(), Res.size(), AddBos, false);   //do not tokenize special for first pass
+        const llama_vocab* VocabPtr = llama_model_get_vocab(llama_get_model(Context));
+        const int n = llama_tokenize(VocabPtr, Text.c_str(), Text.length(), Res.data(), Res.size(), AddBos, false);   //do not tokenize special for first pass
         Res.resize(n);
 
         return Res;
@@ -116,8 +117,9 @@ namespace Internal
         static FString ParsePathIntoFullPath(const FString& InRelativeOrAbsolutePath);
 
     private:
-        llama_model *Model = nullptr;
-        llama_context *Context = nullptr;
+        llama_model* Model = nullptr;
+        llama_vocab* Vocab = nullptr;
+        llama_context* Context = nullptr;
         Q qMainToThread;
         Q qThreadToMain;
         atomic_bool bRunning = false;
@@ -380,12 +382,13 @@ namespace Internal
                         string Str = string{};
                         for (auto j = 0; j < NEval; ++j)
                         {
-                            Str += llama_detokenize(Context, { Embd[i + j] });
+                            //Str += llama_detokenize(Vocab, { Embd[i + j] });
+                            Str += common_detokenize(Vocab, { Embd[i + j] });
                         }
                         UE_LOG(LogTemp, Warning, TEXT("%p eval tokens `%s`"), this, UTF8_TO_TCHAR(Str.c_str()));
                     }
 
-                    if (llama_decode(Context, llama_batch_get_one(&Embd[i], NEval, NPast, 0)))
+                    if (llama_decode(Context, llama_batch_get_one(&Embd[i], NEval)))
                     {
                         FString ErrorMsg = TEXT("failed to eval");
                         EmitErrorMessage(ErrorMsg);
@@ -408,7 +411,7 @@ namespace Internal
 
                 {
                     float* Logits = llama_get_logits(Context);
-                    int NVocab = llama_n_vocab(llama_get_model(Context));
+                    int NVocab = llama_vocab_n_tokens(Vocab);
 
                     vector<llama_token_data> Candidates;
                     Candidates.reserve(NVocab);
@@ -420,7 +423,7 @@ namespace Internal
                     llama_token_data_array CandidatesP = {Candidates.data(), Candidates.size(), false};
 
                     // Apply penalties
-                    float NLLogit = Logits[llama_token_nl(llama_get_model(Context))];
+                    float NLLogit = Logits[llama_vocab_nl(Vocab)];
                     int LastNRepeat = min(min((int)LastNTokens.size(), P.RepeatLastN), NCtx);
 
                     llama_sample_repetition_penalties(  Context,
@@ -432,7 +435,7 @@ namespace Internal
                                                         P.AlphaPresence);
                     if (!P.PenalizeNl)
                     {
-                        Logits[llama_token_nl(llama_get_model(Context))] = NLLogit;
+                        Logits[llama_vocab_nl(Vocab)] = NLLogit;
                     }
 
                     if (P.Temp <= 0)
@@ -506,7 +509,7 @@ namespace Internal
             //     });
             // }
             
-            FString Token = UTF8_TO_TCHAR(llama_detokenize(Context, Embd).c_str());
+            FString Token = UTF8_TO_TCHAR(common_detokenize(Context, Embd).c_str());
 
             //Debug block
             //NB: appears full history is not being input back to the model,
@@ -534,7 +537,7 @@ namespace Internal
 
                 for (vector<llama_token> StopSeq : StopSequences)
                 {
-                    FString Sequence = UTF8_TO_TCHAR(llama_detokenize(Context, StopSeq).c_str());
+                    FString Sequence = UTF8_TO_TCHAR(common_detokenize(Context, StopSeq).c_str());
                     Sequence = Sequence.TrimStartAndEnd();
 
                     vector<llama_token> EndSeq;
@@ -542,7 +545,7 @@ namespace Internal
                     {
                         EndSeq.push_back(LastNTokens[LastNTokens.size() - StopSeq.size() + i]);
                     }
-                    FString EndString = UTF8_TO_TCHAR(llama_detokenize(Context, EndSeq).c_str());
+                    FString EndString = UTF8_TO_TCHAR(common_detokenize(Context, EndSeq).c_str());
                     
                     if (bShouldLog) 
                     {
@@ -670,6 +673,8 @@ namespace Internal
             return lparams;
         }();
 
+        ggml_backend_load_all();
+
         llama_model_params mParams = llama_model_default_params();
         mParams.n_gpu_layers = Params.MaxContextLength;
 
@@ -678,6 +683,7 @@ namespace Internal
         UE_LOG(LogTemp, Log, TEXT("File at %s exists? %d"), *FullModelPath, FPaths::FileExists(FullModelPath));
 
         Model = llama_model_load_from_file(TCHAR_TO_UTF8(*FullModelPath), mParams);
+        Vocab = llama_model_get_vocab(Model);
         if (!Model)
         {
             FString ErrorMessage = FString::Printf(TEXT("%p unable to load model at %s"), this, *FullModelPath);
@@ -730,9 +736,9 @@ namespace Internal
 
         {
             vector<llama_token> Tmp = {
-                llama_token_bos(llama_get_model(Context)),
+                llama_token_bos(Vocab),
             };
-            llama_decode(Context, llama_batch_get_one(Tmp.data(), Tmp.size(), 0, 0));
+            llama_decode(Context, llama_batch_get_one(Tmp.data(), Tmp.size()));
             //llama_reset_timings(Context);
         }
         LastNTokens.resize(NCtx);
