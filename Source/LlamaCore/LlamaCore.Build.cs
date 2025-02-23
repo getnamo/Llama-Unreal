@@ -140,6 +140,10 @@ public class LlamaCore : ModuleRules
 
 			PublicAdditionalLibraries.Add(Path.Combine(LlamaPath, "llama.lib"));
 			PublicAdditionalLibraries.Add(Path.Combine(LlamaPath, "ggml.lib"));
+			PublicAdditionalLibraries.Add(Path.Combine(LlamaPath, "ggml-base.lib"));
+			PublicAdditionalLibraries.Add(Path.Combine(LlamaPath, "ggml-cpu.lib"));
+			PublicAdditionalLibraries.Add(Path.Combine(LlamaPath, "ggml-cuda.lib"));
+
 			//PublicAdditionalLibraries.Add(Path.Combine(LlamaPath, "common.lib"));
 
 			//temp
@@ -149,8 +153,11 @@ public class LlamaCore : ModuleRules
 			// PublicDelayLoadDLLs.Add("llama.dll");
 
 			RuntimeDependencies.Add("$(BinaryOutputDir)/ggml.dll", Path.Combine(WinLibDLLPath, "ggml.dll"));
+			RuntimeDependencies.Add("$(BinaryOutputDir)/ggml-base.dll", Path.Combine(WinLibDLLPath, "ggml-base.dll"));
+			RuntimeDependencies.Add("$(BinaryOutputDir)/ggml-cpu.dll", Path.Combine(WinLibDLLPath, "ggml-cpu.dll"));
+			RuntimeDependencies.Add("$(BinaryOutputDir)/ggml-cuda.dll", Path.Combine(WinLibDLLPath, "ggml-cuda.dll"));
 			RuntimeDependencies.Add("$(BinaryOutputDir)/llama.dll", Path.Combine(WinLibDLLPath, "llama.dll"));
-            
+
 
 			System.Console.WriteLine("Llama-Unreal building using llama.lib at path " + LlamaPath);
 
