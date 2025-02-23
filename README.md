@@ -1,6 +1,6 @@
 # Llama Unreal
 
-An Unreal focused API wrapper for [llama.cpp](https://github.com/ggerganov/llama.cpp) to support embedding LLMs into your games locally. Forked from [upstream](https://github.com/mika314/UELlama) to focus on improved API with wider support for builds (CPU, CUDA, Android, Mac).
+An Unreal focused API wrapper for [llama.cpp](https://github.com/ggml-org/llama.cpp) to support embedding LLMs into your games locally. Forked from [upstream](https://github.com/mika314/UELlama) to focus on improved API with wider support for builds (CPU, CUDA, Android, Mac).
 
 Early releases, api still pretty unstable YMMV.
 
@@ -36,7 +36,7 @@ Explore [LlamaComponent.h](https://github.com/getnamo/Llama-Unreal/blob/main/Sou
 
 If you want to do builds for your own use case or replace the llama.cpp backend. Note that these build instructions should be run from the cloned llama.cpp root directory, not the plugin root.
 
-Forked Plugin [Llama.cpp](https://github.com/ggerganov/llama.cpp) was built from git hash: [2f3c1466ff46a2413b0e363a5005c46538186ee6](https://github.com/ggerganov/llama.cpp/tree/2f3c1466ff46a2413b0e363a5005c46538186ee6)
+Forked Plugin [Llama.cpp](https://github.com/ggml-org/llama.cpp) was built from git has/tag: [b4762](https://github.com/ggml-org/llama.cpp/tree/b4762)
 
 
 ### Windows build
@@ -53,7 +53,7 @@ cmake --build . --config Release -j --verbose
 
 #### CUDA
 
-ATM built for CUDA 12.2 runtime
+ATM built for CUDA 12.4 runtime
 
 - Use `cuda` branch if you want cuda enabled.
 - We build statically due to dll runtime load bug so you need to copy `cudart.lib` `cublas.lib` and `cuda.lib` into your libraries/win64 path. These are ignored atm.
