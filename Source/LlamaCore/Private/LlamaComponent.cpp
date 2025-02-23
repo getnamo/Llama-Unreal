@@ -426,6 +426,7 @@ namespace Internal
                     float NLLogit = Logits[llama_vocab_nl(Vocab)];
                     int LastNRepeat = min(min((int)LastNTokens.size(), P.RepeatLastN), NCtx);
 
+                    /* Turn off sampling stuff
                     llama_sample_repetition_penalties(  Context,
                                                         &CandidatesP,
                                                         LastNTokens.data() + LastNTokens.size() - LastNRepeat,
@@ -470,6 +471,7 @@ namespace Internal
                             ID = llama_sample_token(Context, &CandidatesP);
                         }
                     }
+                    */
 
                     LastNTokens.erase(LastNTokens.begin());
                     LastNTokens.push_back(ID);
@@ -574,7 +576,7 @@ namespace Internal
             };
 
             bool EOSTriggered = false;
-            bool bStandardTokenEOS = (!Embd.empty() && Embd.back() == llama_token_eos(llama_get_model(Context)));
+            bool bStandardTokenEOS = (!Embd.empty() && Embd.back() == llama_vocab_eos(Vocab));
 
             //check
             if (!bStandardTokenEOS)
@@ -661,12 +663,13 @@ namespace Internal
 
             bool bIsRandomSeed = Params.Seed == -1;
 
+            //temp disable for b4762 upgrade
             if(bIsRandomSeed){
-                lparams.seed = time(nullptr);
+                //lparams.seed = time(nullptr);
             }
             else
             {
-                lparams.seed = Params.Seed;
+                //lparams.seed = Params.Seed;
             }
 
 
@@ -683,7 +686,7 @@ namespace Internal
         UE_LOG(LogTemp, Log, TEXT("File at %s exists? %d"), *FullModelPath, FPaths::FileExists(FullModelPath));
 
         Model = llama_model_load_from_file(TCHAR_TO_UTF8(*FullModelPath), mParams);
-        Vocab = llama_model_get_vocab(Model);
+        Vocab = const_cast<llama_vocab*>(llama_model_get_vocab(Model));
         if (!Model)
         {
             FString ErrorMessage = FString::Printf(TEXT("%p unable to load model at %s"), this, *FullModelPath);
@@ -693,8 +696,8 @@ namespace Internal
             return;
         }
 
-        //Read GGUF info
-        gguf_ex_read_0(TCHAR_TO_UTF8(*FullModelPath));
+        //Read GGUF info - temp disabled for b4762 upgrade
+        //gguf_ex_read_0(TCHAR_TO_UTF8(*FullModelPath));
 
         Context = llama_init_from_model(Model, lparams);
         NPast = 0;
@@ -736,7 +739,7 @@ namespace Internal
 
         {
             vector<llama_token> Tmp = {
-                llama_token_bos(Vocab),
+                llama_vocab_bos(Vocab),
             };
             llama_decode(Context, llama_batch_get_one(Tmp.data(), Tmp.size()));
             //llama_reset_timings(Context);
