@@ -13,6 +13,8 @@
 #define DIRECTORY_SEPARATOR '\\'
 #else
 #define DIRECTORY_SEPARATOR '/'
+#pragma once
+
 #endif // _WIN32
 
 #define die(msg)          do { fputs("error: " msg "\n", stderr);                exit(1); } while (0)
@@ -35,10 +37,10 @@ struct common_adapter_lora_info {
 using llama_tokens = std::vector<llama_token>;
 
 // build info
-extern int LLAMA_BUILD_NUMBER;
-extern const char * LLAMA_COMMIT;
-extern const char * LLAMA_COMPILER;
-extern const char * LLAMA_BUILD_TARGET;
+int LLAMA_BUILD_NUMBER = 0;
+const char * LLAMA_COMMIT = "af7747c95ae71a5db4184947f837179e82c70b77";
+const char * LLAMA_COMPILER = "";
+const char * LLAMA_BUILD_TARGET = "Unreal";
 
 struct common_control_vector_load_info;
 
