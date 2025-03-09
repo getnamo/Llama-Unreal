@@ -88,15 +88,18 @@ public class LlamaCore : ModuleRules
 		} 
 		else if (Target.Platform == UnrealTargetPlatform.Win64)
 		{
+			//We default to vulkan build, turn this off if you want to build with CUDA/cpu only
+			bool bVulkanBuild = true;
+
 			//Toggle this off if your CUDA_PATH is not compatible with the build version or
-			//you definitely only want CPU build
+			//you definitely only want CPU build			
 			bool bTryToUseCuda = true;
 
 			//First try to load env path llama builds
 			bool bCudaFound = false;
 
 			//Check cuda lib status first
-			if(bTryToUseCuda)
+			if(bTryToUseCuda && !bVulkanBuild)
 			{
 				//Almost every dev setup has a CUDA_PATH so try to load cuda in plugin path first;
 				//these won't exist unless you're in plugin 'cuda' branch.
@@ -128,43 +131,38 @@ public class LlamaCore : ModuleRules
 
 			if (!bUsingLlamaEnvPath) 
 			{
-				if(bCudaFound)
-				{
-					LlamaPath = Path.Combine(PluginLibPath, "Win64", "Cuda");
-				}
-				else
-				{
-					LlamaPath = Path.Combine(PluginLibPath, "Win64", "Cpu");
-				} 
+				LlamaPath = Path.Combine(PluginLibPath, "Win64", "Base");
 			}
 
 			PublicAdditionalLibraries.Add(Path.Combine(LlamaPath, "llama.lib"));
 			PublicAdditionalLibraries.Add(Path.Combine(LlamaPath, "ggml.lib"));
 			PublicAdditionalLibraries.Add(Path.Combine(LlamaPath, "ggml-base.lib"));
 			PublicAdditionalLibraries.Add(Path.Combine(LlamaPath, "ggml-cpu.lib"));
-			PublicAdditionalLibraries.Add(Path.Combine(LlamaPath, "ggml-cuda.lib"));
 
 			PublicAdditionalLibraries.Add(Path.Combine(LlamaPath, "common.lib"));
 
-			//temp
-			string WinLibDLLPath = LlamaPath;
-
-			// PublicDelayLoadDLLs.Add("ggml.dll");
-			// PublicDelayLoadDLLs.Add("llama.dll");
-
-			RuntimeDependencies.Add("$(BinaryOutputDir)/ggml.dll", Path.Combine(WinLibDLLPath, "ggml.dll"));
-			RuntimeDependencies.Add("$(BinaryOutputDir)/ggml-base.dll", Path.Combine(WinLibDLLPath, "ggml-base.dll"));
-			RuntimeDependencies.Add("$(BinaryOutputDir)/ggml-cpu.dll", Path.Combine(WinLibDLLPath, "ggml-cpu.dll"));
-			RuntimeDependencies.Add("$(BinaryOutputDir)/ggml-cuda.dll", Path.Combine(WinLibDLLPath, "ggml-cuda.dll"));
-			RuntimeDependencies.Add("$(BinaryOutputDir)/llama.dll", Path.Combine(WinLibDLLPath, "llama.dll"));
-
+			RuntimeDependencies.Add("$(BinaryOutputDir)/ggml.dll", Path.Combine(LlamaPath, "ggml.dll"));
+			RuntimeDependencies.Add("$(BinaryOutputDir)/ggml-base.dll", Path.Combine(LlamaPath, "ggml-base.dll"));
+			RuntimeDependencies.Add("$(BinaryOutputDir)/ggml-cpu.dll", Path.Combine(LlamaPath, "ggml-cpu.dll"));
+			RuntimeDependencies.Add("$(BinaryOutputDir)/llama.dll", Path.Combine(LlamaPath, "llama.dll"));
 
 			System.Console.WriteLine("Llama-Unreal building using llama.lib at path " + LlamaPath);
 
-			//We do not use shared dll atm
-			
+			if(bVulkanBuild)
+			{
+				string VulkanPath = Path.Combine(PluginLibPath, "Win64", "Vulkan");
+				PublicAdditionalLibraries.Add(Path.Combine(VulkanPath, "ggml-vulkan.lib"));
+				RuntimeDependencies.Add("$(BinaryOutputDir)/ggml-vulkan.dll", Path.Combine(VulkanPath, "ggml-vulkan.dll"));
+				System.Console.WriteLine("Llama-Unreal building using ggml-vulkan..lib at path " + VulkanPath);
+			}
+			else if(bCudaFound)
+			{
+				string CUDAPath = Path.Combine(PluginLibPath, "Win64", "Cuda");
+				PublicAdditionalLibraries.Add(Path.Combine(CUDAPath, "ggml-cuda.lib"));
+				RuntimeDependencies.Add("$(BinaryOutputDir)/ggml-cuda.dll", Path.Combine(CUDAPath, "ggml-cuda.dll"));
 
-			//RuntimeDependencies.Add("$(BinaryOutputDir)/ggml_shared.dll", Path.Combine(WinLibDLLPath, "ggml_shared.dll"));
+				System.Console.WriteLine("Llama-Unreal building using ggml-cuda.lib at path " + CUDAPath);
+			}
 		}
 		else if (Target.Platform == UnrealTargetPlatform.Mac)
 		{
