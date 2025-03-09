@@ -50,6 +50,18 @@ cd build/
 cmake ..
 cmake --build . --config Release -j --verbose
 ```
+#### Vulkan
+
+see https://github.com/ggml-org/llama.cpp/blob/b4762/docs/build.md#git-bash-mingw64
+
+e.g. once [Vulkan SDK](https://vulkan.lunarg.com/sdk/home#windows) has been installed run
+
+```
+mkdir build
+cd build/
+cmake .. -DGGML_VULKAN=ON
+cmake --build . --config Release -j --verbose
+```
 
 #### CUDA
 
