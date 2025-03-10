@@ -9,6 +9,28 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnEndOfStreamSignature, bool, bSto
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FVoidEventSignature);
 
 USTRUCT(BlueprintType)
+struct FLlamaRunTimings
+{
+    GENERATED_USTRUCT_BODY();
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
+    float SampleTime = 0.f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
+    float PromptEvalTime = 0.f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
+    float EvalTime = 0.f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
+    float TotalTime = 0.f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
+    float TokensPerSecond = 0.f;
+};
+
+
+USTRUCT(BlueprintType)
 struct FLLMModelAdvancedParams
 {
     GENERATED_USTRUCT_BODY();
