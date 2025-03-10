@@ -120,6 +120,8 @@ std::string FLlamaInternal::InsertPrompt(const std::string& UserPrompt)
 
 std::string FLlamaInternal::Generate(const std::string& Prompt)
 {
+    bGenerationActive = true;
+
     std::string Response;
 
     const llama_vocab* Vocab = llama_model_get_vocab(LlamaModel);
@@ -131,6 +133,7 @@ std::string FLlamaInternal::Generate(const std::string& Prompt)
     std::vector<llama_token> PromptTokens(NPromptTokens);
     if (llama_tokenize(Vocab, Prompt.c_str(), Prompt.size(), PromptTokens.data(), PromptTokens.size(), IsFirst, true) < 0)
     {
+        bGenerationActive = false;
         GGML_ABORT("failed to tokenize the prompt\n");
     }
 
@@ -138,8 +141,8 @@ std::string FLlamaInternal::Generate(const std::string& Prompt)
     llama_batch Batch = llama_batch_get_one(PromptTokens.data(), PromptTokens.size());
     llama_token NewTokenId;
 
-    bShouldGenerate = true;
-    while (bShouldGenerate) //processing can be aborted by flipping the boolean
+    
+    while (bGenerationActive) //processing can be aborted by flipping the boolean
     {
         // check if we have enough space in the context to evaluate this batch
         int NContext = llama_n_ctx(Context);
@@ -184,7 +187,7 @@ std::string FLlamaInternal::Generate(const std::string& Prompt)
         Batch = llama_batch_get_one(&NewTokenId, 1);
     }
 
-    bShouldGenerate = false;
+    bGenerationActive = false;
 
     return Response;
 }

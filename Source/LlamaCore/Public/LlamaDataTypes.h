@@ -5,7 +5,8 @@
 #include "LlamaDataTypes.generated.h"
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnErrorSignature, FString, ErrorMessage);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnNewTokenGeneratedSignature, FString, NewToken);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnTokenGeneratedSignature, FString, Token);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnResponseGeneratedSignature, FString, Response);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPartialSignature, const FString&, Partial);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPromptHistorySignature, FString, History);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnEndOfStreamSignature, bool, bStopSequenceTriggered, float, TokensPerSecond);
@@ -97,6 +98,10 @@ struct FLLMModelAdvancedParams
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
     bool bEmitPartials = true;
 
+    //by default process callbacks on gamethread
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
+    bool bEmitOnGameThread = true;
+
     //usually . ? !
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
     TArray<FString> PartialsSeparators;
@@ -132,6 +137,8 @@ struct FStructuredChatHistory
 };
 
 
+//Todo: refactor to jinja style string
+// 
 //Easy user-specified chat template, or use common templates. Don't specify if you wish to load GGUF template.
 USTRUCT(BlueprintType)
 struct FChatTemplate
@@ -200,7 +207,7 @@ struct FLLMModelParams
     TArray<FString> StopSequences;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
-    int32 MaxContextLength = 2048;
+    int32 MaxContextLength = 4096;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
     int32 GPULayers = 50;

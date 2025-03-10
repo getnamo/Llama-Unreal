@@ -12,12 +12,26 @@ FLlamaNative::FLlamaNative()
     //Hookup internal listeners
     Internal->OnTokenGenerated = [this](const std::string& TokenPiece)
     {
-        FString Token = FLlamaString::ToUE(TokenPiece);
+        const FString Token = FLlamaString::ToUE(TokenPiece);
 
-        if (OnTokenGenerated)
+        if (ModelParams.Advanced.bEmitOnGameThread && OnTokenGenerated)
         {
-            OnTokenGenerated(Token);
+            Async(EAsyncExecution::TaskGraphMainThread, [this, Token]()
+            {
+                if(OnTokenGenerated)
+                {
+                    OnTokenGenerated(Token);
+                }
+            });
         }
+        else
+        {
+            if (OnTokenGenerated)
+            {
+                OnTokenGenerated(Token);
+            }
+        }
+        
     };
 }
 
@@ -80,19 +94,36 @@ void FLlamaNative::InsertPrompt(const FString& UserPrompt)
         return;
     }
 
+    //check if we're currently generating
+    if (Internal->bGenerationActive)
+    {
+        UE_LOG(LlamaLog, Warning, TEXT("Aborting: already generating, in this version this fails to queue up."));
+        return;
+    }
+
     const std::string UserStdString = FLlamaString::ToStd(UserPrompt);
 
-    //run prompt insert on background thread
-    Async(EAsyncExecution::Thread, [this, UserStdString]
+    //run prompt insert on background thread (NB: should we do one parked thread for llama inference instead of this?)
+    Async(EAsyncExecution::ThreadPool, [this, UserStdString]
     {
         FString Response = FLlamaString::ToUE(Internal->InsertPrompt(UserStdString));
 
-        Async(EAsyncExecution::TaskGraphMainThread, [this, Response]
+        if (ModelParams.Advanced.bEmitOnGameThread && OnResponseGenerated)
+        {
+            Async(EAsyncExecution::TaskGraphMainThread, [this, Response]
+            {
+                if (OnResponseGenerated)
+                {
+                    OnResponseGenerated(Response);
+                }
+            });
+        }
+        else
         {
             if (OnResponseGenerated)
             {
                 OnResponseGenerated(Response);
             }
-        });
+        }
     });
 }

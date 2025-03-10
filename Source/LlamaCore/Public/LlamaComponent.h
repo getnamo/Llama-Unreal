@@ -21,9 +21,13 @@ public:
                                 ELevelTick TickType,
                                 FActorComponentTickFunction* ThisTickFunction) override;
 
-    //Main callback
+    //Main callback, updates for each token generated
     UPROPERTY(BlueprintAssignable)
-    FOnNewTokenGeneratedSignature OnNewTokenGenerated;
+    FOnTokenGeneratedSignature OnTokenGenerated;
+
+    //Only called when full response has been received (EOS/etc)
+    UPROPERTY(BlueprintAssignable)
+    FOnTokenGeneratedSignature OnResponseGenerated;
 
     //Utility split emit e.g. sentence level emits, useful for speech generation
     UPROPERTY(BlueprintAssignable)

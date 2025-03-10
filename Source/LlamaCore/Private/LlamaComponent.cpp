@@ -45,7 +45,16 @@ void ULlamaComponent::Activate(bool bReset)
 {
     Super::Activate(bReset);
 
-    //LlamaNative->OnResponseGenerated =
+    LlamaNative->OnResponseGenerated = [this](const FString& Response)
+    {
+        OnResponseGenerated.Broadcast(Response);
+    };
+
+    LlamaNative->OnTokenGenerated = [this](const FString& Token)
+    {
+        OnTokenGenerated.Broadcast(Token);
+    };
+
     LlamaNative->SetModelParams(ModelParams);
     LlamaNative->LoadModel();
 

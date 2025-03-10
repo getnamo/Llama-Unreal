@@ -20,7 +20,7 @@ public:
 
     bool bIsLoaded = false;
 
-    FThreadSafeBool bShouldGenerate = false;
+    FThreadSafeBool bGenerationActive = false;
 
     //Messaging state
     TArray<llama_chat_message> Messages;
