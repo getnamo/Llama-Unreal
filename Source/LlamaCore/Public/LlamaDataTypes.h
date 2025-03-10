@@ -1,6 +1,7 @@
 // Copyright 2025-current Getnamo.
 
 #pragma once
+
 #include "LlamaDataTypes.generated.h"
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnErrorSignature, FString, ErrorMessage);

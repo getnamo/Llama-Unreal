@@ -32,7 +32,20 @@ bool FLlamaNative::LoadModel()
     llama_model* LlamaModel = llama_model_load_from_file(Path.c_str(), LlamaModelParams);
     if (!LlamaModel)
     {
-        UE_LOG(LogTemp, Error, TEXT("%hs: error: unable to load model\n"), __func__);
+        UE_LOG(LlamaLog, Error, TEXT("%hs: error: unable to load model\n"), __func__);
+        return false;
+    }
+
+    const llama_vocab* Vocab = llama_model_get_vocab(LlamaModel);
+
+    llama_context_params ContextParams = llama_context_default_params();
+    ContextParams.n_ctx = ModelParams.MaxContextLength;
+    ContextParams.n_batch = ModelParams.MaxContextLength;
+
+    llama_context* Context = llama_init_from_model(LlamaModel, ContextParams);
+    if (!Context)
+    {
+        UE_LOG(LlamaLog, Error, TEXT("%hs: error: failed to create the llama_context\n"), __func__);
         return false;
     }
 
