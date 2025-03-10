@@ -2,7 +2,7 @@
 
 #include <string>
 #include "llama.h"
-#include "common/common.h"
+#include "Internal/common.h"
 
 /** 
 * Uses mostly Llama.cpp native API, meant to be embedded in LlamaNative that wraps 

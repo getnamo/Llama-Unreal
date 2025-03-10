@@ -2,7 +2,7 @@
 
 #include "LlamaNative.h"
 #include "LlamaUtility.h"
-#include "LlamaInternal.h"
+#include "Internal/LlamaInternal.h"
 #include "Async/Async.h"
 
 FLlamaNative::FLlamaNative()
@@ -82,7 +82,7 @@ void FLlamaNative::InsertPrompt(const FString& UserPrompt)
 
     const std::string UserStdString = FLlamaString::ToStd(UserPrompt);
 
-    //NB:this is synchronous and needs to run on a background thread
+    //run prompt insert on background thread
     Async(EAsyncExecution::Thread, [this, UserStdString]
     {
         FString Response = FLlamaString::ToUE(Internal->InsertPrompt(UserStdString));

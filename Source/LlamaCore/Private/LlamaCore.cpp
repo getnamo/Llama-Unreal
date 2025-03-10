@@ -44,4 +44,3 @@ void FLlamaCoreModule::ShutdownModule()
 #undef LOCTEXT_NAMESPACE
 
 IMPLEMENT_MODULE(FLlamaCoreModule, LlamaCore)
-DEFINE_LOG_CATEGORY(LlamaLog);

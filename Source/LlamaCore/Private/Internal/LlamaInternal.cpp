@@ -1,5 +1,4 @@
-#include "LlamaInternal.h"
-#include "LlamaInternal.h"
+#include "Internal/LlamaInternal.h"
 #include "LlamaUtility.h"
 
 bool FLlamaInternal::LoadFromParams(const FLLMModelParams& InModelParams)
@@ -80,6 +79,12 @@ void FLlamaInternal::Unload()
 
 std::string FLlamaInternal::InsertPrompt(const std::string& UserPrompt)
 {
+    if (!bIsLoaded)
+    {
+        UE_LOG(LlamaLog, Warning, TEXT("Model isn't loaded"));
+        return "";
+    }
+
     Messages.Push({ "user", _strdup(UserPrompt.c_str()) });
     int NewLen = llama_chat_apply_template(Template, Messages.GetData(), Messages.Num(),
         true, Formatted.GetData(), Formatted.Num());

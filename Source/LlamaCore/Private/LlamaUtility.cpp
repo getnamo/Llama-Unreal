@@ -1,6 +1,8 @@
 #include "LlamaUtility.h"
 #include "Misc/Paths.h"
 
+DEFINE_LOG_CATEGORY(LlamaLog);
+
 FString FLlamaPaths::ModelsRelativeRootPath()
 {
     FString AbsoluteFilePath;
@@ -47,3 +49,5 @@ std::string FLlamaString::ToStd(const FString& String)
 {
     return std::string(TCHAR_TO_UTF8(*String));
 }
+
+

@@ -15,6 +15,3 @@ private:
 	//void* LlamaDllHandle = nullptr;
 	//void* GgmlDllHandle = nullptr;
 };
-
-
-DECLARE_LOG_CATEGORY_EXTERN(LlamaLog, Log, All);
