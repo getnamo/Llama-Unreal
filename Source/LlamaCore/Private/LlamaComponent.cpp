@@ -1,3 +1,5 @@
+// Copyright 2025-current Getnamo.
+
 #include "LlamaComponent.h"
 #include "LlamaNative.h"
 

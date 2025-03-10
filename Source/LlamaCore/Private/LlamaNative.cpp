@@ -1,4 +1,4 @@
-// 2023 (c) Getnamo
+// Copyright 2025-current Getnamo.
 
 #include "LlamaNative.h"
 #include <string>
@@ -12,6 +12,8 @@ void FLlamaNative::SetModelParams(const FLLMModelParams& Params)
 
 bool FLlamaNative::LoadModel()
 {
+    //Early implementation largely converted from: https://github.com/ggml-org/llama.cpp/blob/master/examples/simple-chat/simple-chat.cpp
+
     // only print errors
     llama_log_set([](enum ggml_log_level level, const char* text, void* /* user_data */) {
     if (level >= GGML_LOG_LEVEL_ERROR) {

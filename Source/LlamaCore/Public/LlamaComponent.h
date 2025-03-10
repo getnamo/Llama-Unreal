@@ -1,3 +1,5 @@
+// Copyright 2025-current Getnamo.
+
 #pragma once
 #include <Components/ActorComponent.h>
 #include <CoreMinimal.h>
