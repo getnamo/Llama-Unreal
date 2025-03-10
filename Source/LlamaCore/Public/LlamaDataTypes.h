@@ -246,4 +246,7 @@ struct FLLMModelState
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model State")
     EChatTemplateRole LastRole = EChatTemplateRole::Unknown;
+
+    UPROPERTY(BlueprintReadOnly, Category = "LLM Model State")
+    FString ChatTemplateLlamaString;
 };

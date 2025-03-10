@@ -10,12 +10,14 @@ class FLlamaInternalState
 public:
     //Core State
     llama_model* LlamaModel = nullptr;
-
     llama_context* Context = nullptr;
-
     llama_sampler* Sampler = nullptr;
 
     bool bIsLoaded = false;
+
+    //Messaging state
+    TArray<llama_chat_message> Messages;
+    TArray<char> Formatted;
 
     bool LoadFromParams(FLLMModelParams& InModelParams)
     {
@@ -59,6 +61,8 @@ public:
         llama_sampler_chain_add(Sampler, llama_sampler_init_temp(0.8f));
         llama_sampler_chain_add(Sampler, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
 
+        Formatted.SetNum(llama_n_ctx(Context));
+
         bIsLoaded = true;
 
         return true;
@@ -81,6 +85,8 @@ public:
             llama_model_free(LlamaModel);
             LlamaModel = nullptr;
         }
+        Formatted.Empty();
+
         bIsLoaded = false;
     }
 
@@ -173,14 +179,38 @@ bool FLlamaNative::LoadModel()
     UnloadModel();
 
     //Now load it
-    return Internal->LoadFromParams(ModelParams);
+    bool bSuccess = Internal->LoadFromParams(ModelParams);
+
+    //Update model state
+
+    //llama_n_ctx(Internal->Context);
+    if (bSuccess)
+    {
+        ModelState.ChatTemplateLlamaString = FString(llama_model_chat_template(Internal->LlamaModel, /* name */ nullptr));
+    }
+
+    return bSuccess;
 }
 
 bool FLlamaNative::UnloadModel()
 {
-    if (Internal->bIsLoaded)
+    if (bIsModelLoaded())
     {
         Internal->Unload();
     }
     return true;
+}
+
+bool FLlamaNative::bIsModelLoaded()
+{
+    return Internal->bIsLoaded;
+}
+
+void FLlamaNative::InsertPrompt(const FString& Prompt)
+{
+    if (!bIsModelLoaded())
+    {
+        UE_LOG(LlamaLog, Error, TEXT("Model isn't loaded, can't run prompt."));
+        return;
+    }
 }

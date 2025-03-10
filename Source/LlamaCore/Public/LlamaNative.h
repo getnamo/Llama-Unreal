@@ -10,9 +10,11 @@ class LLAMACORE_API FLlamaNative
 {
 public:
 
+	//Callbacks
 	TFunction<void(const FString& Token)> OnTokenGenerated;
 	TFunction<void()> OnGenerationStarted;
 	TFunction<void(const FLlamaRunTimings& Timings)> OnGenerationFinished;
+	TFunction<void(const FString& ModelPath)> OnModelLoaded;
 	TFunction<void(const FString& ErrorMessage)> OnError;
 
 	//Expected to be set before load model
@@ -23,9 +25,9 @@ public:
 
 	bool UnloadModel();
 
+	bool bIsModelLoaded();
 
 	void InsertPrompt(const FString& Prompt);
-
 
 	FLlamaNative();
 	~FLlamaNative();
@@ -35,6 +37,8 @@ private:
 	FString Generate(const FString& Prompt);
 
 	FLLMModelParams ModelParams;
+
+	FLLMModelState ModelState;
 
 	class FLlamaInternalState* Internal = nullptr;
 };
