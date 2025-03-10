@@ -1,7 +1,7 @@
 #include "Internal/LlamaInternal.h"
 #include "LlamaUtility.h"
 
-bool FLlamaInternal::LoadFromParams(const FLLMModelParams& InModelParams)
+bool FLlamaInternal::LoadModelFromParams(const FLLMModelParams& InModelParams)
 {
     //Early implementation largely converted from: https://github.com/ggml-org/llama.cpp/blob/master/examples/simple-chat/simple-chat.cpp
 
@@ -50,12 +50,12 @@ bool FLlamaInternal::LoadFromParams(const FLLMModelParams& InModelParams)
     Template = (char*)llama_model_chat_template(LlamaModel, /* name */ nullptr);
     PrevLen = 0;
 
-    bIsLoaded = true;
+    bIsModelLoaded = true;
 
     return true;
 }
 
-void FLlamaInternal::Unload()
+void FLlamaInternal::UnloadModel()
 {
     if (Sampler)
     {
@@ -74,12 +74,27 @@ void FLlamaInternal::Unload()
     }
     Formatted.Empty();
 
-    bIsLoaded = false;
+    bIsModelLoaded = false;
+}
+
+void FLlamaInternal::StopGeneration()
+{
+    bGenerationActive = false;
+}
+
+bool FLlamaInternal::IsGenerating()
+{
+    return bGenerationActive;
+}
+
+bool FLlamaInternal::IsModelLoaded()
+{
+    return bIsModelLoaded;
 }
 
 std::string FLlamaInternal::InsertPrompt(const std::string& UserPrompt)
 {
-    if (!bIsLoaded)
+    if (!bIsModelLoaded)
     {
         UE_LOG(LlamaLog, Warning, TEXT("Model isn't loaded"));
         return "";
@@ -195,5 +210,5 @@ std::string FLlamaInternal::Generate(const std::string& Prompt)
 FLlamaInternal::~FLlamaInternal()
 {
     OnTokenGenerated = nullptr;
-    Unload();
+    UnloadModel();
 }

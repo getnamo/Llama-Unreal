@@ -53,7 +53,7 @@ bool FLlamaNative::LoadModel()
         UnloadModel();
 
         //Now load it
-        bool bSuccess = Internal->LoadFromParams(ModelParams);
+        bool bSuccess = Internal->LoadModelFromParams(ModelParams);
 
         //Sync model state
         if (bSuccess)
@@ -89,28 +89,28 @@ bool FLlamaNative::LoadModel()
 
 bool FLlamaNative::UnloadModel()
 {
-    if (bIsModelLoaded())
+    if (IsModelLoaded())
     {
-        Internal->Unload();
+        Internal->UnloadModel();
     }
     return true;
 }
 
-bool FLlamaNative::bIsModelLoaded()
+bool FLlamaNative::IsModelLoaded()
 {
-    return Internal->bIsLoaded;
+    return Internal->IsModelLoaded();
 }
 
 void FLlamaNative::InsertPrompt(const FString& UserPrompt)
 {
-    if (!bIsModelLoaded())
+    if (!IsModelLoaded())
     {
         UE_LOG(LlamaLog, Warning, TEXT("Model isn't loaded, can't run prompt."));
         return;
     }
 
     //check if we're currently generating
-    if (Internal->bGenerationActive)
+    if (Internal->IsGenerating())
     {
         UE_LOG(LlamaLog, Warning, TEXT("Aborting: already generating, in this version this fails to queue up."));
         return;
@@ -141,4 +141,14 @@ void FLlamaNative::InsertPrompt(const FString& UserPrompt)
             }
         }
     });
+}
+
+bool FLlamaNative::IsGenerating()
+{
+    return Internal->IsGenerating();
+}
+
+void FLlamaNative::StopGeneration()
+{
+    Internal->StopGeneration();
 }

@@ -28,14 +28,13 @@ public:
 
 	//Loads the model found at ModelParams.PathToModel, use SetModelParams to specify params before loading
 	bool LoadModel();
-
 	bool UnloadModel();
+	bool IsModelLoaded();
 
-	bool bIsModelLoaded();
-
+	//Prompt input
 	void InsertPrompt(const FString& Prompt);
-
-
+	bool IsGenerating();
+	void StopGeneration();
 
 	FLlamaNative();
 	~FLlamaNative();
