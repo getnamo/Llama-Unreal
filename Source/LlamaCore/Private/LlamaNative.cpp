@@ -1,11 +1,24 @@
 // Copyright 2025-current Getnamo.
 
 #include "LlamaNative.h"
+#include "LlamaUtility.h"
 #include "LlamaInternal.h"
+#include "Async/Async.h"
 
 FLlamaNative::FLlamaNative()
 {
     Internal = new FLlamaInternal();
+
+    //Hookup internal listeners
+    Internal->OnTokenGenerated = [this](const std::string& TokenPiece)
+    {
+        FString Token = FLlamaString::ToUE(TokenPiece);
+
+        if (OnTokenGenerated)
+        {
+            OnTokenGenerated(Token);
+        }
+    };
 }
 
 FLlamaNative::~FLlamaNative()
@@ -20,21 +33,29 @@ void FLlamaNative::SetModelParams(const FLLMModelParams& Params)
 
 bool FLlamaNative::LoadModel()
 {
-    //Unload first if any is loaded
-    UnloadModel();
-
-    //Now load it
-    bool bSuccess = Internal->LoadFromParams(ModelParams);
-
-    //Update model state
-
-    //llama_n_ctx(Internal->Context);
-    if (bSuccess)
+    Async(EAsyncExecution::Thread, [this]
     {
-        ModelState.ChatTemplateLlamaString = FString(Internal->Template);
-    }
+        //Unload first if any is loaded
+        UnloadModel();
 
-    return bSuccess;
+        //Now load it
+        bool bSuccess = Internal->LoadFromParams(ModelParams);
+
+        //Sync model state
+        if (bSuccess)
+        {
+            FString TemplateString = FString(Internal->Template);
+
+            //update model params on game thread
+            Async(EAsyncExecution::TaskGraphMainThread, [this, TemplateString]
+            {
+                ModelState.ChatTemplateLlamaString = TemplateString;
+            });
+        }
+
+    });
+
+    return true;
 }
 
 bool FLlamaNative::UnloadModel()
@@ -59,41 +80,19 @@ void FLlamaNative::InsertPrompt(const FString& UserPrompt)
         return;
     }
 
-    std::string UserStdString = TCHAR_TO_UTF8(*UserPrompt);
-    /* Internal->Messages.Push({"user", _strdup(UserStdString.c_str())});
-    int NewLen = llama_chat_apply_template(Internal->Template, Internal->Messages.GetData(), Internal->Messages.Num(), 
-        true, Internal->Formatted.GetData(), Internal->Formatted.Num());
+    const std::string UserStdString = FLlamaString::ToStd(UserPrompt);
 
-
-    if (NewLen > Internal->Formatted.Num())
+    //NB:this is synchronous and needs to run on a background thread
+    Async(EAsyncExecution::Thread, [this, UserStdString]
     {
-        Internal->Formatted.Reserve(NewLen);
-        NewLen = llama_chat_apply_template(Internal->Template, Internal->Messages.GetData(), Internal->Messages.Num(),
-            true, Internal->Formatted.GetData(), Internal->Formatted.Num());
-    }
-    if (NewLen < 0)
-    {
-        UE_LOG(LlamaLog, Warning, TEXT("failed to apply the chat template p1"));
-        return;
-    }
+        FString Response = FLlamaString::ToUE(Internal->InsertPrompt(UserStdString));
 
-    std::string PromptStd(Internal->Formatted.GetData() + Internal->PrevLen, Internal->Formatted.GetData() + NewLen);
-    FString Prompt = FString(UTF8_TO_TCHAR(PromptStd.c_str()));
-
-    FString Response = Generate(Prompt);
-    std::string AssistantStdString = TCHAR_TO_UTF8(*Response);
-
-    Internal->Messages.Push({ "assistant", _strdup(AssistantStdString.c_str()) });
-
-    Internal->PrevLen = llama_chat_apply_template(Internal->Template, Internal->Messages.GetData(), Internal->Messages.Num(), false, nullptr, 0);
-    if (Internal->PrevLen < 0) 
-    {
-        UE_LOG(LlamaLog, Warning, TEXT("failed to apply the chat template p2"));
-        return;
-    }*/
-
-    if (OnResponseGenerated)
-    {
-        //OnResponseGenerated(Response);
-    }
+        Async(EAsyncExecution::TaskGraphMainThread, [this, Response]
+        {
+            if (OnResponseGenerated)
+            {
+                OnResponseGenerated(Response);
+            }
+        });
+    });
 }

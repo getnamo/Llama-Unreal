@@ -16,7 +16,11 @@ public:
     llama_context* Context = nullptr;
     llama_sampler* Sampler = nullptr;
 
+    TFunction<void(const std::string& TokenPiece)>OnTokenGenerated = nullptr;
+
     bool bIsLoaded = false;
+
+    FThreadSafeBool bShouldGenerate = false;
 
     //Messaging state
     TArray<llama_chat_message> Messages;
@@ -27,11 +31,12 @@ public:
 
     //FThreadSafeBool bIsThreadRunning;
 
-    bool LoadFromParams(FLLMModelParams& InModelParams);
+    bool LoadFromParams(const FLLMModelParams& InModelParams);
 
-    std::string Generate(std::string& Prompt);
+    //Wrapper for user<->assistant templated conversation
+    std::string Generate(const std::string& Prompt);
 
-    void InsertPrompt(std::string& Prompt);
+    std::string InsertPrompt(const std::string& Prompt);
 
     void Unload();
 

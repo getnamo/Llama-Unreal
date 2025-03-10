@@ -2,7 +2,7 @@
 #include "LlamaInternal.h"
 #include "LlamaUtility.h"
 
-bool FLlamaInternal::LoadFromParams(FLLMModelParams& InModelParams)
+bool FLlamaInternal::LoadFromParams(const FLLMModelParams& InModelParams)
 {
     //Early implementation largely converted from: https://github.com/ggml-org/llama.cpp/blob/master/examples/simple-chat/simple-chat.cpp
 
@@ -56,41 +56,6 @@ bool FLlamaInternal::LoadFromParams(FLLMModelParams& InModelParams)
     return true;
 }
 
-void FLlamaInternal::InsertPrompt(std::string& UserPrompt)
-{
-    Messages.Push({ "user", _strdup(UserPrompt.c_str()) });
-    int NewLen = llama_chat_apply_template(Template, Messages.GetData(), Messages.Num(),
-        true, Formatted.GetData(), Formatted.Num());
-
-
-    if (NewLen > Formatted.Num())
-    {
-        Formatted.Reserve(NewLen);
-        NewLen = llama_chat_apply_template(Template, Messages.GetData(), Messages.Num(),
-            true, Formatted.GetData(), Formatted.Num());
-    }
-    if (NewLen < 0)
-    {
-        UE_LOG(LlamaLog, Warning, TEXT("failed to apply the chat template p1"));
-        return;
-    }
-
-    std::string Prompt(Formatted.GetData() + PrevLen, Formatted.GetData() + NewLen);
-    //FString Prompt = FString(UTF8_TO_TCHAR(PromptStd.c_str()));
-
-    std::string Response = Generate(Prompt);
-    //std::string AssistantStdString = TCHAR_TO_UTF8(*Response);
-
-    Messages.Push({ "assistant", _strdup(Response.c_str()) });
-
-    PrevLen = llama_chat_apply_template(Template, Messages.GetData(), Messages.Num(), false, nullptr, 0);
-    if (PrevLen < 0)
-    {
-        UE_LOG(LlamaLog, Warning, TEXT("failed to apply the chat template p2"));
-        return;
-    }
-}
-
 void FLlamaInternal::Unload()
 {
     if (Sampler)
@@ -113,7 +78,42 @@ void FLlamaInternal::Unload()
     bIsLoaded = false;
 }
 
-std::string FLlamaInternal::Generate(std::string& Prompt)
+std::string FLlamaInternal::InsertPrompt(const std::string& UserPrompt)
+{
+    Messages.Push({ "user", _strdup(UserPrompt.c_str()) });
+    int NewLen = llama_chat_apply_template(Template, Messages.GetData(), Messages.Num(),
+        true, Formatted.GetData(), Formatted.Num());
+
+
+    if (NewLen > Formatted.Num())
+    {
+        Formatted.Reserve(NewLen);
+        NewLen = llama_chat_apply_template(Template, Messages.GetData(), Messages.Num(),
+            true, Formatted.GetData(), Formatted.Num());
+    }
+    if (NewLen < 0)
+    {
+        UE_LOG(LlamaLog, Warning, TEXT("failed to apply the chat template p1"));
+        return "";
+    }
+
+    std::string Prompt(Formatted.GetData() + PrevLen, Formatted.GetData() + NewLen);
+
+    std::string Response = Generate(Prompt);
+
+    Messages.Push({ "assistant", _strdup(Response.c_str()) });
+
+    PrevLen = llama_chat_apply_template(Template, Messages.GetData(), Messages.Num(), false, nullptr, 0);
+    if (PrevLen < 0)
+    {
+        UE_LOG(LlamaLog, Warning, TEXT("failed to apply the chat template p2"));
+        return "";
+    }
+
+    return Response;
+}
+
+std::string FLlamaInternal::Generate(const std::string& Prompt)
 {
     std::string Response;
 
@@ -132,7 +132,9 @@ std::string FLlamaInternal::Generate(std::string& Prompt)
     // prepare a batch for the prompt
     llama_batch Batch = llama_batch_get_one(PromptTokens.data(), PromptTokens.size());
     llama_token NewTokenId;
-    while (true)
+
+    bShouldGenerate = true;
+    while (bShouldGenerate) //processing can be aborted by flipping the boolean
     {
         // check if we have enough space in the context to evaluate this batch
         int NContext = llama_n_ctx(Context);
@@ -168,13 +170,22 @@ std::string FLlamaInternal::Generate(std::string& Prompt)
         std::string Piece(Buffer, n);
         Response += Piece;
 
+        if (OnTokenGenerated)
+        {
+            OnTokenGenerated(Piece);
+        }
+
         // prepare the next batch with the sampled token
         Batch = llama_batch_get_one(&NewTokenId, 1);
     }
+
+    bShouldGenerate = false;
+
     return Response;
 }
 
 FLlamaInternal::~FLlamaInternal()
 {
+    OnTokenGenerated = nullptr;
     Unload();
 }
