@@ -15,16 +15,26 @@ public:
 	TFunction<void(const FLlamaRunTimings& Timings)> OnGenerationFinished;
 	TFunction<void(const FString& ErrorMessage)> OnError;
 
+	//Expected to be set before load model
 	void SetModelParams(const FLLMModelParams& Params);
 
-	//Loads the model found at ModelParams.PathToModel
+	//Loads the model found at ModelParams.PathToModel, use SetModelParams to specify params before loading
 	bool LoadModel();
+
+	bool UnloadModel();
+
+
+	void InsertPrompt(const FString& Prompt);
 
 
 	FLlamaNative();
 	~FLlamaNative();
 private:
 
+	//Helper function
+	FString Generate(const FString& Prompt);
 
 	FLLMModelParams ModelParams;
+
+	class FLlamaInternalState* Internal = nullptr;
 };
