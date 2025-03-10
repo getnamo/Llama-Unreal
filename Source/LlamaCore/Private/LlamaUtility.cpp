@@ -37,3 +37,13 @@ FString FLlamaPaths::ParsePathIntoFullPath(const FString& InRelativeOrAbsolutePa
 
     return FinalPath;
 }
+
+FString FLlamaString::ToUE(const std::string& String)
+{
+    return FString(UTF8_TO_TCHAR(String.c_str()));
+}
+
+std::string FLlamaString::ToStd(const FString& String)
+{
+    return std::string(TCHAR_TO_UTF8(*String));
+}
