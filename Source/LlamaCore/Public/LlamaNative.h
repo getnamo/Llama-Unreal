@@ -6,6 +6,11 @@
 #include "CoreMinimal.h"
 //#include "LlamaNative.generated.h"
 
+
+/** 
+* C++ native wrapper in Unreal styling for Llama.cpp with threading and callbacks. Embed in final place
+* where it should be used e.g. ActorComponent, UObject, or Subsystem subclass.
+*/
 class LLAMACORE_API FLlamaNative
 {
 public:
