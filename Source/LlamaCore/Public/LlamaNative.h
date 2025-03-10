@@ -41,9 +41,6 @@ public:
 	~FLlamaNative();
 private:
 
-	//Helper function
-	FString Generate(const FString& Prompt);
-
 	FLLMModelParams ModelParams;
 	FLLMModelState ModelState;
 

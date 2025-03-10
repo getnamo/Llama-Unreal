@@ -64,6 +64,21 @@ bool FLlamaNative::LoadModel()
             Async(EAsyncExecution::TaskGraphMainThread, [this, TemplateString]
             {
                 ModelState.ChatTemplateLlamaString = TemplateString;
+
+                if (OnModelLoaded)
+                {
+                    OnModelLoaded(ModelParams.PathToModel);
+                }
+            });
+        }
+        else
+        {
+            Async(EAsyncExecution::TaskGraphMainThread, [this]
+            {
+                if (OnError)
+                {
+                    OnError("Failed loading model see logs.");
+                }
             });
         }
 

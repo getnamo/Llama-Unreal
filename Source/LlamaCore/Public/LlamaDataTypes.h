@@ -4,9 +4,10 @@
 
 #include "LlamaDataTypes.generated.h"
 
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnErrorSignature, FString, ErrorMessage);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnTokenGeneratedSignature, FString, Token);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnResponseGeneratedSignature, FString, Response);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnErrorSignature, const FString&, ErrorMessage);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnTokenGeneratedSignature, const FString&, Token);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnResponseGeneratedSignature, const FString&, Response);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FModelNameSignature, const FString&, ModelName);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPartialSignature, const FString&, Partial);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPromptHistorySignature, FString, History);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnEndOfStreamSignature, bool, bStopSequenceTriggered, float, TokensPerSecond);

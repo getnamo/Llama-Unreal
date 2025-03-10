@@ -54,6 +54,11 @@ void ULlamaComponent::Activate(bool bReset)
     {
         OnTokenGenerated.Broadcast(Token);
     };
+    LlamaNative->OnModelLoaded = [this](const FString& ModelPath)
+    {
+        //Todo: we need model name from path...
+        OnModelLoaded.Broadcast(ModelPath);
+    };
 
     LlamaNative->SetModelParams(ModelParams);
     LlamaNative->LoadModel();

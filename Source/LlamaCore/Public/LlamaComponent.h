@@ -27,7 +27,7 @@ public:
 
     //Only called when full response has been received (EOS/etc)
     UPROPERTY(BlueprintAssignable)
-    FOnTokenGeneratedSignature OnResponseGenerated;
+    FOnResponseGeneratedSignature OnResponseGenerated;
 
     //Utility split emit e.g. sentence level emits, useful for speech generation
     UPROPERTY(BlueprintAssignable)
@@ -42,6 +42,9 @@ public:
 
     UPROPERTY(BlueprintAssignable)
     FVoidEventSignature OnContextReset;
+
+    UPROPERTY(BlueprintAssignable)
+    FModelNameSignature OnModelLoaded;
 
     //Catch internal errors
     UPROPERTY(BlueprintAssignable)
