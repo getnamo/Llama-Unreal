@@ -67,6 +67,14 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Component")
     TMap<FString, FChatTemplate> CommonChatTemplates;
 
+    //loads model from params
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
+    void LoadModel();
+
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
+    void UnloadModel();
+
+
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
     void InsertPrompt(UPARAM(meta=(MultiLine=true)) const FString &Text);
 
@@ -87,19 +95,12 @@ public:
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
     void InsertPromptTemplated(UPARAM(meta=(MultiLine=true)) const FString& Text, EChatTemplateRole Role);
 
-
-    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
-    void StartStopQThread(bool bShouldRun = true);
-
     //Force stop generating new tokens
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
-    void StopGenerating();
+    void StopGeneration();
 
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
-    void ResumeGenerating();
-
-    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
-    void SyncParamsToLlama();
+    void ResumeGeneration();
 
 
     UFUNCTION(BlueprintPure, Category = "LLM Model Component")
@@ -111,16 +112,7 @@ public:
     FStructuredChatHistory GetStructuredHistory();
 
 
-    //String Utility
-    bool IsSentenceEndingPunctuation(const TCHAR Char);
-    FString GetLastSentence(const FString& InputString);
-
     EChatTemplateRole LastRoleFromStructuredHistory();
-
-
-    //Utility function for debugging model location and file enumeration
-    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
-    TArray<FString> DebugListDirectoryContent(const FString& InPath);
 
 private:
     class FLlamaNative* LlamaNative;

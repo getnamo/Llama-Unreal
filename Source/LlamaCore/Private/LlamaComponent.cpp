@@ -11,21 +11,6 @@ ULlamaComponent::ULlamaComponent(const FObjectInitializer &ObjectInitializer)
     PrimaryComponentTick.bCanEverTick = true;
     PrimaryComponentTick.bStartWithTickEnabled = true;
 
-    //NB we should read jinja templates from gguf or allow applying custom one
-    //here
-    /*FChatTemplate Template;
-    Template.System = TEXT("<|im_start|>system");
-    Template.User = TEXT("<|im_start|>user");
-    Template.Assistant = TEXT("<|im_start|>assistant");
-    Template.CommonSuffix = TEXT("<|im_end|>");
-    Template.Delimiter = TEXT("\n");
-
-    CommonChatTemplates.Add(TEXT("ChatML"), Template);
-
-    //Temp hack default to ChatML
-    ModelParams.ChatTemplate = Template;*/
-
-
     //All sentence ending formatting.
     ModelParams.Advanced.PartialsSeparators.Add(TEXT("."));
     ModelParams.Advanced.PartialsSeparators.Add(TEXT("?"));
@@ -44,25 +29,7 @@ ULlamaComponent::~ULlamaComponent()
 void ULlamaComponent::Activate(bool bReset)
 {
     Super::Activate(bReset);
-
-    LlamaNative->OnResponseGenerated = [this](const FString& Response)
-    {
-        OnResponseGenerated.Broadcast(Response);
-    };
-
-    LlamaNative->OnTokenGenerated = [this](const FString& Token)
-    {
-        OnTokenGenerated.Broadcast(Token);
-    };
-    LlamaNative->OnModelLoaded = [this](const FString& ModelPath)
-    {
-        //Todo: we need model name from path...
-        OnModelLoaded.Broadcast(ModelPath);
-    };
-
-    LlamaNative->SetModelParams(ModelParams);
-    LlamaNative->LoadModel();
-
+    LoadModel();
 }
 
 void ULlamaComponent::Deactivate()
@@ -80,6 +47,33 @@ void ULlamaComponent::TickComponent(float DeltaTime,
 void ULlamaComponent::InsertPrompt(const FString& Prompt)
 {
     LlamaNative->InsertPrompt(Prompt);
+}
+
+void ULlamaComponent::LoadModel()
+{
+    LlamaNative->OnResponseGenerated = [this](const FString& Response)
+    {
+        OnResponseGenerated.Broadcast(Response);
+    };
+
+    LlamaNative->OnTokenGenerated = [this](const FString& Token)
+    {
+        OnTokenGenerated.Broadcast(Token);
+    };
+
+    LlamaNative->OnModelLoaded = [this](const FString& ModelPath)
+    {
+        //Todo: we need model name from path...
+        OnModelLoaded.Broadcast(ModelPath);
+    };
+
+    LlamaNative->SetModelParams(ModelParams);
+    LlamaNative->LoadModel();
+}
+
+void ULlamaComponent::UnloadModel()
+{
+    LlamaNative->UnloadModel();
 }
 
 void ULlamaComponent::UserImpersonateText(const FString& Text, EChatTemplateRole Role, bool bIsEos)
@@ -157,22 +151,17 @@ FString ULlamaComponent::GetRolePrefix(EChatTemplateRole Role)
 
 void ULlamaComponent::InsertPromptTemplated(const FString& Content, EChatTemplateRole Role)
 {
+    //done by default, TBD: remove
 }
 
-void ULlamaComponent::StartStopQThread(bool bShouldRun)
+void ULlamaComponent::StopGeneration()
 {
+    LlamaNative->StopGeneration();
 }
 
-void ULlamaComponent::StopGenerating()
+void ULlamaComponent::ResumeGeneration()
 {
-}
-
-void ULlamaComponent::ResumeGenerating()
-{
-}
-
-void ULlamaComponent::SyncParamsToLlama()
-{
+    //Not yet supported
 }
 
 FString ULlamaComponent::GetTemplateStrippedPrompt()
@@ -293,124 +282,6 @@ FStructuredChatHistory ULlamaComponent::GetStructuredHistory()
         }
     }
     return Chat;
-}
-
-
-TArray<FString> ULlamaComponent::DebugListDirectoryContent(const FString& InPath)
-{
-    TArray<FString> Entries;
-
-    FString FullPathDirectory;
-
-    if (InPath.Contains(TEXT("<ProjectDir>")))
-    {
-        FString Remainder = InPath.Replace(TEXT("<ProjectDir>"), TEXT(""));
-
-        FullPathDirectory = FPaths::ProjectDir() + Remainder;
-    }
-    else if (InPath.Contains(TEXT("<Content>")))
-    {
-        FString Remainder = InPath.Replace(TEXT("<Content>"), TEXT(""));
-
-        FullPathDirectory = FPaths::ProjectContentDir() + Remainder;
-    }
-    else if (InPath.Contains(TEXT("<External>")))
-    {
-        FString Remainder = InPath.Replace(TEXT("<Content>"), TEXT(""));
-
-#if PLATFORM_ANDROID
-        FString ExternalStoragePath = FString(FAndroidMisc::GamePersistentDownloadDir());
-        FullPathDirectory = ExternalStoragePath + Remainder;
-#else
-        UE_LOG(LogTemp, Warning, TEXT("Externals not valid in this context!"));
-        //FullPathDirectory = FLlamaNative::ParsePathIntoFullPath(Remainder);
-#endif
-    }
-    else
-    {
-        //FullPathDirectory = FLlamaNative::ParsePathIntoFullPath(InPath);
-    }
-    
-    IFileManager& FileManager = IFileManager::Get();
-
-    FullPathDirectory = FPaths::ConvertRelativePathToFull(FullPathDirectory);
-
-    FullPathDirectory = FileManager.ConvertToAbsolutePathForExternalAppForRead(*FullPathDirectory);
-
-    Entries.Add(FullPathDirectory);
-
-    UE_LOG(LogTemp, Log, TEXT("Listing contents of <%s>"), *FullPathDirectory);
-
-    // Find directories
-    TArray<FString> Directories;
-    FString FinalPath = FullPathDirectory / TEXT("*");
-    FileManager.FindFiles(Directories, *FinalPath, false, true);
-    for (FString Entry : Directories)
-    {
-        FString FullPath = FullPathDirectory / Entry;
-        if (FileManager.DirectoryExists(*FullPath)) // Filter for directories
-        {
-            UE_LOG(LogTemp, Log, TEXT("Found directory: %s"), *Entry);
-            Entries.Add(Entry);
-        }
-    }
-
-    // Find files
-    TArray<FString> Files;
-    FileManager.FindFiles(Files, *FullPathDirectory, TEXT("*.*")); // Find all entries
-    for (FString Entry : Files)
-    {
-        FString FullPath = FullPathDirectory / Entry;
-        if (!FileManager.DirectoryExists(*FullPath)) // Filter out directories
-        {
-            UE_LOG(LogTemp, Log, TEXT("Found file: %s"), *Entry);
-            Entries.Add(Entry);
-        }
-    }
-
-    return Entries;
-}
-
-//Simple utility functions to find the last sentence
-bool ULlamaComponent::IsSentenceEndingPunctuation(const TCHAR Char)
-{
-    return Char == TEXT('.') || Char == TEXT('!') || Char == TEXT('?');
-}
-
-FString ULlamaComponent::GetLastSentence(const FString& InputString)
-{
-    int32 LastPunctuationIndex = INDEX_NONE;
-    int32 PrecedingPunctuationIndex = INDEX_NONE;
-
-    // Find the last sentence-ending punctuation
-    for (int32 i = InputString.Len() - 1; i >= 0; --i)
-    {
-        if (IsSentenceEndingPunctuation(InputString[i]))
-        {
-            LastPunctuationIndex = i;
-            break;
-        }
-    }
-
-    // If no punctuation found, return the entire string
-    if (LastPunctuationIndex == INDEX_NONE)
-    {
-        return InputString;
-    }
-
-    // Find the preceding sentence-ending punctuation
-    for (int32 i = LastPunctuationIndex - 1; i >= 0; --i)
-    {
-        if (IsSentenceEndingPunctuation(InputString[i]))
-        {
-            PrecedingPunctuationIndex = i;
-            break;
-        }
-    }
-
-    // Extract the last sentence
-    int32 StartIndex = PrecedingPunctuationIndex == INDEX_NONE ? 0 : PrecedingPunctuationIndex + 1;
-    return InputString.Mid(StartIndex, LastPunctuationIndex - StartIndex + 1).TrimStartAndEnd();
 }
 
 EChatTemplateRole ULlamaComponent::LastRoleFromStructuredHistory()
