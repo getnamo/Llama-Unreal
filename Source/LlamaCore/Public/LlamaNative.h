@@ -12,6 +12,7 @@ public:
 
 	//Callbacks
 	TFunction<void(const FString& Token)> OnTokenGenerated;
+	TFunction<void(const FString& Response)> OnResponseGenerated;	//per round
 	TFunction<void()> OnGenerationStarted;
 	TFunction<void(const FLlamaRunTimings& Timings)> OnGenerationFinished;
 	TFunction<void(const FString& ModelPath)> OnModelLoaded;

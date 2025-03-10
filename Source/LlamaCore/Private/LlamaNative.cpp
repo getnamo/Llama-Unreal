@@ -19,6 +19,9 @@ public:
     TArray<llama_chat_message> Messages;
     TArray<char> Formatted;
 
+    char* Template;
+    int32 PrevLen = 0;
+
     bool LoadFromParams(FLLMModelParams& InModelParams)
     {
         //Early implementation largely converted from: https://github.com/ggml-org/llama.cpp/blob/master/examples/simple-chat/simple-chat.cpp
@@ -62,6 +65,9 @@ public:
         llama_sampler_chain_add(Sampler, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
 
         Formatted.SetNum(llama_n_ctx(Context));
+
+        Template = (char*)llama_model_chat_template(LlamaModel, /* name */ nullptr);
+        PrevLen = 0;
 
         bIsLoaded = true;
 
@@ -186,7 +192,7 @@ bool FLlamaNative::LoadModel()
     //llama_n_ctx(Internal->Context);
     if (bSuccess)
     {
-        ModelState.ChatTemplateLlamaString = FString(llama_model_chat_template(Internal->LlamaModel, /* name */ nullptr));
+        ModelState.ChatTemplateLlamaString = FString(Internal->Template);
     }
 
     return bSuccess;
@@ -206,11 +212,49 @@ bool FLlamaNative::bIsModelLoaded()
     return Internal->bIsLoaded;
 }
 
-void FLlamaNative::InsertPrompt(const FString& Prompt)
+void FLlamaNative::InsertPrompt(const FString& UserPrompt)
 {
     if (!bIsModelLoaded())
     {
-        UE_LOG(LlamaLog, Error, TEXT("Model isn't loaded, can't run prompt."));
+        UE_LOG(LlamaLog, Warning, TEXT("Model isn't loaded, can't run prompt."));
         return;
+    }
+
+    std::string UserStdString = TCHAR_TO_UTF8(*UserPrompt);
+    Internal->Messages.Push({ "user", _strdup(UserStdString.c_str())});
+    int NewLen = llama_chat_apply_template(Internal->Template, Internal->Messages.GetData(), Internal->Messages.Num(), 
+        true, Internal->Formatted.GetData(), Internal->Formatted.Num());
+
+
+    if (NewLen > Internal->Formatted.Num())
+    {
+        Internal->Formatted.Reserve(NewLen);
+        NewLen = llama_chat_apply_template(Internal->Template, Internal->Messages.GetData(), Internal->Messages.Num(),
+            true, Internal->Formatted.GetData(), Internal->Formatted.Num());
+    }
+    if (NewLen < 0)
+    {
+        UE_LOG(LlamaLog, Warning, TEXT("failed to apply the chat template p1"));
+        return;
+    }
+
+    std::string PromptStd(Internal->Formatted.GetData() + Internal->PrevLen, Internal->Formatted.GetData() + NewLen);
+    FString Prompt = FString(UTF8_TO_TCHAR(PromptStd.c_str()));
+
+    FString Response = Generate(Prompt);
+    std::string AssistantStdString = TCHAR_TO_UTF8(*Response);
+
+    Internal->Messages.Push({ "assistant", _strdup(AssistantStdString.c_str()) });
+
+    Internal->PrevLen = llama_chat_apply_template(Internal->Template, Internal->Messages.GetData(), Internal->Messages.Num(), false, nullptr, 0);
+    if (Internal->PrevLen < 0) 
+    {
+        UE_LOG(LlamaLog, Warning, TEXT("failed to apply the chat template p2"));
+        return;
+    }
+
+    if (OnResponseGenerated)
+    {
+        OnResponseGenerated(Response);
     }
 }
