@@ -45,11 +45,10 @@ void ULlamaComponent::Activate(bool bReset)
 {
     Super::Activate(bReset);
 
-    //Check our role
-    if (ModelParams.ModelRole != EChatTemplateRole::Unknown)
-    {
+    //LlamaNative->OnResponseGenerated =
+    LlamaNative->SetModelParams(ModelParams);
+    LlamaNative->LoadModel();
 
-    }
 }
 
 void ULlamaComponent::Deactivate()
@@ -66,6 +65,7 @@ void ULlamaComponent::TickComponent(float DeltaTime,
 
 void ULlamaComponent::InsertPrompt(const FString& Prompt)
 {
+    LlamaNative->InsertPrompt(Prompt);
 }
 
 void ULlamaComponent::UserImpersonateText(const FString& Text, EChatTemplateRole Role, bool bIsEos)

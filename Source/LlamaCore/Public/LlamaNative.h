@@ -30,6 +30,8 @@ public:
 
 	void InsertPrompt(const FString& Prompt);
 
+
+
 	FLlamaNative();
 	~FLlamaNative();
 private:
@@ -38,8 +40,7 @@ private:
 	FString Generate(const FString& Prompt);
 
 	FLLMModelParams ModelParams;
-
 	FLLMModelState ModelState;
 
-	class FLlamaInternalState* Internal = nullptr;
+	class FLlamaInternal* Internal = nullptr;
 };
