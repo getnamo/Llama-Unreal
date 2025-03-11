@@ -188,7 +188,7 @@ struct FJinjaChatTemplate
     GENERATED_USTRUCT_BODY();
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Jinja Chat Template")
-    FString TemplateSource = TEXT("tokenizer.chat_template");
+    FString TemplateSource = TEXT("");
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Jinja Chat Template")
     FString Jinja = TEXT("");

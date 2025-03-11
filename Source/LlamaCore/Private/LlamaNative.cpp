@@ -59,7 +59,7 @@ bool FLlamaNative::LoadModel()
         //Sync model state
         if (bSuccess)
         {
-            FString TemplateString = FString(Internal->Template);
+            FString TemplateString = FLlamaString::ToUE(Internal->Template);
 
             //update model params on game thread
             Async(EAsyncExecution::TaskGraphMainThread, [this, TemplateString]

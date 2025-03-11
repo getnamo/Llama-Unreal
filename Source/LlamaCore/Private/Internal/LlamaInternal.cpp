@@ -1,4 +1,5 @@
 #include "Internal/LlamaInternal.h"
+#include "LlamaDataTypes.h"
 #include "LlamaUtility.h"
 
 bool FLlamaInternal::LoadModelFromParams(const FLLMModelParams& InModelParams)
@@ -94,7 +95,23 @@ bool FLlamaInternal::LoadModelFromParams(const FLLMModelParams& InModelParams)
 
     ContextHistory.SetNum(llama_n_ctx(Context));
 
-    Template = (char*)llama_model_chat_template(LlamaModel, /* name */ nullptr);
+    //Prioritize: custom jinja, then name, then default
+    if (!InModelParams.CustomChatTemplate.Jinja.IsEmpty())
+    {
+        Template = FLlamaString::ToStd(InModelParams.CustomChatTemplate.Jinja);
+    }
+    else if (   !InModelParams.CustomChatTemplate.TemplateSource.IsEmpty() &&
+                InModelParams.CustomChatTemplate.TemplateSource != TEXT("tokenizer.chat_template"))
+    {
+        //apply template source name
+        Template = std::string(llama_model_chat_template(LlamaModel, FLlamaString::ToStd(InModelParams.CustomChatTemplate.TemplateSource).c_str()));
+    }
+    else
+    {
+        //use default template
+        Template = std::string(llama_model_chat_template(LlamaModel, nullptr));
+    }
+    
     PrevLen = 0;
 
     bIsModelLoaded = true;
@@ -174,7 +191,7 @@ std::string FLlamaInternal::InsertRawPrompt(const std::string& Prompt)
 
     Messages.Push({ "assistant", _strdup(Response.c_str()) });
 
-    PrevLen = llama_chat_apply_template(Template, Messages.GetData(), Messages.Num(), false, nullptr, 0);
+    PrevLen = llama_chat_apply_template(Template.c_str(), Messages.GetData(), Messages.Num(), false, nullptr, 0);
     if (PrevLen < 0)
     {
         UE_LOG(LlamaLog, Warning, TEXT("failed to apply the chat template post generation."));
@@ -197,14 +214,14 @@ std::string FLlamaInternal::InsertTemplatedPrompt(const std::string& UserPrompt)
     if (!UserPrompt.empty())
     {
         Messages.Push({ "user", _strdup(UserPrompt.c_str()) });
-        NewLen = llama_chat_apply_template(Template, Messages.GetData(), Messages.Num(),
+        NewLen = llama_chat_apply_template(Template.c_str(), Messages.GetData(), Messages.Num(),
             true, ContextHistory.GetData(), ContextHistory.Num());
 
 
         if (NewLen > ContextHistory.Num())
         {
             ContextHistory.Reserve(NewLen);
-            NewLen = llama_chat_apply_template(Template, Messages.GetData(), Messages.Num(),
+            NewLen = llama_chat_apply_template(Template.c_str(), Messages.GetData(), Messages.Num(),
                 true, ContextHistory.GetData(), ContextHistory.Num());
         }
         if (NewLen < 0)
@@ -220,7 +237,7 @@ std::string FLlamaInternal::InsertTemplatedPrompt(const std::string& UserPrompt)
 
     Messages.Push({ "assistant", _strdup(Response.c_str()) });
 
-    PrevLen = llama_chat_apply_template(Template, Messages.GetData(), Messages.Num(), false, ContextHistory.GetData(), ContextHistory.Num());
+    PrevLen = llama_chat_apply_template(Template.c_str(), Messages.GetData(), Messages.Num(), false, ContextHistory.GetData(), ContextHistory.Num());
     if (PrevLen < 0)
     {
         UE_LOG(LlamaLog, Warning, TEXT("failed to apply the chat template post generation."));

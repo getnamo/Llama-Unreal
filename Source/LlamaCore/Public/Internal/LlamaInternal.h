@@ -24,7 +24,8 @@ public:
     TArray<char> ContextHistory;
 
     //Loaded state
-    char* Template;
+    std::string Template;
+    //char* Template;
 
     //Model loading
     bool LoadModelFromParams(const FLLMModelParams& InModelParams);
