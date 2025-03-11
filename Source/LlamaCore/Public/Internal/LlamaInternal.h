@@ -21,7 +21,7 @@ public:
 
     //Messaging state
     TArray<llama_chat_message> Messages;
-    TArray<char> Formatted;
+    TArray<char> ContextHistory;
 
     //Loaded state
     char* Template;
@@ -36,6 +36,12 @@ public:
 
     //main internal function - synchronous so should be called from bg thread. Will emit OnTokenGenerated for each token.
     std::string InsertPrompt(const std::string& Prompt);
+
+    //continue generating from last stop
+    std::string ResumeGeneration();
+
+    //delete the last message and tries again
+    //std::string RerollLastGeneration();
 
     //flips bGenerationActive which will stop generation on next token. Threadsafe call.
     void StopGeneration();

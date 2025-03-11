@@ -64,9 +64,6 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Component")
     bool bSyncPromptHistory = true;
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Component")
-    TMap<FString, FChatTemplate> CommonChatTemplates;
-
     //loads model from params
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
     void LoadModel();
@@ -75,25 +72,30 @@ public:
     void UnloadModel();
 
 
+    //Clears the prompt, allowing a new context - Not yet implemented
+    //UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
+    void ResetContextHistory();
+
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
-    void InsertPrompt(UPARAM(meta=(MultiLine=true)) const FString &Text);
+    void InsertTemplatedPrompt(UPARAM(meta=(MultiLine=true)) const FString &Text);
+
+    //does not apply formatting before running inference
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
+    void InsertRawPrompt(UPARAM(meta = (MultiLine = true)) const FString& Text);
 
     /** 
     * Use this function to bypass input from AI, e.g. streaming input from another source. 
     * All downstream event functions will trigger from this call as if it came from the LLM.
-    * Won't make a new message split until role is swapped from last. */
+    * Won't make a new message split until role is swapped from last. 
+    * Doesn't work in v0.8 yet
+    */
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
     void UserImpersonateText(const FString& Text, EChatTemplateRole Role = EChatTemplateRole::Assistant,  bool bIsEos = false);
 
+    //if you want to manually wrap prompt, if template is empty string, default model template is applies
     UFUNCTION(BlueprintPure, Category = "LLM Model Component")
-    FString WrapPromptForRole(const FString& Text, EChatTemplateRole Role, bool AppendModelRolePrefix=false);
+    FString WrapPromptForRole(const FString& Text, EChatTemplateRole Role, const FString& Template);
 
-    UFUNCTION(BlueprintPure, Category = "LLM Model Component")
-    FString GetRolePrefix(EChatTemplateRole Role = EChatTemplateRole::Assistant);
-
-    //This will wrap your input given the specific role using chat template specified
-    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
-    void InsertPromptTemplated(UPARAM(meta=(MultiLine=true)) const FString& Text, EChatTemplateRole Role);
 
     //Force stop generating new tokens
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
@@ -102,17 +104,14 @@ public:
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
     void ResumeGeneration();
 
-
+    //Obtain the currently formatted context
     UFUNCTION(BlueprintPure, Category = "LLM Model Component")
-    FString GetTemplateStrippedPrompt();
-
-    FStructuredChatMessage FirstChatMessageInHistory(const FString& History, FString& Remainder);
+    FString RawContextHistory();
 
     UFUNCTION(BlueprintPure, Category = "LLM Model Component")
     FStructuredChatHistory GetStructuredHistory();
 
-
-    EChatTemplateRole LastRoleFromStructuredHistory();
+    //EChatTemplateRole LastRoleFromStructuredHistory();
 
 private:
     class FLlamaNative* LlamaNative;

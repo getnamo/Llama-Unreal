@@ -152,3 +152,78 @@ void FLlamaNative::StopGeneration()
 {
     Internal->StopGeneration();
 }
+
+void FLlamaNative::ResumeGeneration()
+{
+    Internal->ResumeGeneration();
+}
+
+FString FLlamaNative::RawContextHistory()
+{
+    if (IsGenerating())
+    {
+        //Todo: handle this case gracefully
+        UE_LOG(LlamaLog, Warning, TEXT("RawContextString cannot be called yet during generation."));
+        return FString();
+    }
+
+    if (Internal->ContextHistory.Num() == 0)
+    {
+        return FString();
+    }
+
+    // Find the first null terminator (0) in the buffer
+    int32 ValidLength = Internal->ContextHistory.Num();
+    for (int32 i = 0; i < Internal->ContextHistory.Num(); i++)
+    {
+        if (Internal->ContextHistory[i] == '\0')
+        {
+            ValidLength = i;
+            break;
+        }
+    }
+
+    // Convert only the valid part to an FString
+    return FString(ValidLength, ANSI_TO_TCHAR(Internal->ContextHistory.GetData()));
+}
+
+void FLlamaNative::GetStructuredChatHistory(FStructuredChatHistory& OutChatHistory)
+{
+    if (IsGenerating())
+    {
+        //Todo: handle this case gracefully
+        UE_LOG(LlamaLog, Warning, TEXT("GetStructuredChatHistory cannot be called yet during generation."));
+        return;
+    }
+
+    for (const llama_chat_message& Msg : Internal->Messages)
+    {
+        FStructuredChatMessage StructuredMsg;
+
+        // Convert role
+        FString RoleStr = FString(ANSI_TO_TCHAR(Msg.role));
+        if (RoleStr.Equals(TEXT("system"), ESearchCase::IgnoreCase))
+        {
+            StructuredMsg.Role = EChatTemplateRole::System;
+        }
+        else if (RoleStr.Equals(TEXT("user"), ESearchCase::IgnoreCase))
+        {
+            StructuredMsg.Role = EChatTemplateRole::User;
+        }
+        else if (RoleStr.Equals(TEXT("assistant"), ESearchCase::IgnoreCase))
+        {
+            StructuredMsg.Role = EChatTemplateRole::Assistant;
+        }
+        else
+        {
+            // Default/fallback role (adjust if needed)
+            StructuredMsg.Role = EChatTemplateRole::Assistant;
+        }
+
+        // Convert content
+        StructuredMsg.Content = FString(ANSI_TO_TCHAR(Msg.content));
+
+        // Add to history
+        OutChatHistory.History.Add(StructuredMsg);
+    }
+}

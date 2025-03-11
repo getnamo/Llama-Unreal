@@ -35,6 +35,11 @@ public:
 	void InsertPrompt(const FString& Prompt);
 	bool IsGenerating();
 	void StopGeneration();
+	void ResumeGeneration();
+
+	//Pure query of current context - not threadsafe, be careful when these get called - TBD: make it safe
+	FString RawContextHistory();
+	void GetStructuredChatHistory(FStructuredChatHistory& OutChatHistory);
 
 	FLlamaNative();
 	~FLlamaNative();

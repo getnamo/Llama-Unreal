@@ -153,7 +153,7 @@ public class LlamaCore : ModuleRules
 				string VulkanPath = Path.Combine(PluginLibPath, "Win64", "Vulkan");
 				PublicAdditionalLibraries.Add(Path.Combine(VulkanPath, "ggml-vulkan.lib"));
 				RuntimeDependencies.Add("$(BinaryOutputDir)/ggml-vulkan.dll", Path.Combine(VulkanPath, "ggml-vulkan.dll"));
-				System.Console.WriteLine("Llama-Unreal building using ggml-vulkan..lib at path " + VulkanPath);
+				System.Console.WriteLine("Llama-Unreal building using ggml-vulkan.lib at path " + VulkanPath);
 			}
 			else if(bCudaFound)
 			{

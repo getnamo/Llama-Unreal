@@ -32,6 +32,8 @@ bool FLlamaInternal::LoadModelFromParams(const FLLMModelParams& InModelParams)
     llama_context_params ContextParams = llama_context_default_params();
     ContextParams.n_ctx = InModelParams.MaxContextLength;
     ContextParams.n_batch = InModelParams.MaxContextLength;
+    ContextParams.n_threads = InModelParams.Threads;
+    ContextParams.n_threads_batch = InModelParams.Threads;
 
     Context = llama_init_from_model(LlamaModel, ContextParams);
     if (!Context)
@@ -41,11 +43,14 @@ bool FLlamaInternal::LoadModelFromParams(const FLLMModelParams& InModelParams)
     }
 
     Sampler = llama_sampler_chain_init(llama_sampler_chain_default_params());
+    //InModelParams.Advanced.
     llama_sampler_chain_add(Sampler, llama_sampler_init_min_p(0.05f, 1));
     llama_sampler_chain_add(Sampler, llama_sampler_init_temp(0.8f));
+
+    //if(InModelParams.)
     llama_sampler_chain_add(Sampler, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
 
-    Formatted.SetNum(llama_n_ctx(Context));
+    ContextHistory.SetNum(llama_n_ctx(Context));
 
     Template = (char*)llama_model_chat_template(LlamaModel, /* name */ nullptr);
     PrevLen = 0;
@@ -72,7 +77,7 @@ void FLlamaInternal::UnloadModel()
         llama_model_free(LlamaModel);
         LlamaModel = nullptr;
     }
-    Formatted.Empty();
+    ContextHistory.Empty();
 
     bIsModelLoaded = false;
 }
@@ -100,24 +105,29 @@ std::string FLlamaInternal::InsertPrompt(const std::string& UserPrompt)
         return "";
     }
 
-    Messages.Push({ "user", _strdup(UserPrompt.c_str()) });
-    int NewLen = llama_chat_apply_template(Template, Messages.GetData(), Messages.Num(),
-        true, Formatted.GetData(), Formatted.Num());
+    int NewLen = PrevLen;
 
-
-    if (NewLen > Formatted.Num())
+    if (!UserPrompt.empty())
     {
-        Formatted.Reserve(NewLen);
+        Messages.Push({ "user", _strdup(UserPrompt.c_str()) });
         NewLen = llama_chat_apply_template(Template, Messages.GetData(), Messages.Num(),
-            true, Formatted.GetData(), Formatted.Num());
-    }
-    if (NewLen < 0)
-    {
-        UE_LOG(LlamaLog, Warning, TEXT("failed to apply the chat template p1"));
-        return "";
+            true, ContextHistory.GetData(), ContextHistory.Num());
+
+
+        if (NewLen > ContextHistory.Num())
+        {
+            ContextHistory.Reserve(NewLen);
+            NewLen = llama_chat_apply_template(Template, Messages.GetData(), Messages.Num(),
+                true, ContextHistory.GetData(), ContextHistory.Num());
+        }
+        if (NewLen < 0)
+        {
+            UE_LOG(LlamaLog, Warning, TEXT("failed to apply the chat template pre generation."));
+            return "";
+        }
     }
 
-    std::string Prompt(Formatted.GetData() + PrevLen, Formatted.GetData() + NewLen);
+    std::string Prompt(ContextHistory.GetData() + PrevLen, ContextHistory.GetData() + NewLen);
 
     std::string Response = Generate(Prompt);
 
@@ -126,11 +136,17 @@ std::string FLlamaInternal::InsertPrompt(const std::string& UserPrompt)
     PrevLen = llama_chat_apply_template(Template, Messages.GetData(), Messages.Num(), false, nullptr, 0);
     if (PrevLen < 0)
     {
-        UE_LOG(LlamaLog, Warning, TEXT("failed to apply the chat template p2"));
+        UE_LOG(LlamaLog, Warning, TEXT("failed to apply the chat template post generation."));
         return "";
     }
 
     return Response;
+}
+
+std::string FLlamaInternal::ResumeGeneration()
+{
+    //run an empty user prompt
+    return InsertPrompt(std::string());
 }
 
 std::string FLlamaInternal::Generate(const std::string& Prompt)
@@ -155,7 +171,6 @@ std::string FLlamaInternal::Generate(const std::string& Prompt)
     // prepare a batch for the prompt
     llama_batch Batch = llama_batch_get_one(PromptTokens.data(), PromptTokens.size());
     llama_token NewTokenId;
-
     
     while (bGenerationActive) //processing can be aborted by flipping the boolean
     {
@@ -188,7 +203,9 @@ std::string FLlamaInternal::Generate(const std::string& Prompt)
         int n = llama_token_to_piece(Vocab, NewTokenId, Buffer, sizeof(Buffer), 0, true);
         if (n < 0)
         {
+            bGenerationActive = false;
             GGML_ABORT("failed to convert token to piece\n");
+            break;
         }
         std::string Piece(Buffer, n);
         Response += Piece;
