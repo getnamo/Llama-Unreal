@@ -37,6 +37,7 @@ FLlamaNative::FLlamaNative()
 
 FLlamaNative::~FLlamaNative()
 {
+    StopGeneration();   //NB: this isn't sufficient to potentially fail OnTokenGenerated callback during hasty exit
     delete Internal;
 }
 
@@ -63,7 +64,9 @@ bool FLlamaNative::LoadModel()
             //update model params on game thread
             Async(EAsyncExecution::TaskGraphMainThread, [this, TemplateString]
             {
-                ModelState.ChatTemplateLlamaString = TemplateString;
+                FJinjaChatTemplate ChatTemplate;
+                ChatTemplate.TemplateSource = TEXT("tokenizer.chat_template");
+                ChatTemplate.Jinja = TemplateString;
 
                 if (OnModelLoaded)
                 {
@@ -112,6 +115,7 @@ void FLlamaNative::InsertPrompt(const FString& UserPrompt)
     //check if we're currently generating
     if (Internal->IsGenerating())
     {
+        //Todo: queue inputs once we have history manipulation working.
         UE_LOG(LlamaLog, Warning, TEXT("Aborting: already generating, in this version this fails to queue up."));
         return;
     }
@@ -121,12 +125,16 @@ void FLlamaNative::InsertPrompt(const FString& UserPrompt)
     //run prompt insert on background thread (NB: should we do one parked thread for llama inference instead of this?)
     Async(EAsyncExecution::ThreadPool, [this, UserStdString]
     {
-        FString Response = FLlamaString::ToUE(Internal->InsertPrompt(UserStdString));
+        FString Response = FLlamaString::ToUE(Internal->InsertTemplatedPrompt(UserStdString));
 
         if (ModelParams.Advanced.bEmitOnGameThread && OnResponseGenerated)
         {
             Async(EAsyncExecution::TaskGraphMainThread, [this, Response]
             {
+                //It's now safe to sync our history
+                GetStructuredChatHistory(ModelState.ChatHistory);
+                ModelState.ContextHistory = RawContextHistory();
+
                 if (OnResponseGenerated)
                 {
                     OnResponseGenerated(Response);
@@ -156,6 +164,31 @@ void FLlamaNative::StopGeneration()
 void FLlamaNative::ResumeGeneration()
 {
     Internal->ResumeGeneration();
+}
+
+void FLlamaNative::ResetContextHistory()
+{
+    //TODO: implement
+}
+
+void FLlamaNative::RemoveLastInput()
+{
+    //TODO: implement
+}
+
+void FLlamaNative::RemoveLastReply()
+{
+    //Rollback messages
+    //Reformat history from rollback
+    //Ready to continue
+    //TODO: implement
+}
+
+void FLlamaNative::RegenerateLastReply()
+{
+    RemoveLastReply();
+    //Change seed?
+    ResumeGeneration();
 }
 
 FString FLlamaNative::RawContextHistory()

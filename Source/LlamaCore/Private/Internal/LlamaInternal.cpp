@@ -31,7 +31,7 @@ bool FLlamaInternal::LoadModelFromParams(const FLLMModelParams& InModelParams)
 
     llama_context_params ContextParams = llama_context_default_params();
     ContextParams.n_ctx = InModelParams.MaxContextLength;
-    ContextParams.n_batch = InModelParams.MaxContextLength;
+    ContextParams.n_batch = InModelParams.MaxBatchLength;
     ContextParams.n_threads = InModelParams.Threads;
     ContextParams.n_threads_batch = InModelParams.Threads;
 
@@ -139,7 +139,28 @@ bool FLlamaInternal::IsModelLoaded()
     return bIsModelLoaded;
 }
 
-std::string FLlamaInternal::InsertPrompt(const std::string& UserPrompt)
+std::string FLlamaInternal::InsertRawPrompt(const std::string& Prompt)
+{
+    if (!bIsModelLoaded)
+    {
+        UE_LOG(LlamaLog, Warning, TEXT("Model isn't loaded"));
+        return "";
+    }
+    std::string Response = Generate(Prompt);
+
+    Messages.Push({ "assistant", _strdup(Response.c_str()) });
+
+    PrevLen = llama_chat_apply_template(Template, Messages.GetData(), Messages.Num(), false, nullptr, 0);
+    if (PrevLen < 0)
+    {
+        UE_LOG(LlamaLog, Warning, TEXT("failed to apply the chat template post generation."));
+        return "";
+    }
+
+    return Response;
+}
+
+std::string FLlamaInternal::InsertTemplatedPrompt(const std::string& UserPrompt)
 {
     if (!bIsModelLoaded)
     {
@@ -188,7 +209,7 @@ std::string FLlamaInternal::InsertPrompt(const std::string& UserPrompt)
 std::string FLlamaInternal::ResumeGeneration()
 {
     //run an empty user prompt
-    return InsertPrompt(std::string());
+    return InsertTemplatedPrompt(std::string());
 }
 
 std::string FLlamaInternal::Generate(const std::string& Prompt)

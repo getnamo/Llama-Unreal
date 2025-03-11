@@ -37,6 +37,12 @@ public:
 	void StopGeneration();
 	void ResumeGeneration();
 
+	//Context change - not yet implemented
+	void ResetContextHistory();	//full reset
+	void RemoveLastInput();		//chat rollback to undo last user input
+	void RemoveLastReply();		//chat rollback to undo last assistant input.
+	void RegenerateLastReply(); //removes last reply and regenerates (changing seed?)
+
 	//Pure query of current context - not threadsafe, be careful when these get called - TBD: make it safe
 	FString RawContextHistory();
 	void GetStructuredChatHistory(FStructuredChatHistory& OutChatHistory);

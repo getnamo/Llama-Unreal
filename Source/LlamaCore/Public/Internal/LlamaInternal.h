@@ -33,9 +33,11 @@ public:
 
 
     //Generation
+    std::string InsertRawPrompt(const std::string& Prompt);
 
     //main internal function - synchronous so should be called from bg thread. Will emit OnTokenGenerated for each token.
-    std::string InsertPrompt(const std::string& Prompt);
+    std::string InsertTemplatedPrompt(const std::string& Prompt);
+
 
     //continue generating from last stop
     std::string ResumeGeneration();

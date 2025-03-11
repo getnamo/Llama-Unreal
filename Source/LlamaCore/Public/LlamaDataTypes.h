@@ -181,6 +181,19 @@ struct FChatTemplate
     }
 };
 
+
+USTRUCT(BlueprintType)
+struct FJinjaChatTemplate
+{
+    GENERATED_USTRUCT_BODY();
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Jinja Chat Template")
+    FString TemplateSource = TEXT("tokenizer.chat_template");
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Jinja Chat Template")
+    FString Jinja = TEXT("");
+};
+
 //Initial state fed into the model
 USTRUCT(BlueprintType)
 struct FLLMModelParams
@@ -191,17 +204,19 @@ struct FLLMModelParams
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
     FString PathToModel = "./model.gguf";
 
+    //Gets embedded on first input after a model load
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params", meta=(MultiLine=true))
-    FString Prompt = "You are a helpful assistant.";
+    FString SystemPrompt = "You are a helpful assistant.";
 
     //If not different than default empty, no template will be applied
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
-    FChatTemplate ChatTemplate;
+    FJinjaChatTemplate CustomChatTemplate = "";
 
     //If set anything other than unknown, AI chat role will be enforced. Assistant is default
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
     EChatTemplateRole ModelRole = EChatTemplateRole::Assistant;
 
+    //Additional stop sequences - not currently active
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
     TArray<FString> StopSequences;
 
@@ -215,7 +230,7 @@ struct FLLMModelParams
     int32 Threads = 8;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
-    int32 BatchCount = 512;
+    int32 MaxBatchLength = 4096;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
     int32 Seed = -1;
@@ -230,9 +245,9 @@ struct FLLMModelState
 {
     GENERATED_USTRUCT_BODY();
 
-    //One true store that should be synced to the model internal history, accessible on game thread.
+    //The raw context history with formatting applied
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model State")
-    FString PromptHistory;
+    FString ContextHistory;
 
     //Where prompt history is raw, chat is an ordered structure. May not be relevant for non-chat type llm data
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model State")
@@ -254,5 +269,5 @@ struct FLLMModelState
     EChatTemplateRole LastRole = EChatTemplateRole::Unknown;
 
     UPROPERTY(BlueprintReadOnly, Category = "LLM Model State")
-    FString ChatTemplateLlamaString;
+    FJinjaChatTemplate ChatTemplateInUse;
 };
