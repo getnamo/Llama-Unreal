@@ -53,6 +53,10 @@ void ULlamaComponent::InsertTemplatedPrompt(const FString& Prompt)
 
 void ULlamaComponent::LoadModel()
 {
+    LlamaNative->OnModelStateChanged = [this](const FLLMModelState& UpdatedModelState)
+    {
+        ModelState = UpdatedModelState;
+    };
     LlamaNative->OnResponseGenerated = [this](const FString& Response)
     {
         OnResponseGenerated.Broadcast(Response);
@@ -129,7 +133,9 @@ void ULlamaComponent::ResumeGeneration()
 
 FString ULlamaComponent::RawContextHistory()
 {
-    return LlamaNative->RawContextHistory();
+    FString History;
+    LlamaNative->RawContextHistory(History);
+    return History;
 }
 
 FStructuredChatHistory ULlamaComponent::GetStructuredHistory()

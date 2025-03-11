@@ -49,6 +49,9 @@ public:
     void StopGeneration();
     bool IsGenerating();
 
+    int32 MaxContext();
+    int32 UsedContext();
+
     ~FLlamaInternal();
 
 protected:

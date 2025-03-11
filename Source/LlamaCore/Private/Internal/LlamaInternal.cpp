@@ -134,6 +134,30 @@ bool FLlamaInternal::IsGenerating()
     return bGenerationActive;
 }
 
+int32 FLlamaInternal::MaxContext()
+{
+    if (Context)
+    {
+        return llama_n_ctx(Context);
+    }
+    else
+    {
+        return 0;
+    }
+}
+
+int32 FLlamaInternal::UsedContext()
+{
+    if (Context)
+    {
+        return llama_get_kv_cache_used_cells(Context);
+    }
+    else
+    {
+        return 0;
+    }
+}
+
 bool FLlamaInternal::IsModelLoaded()
 {
     return bIsModelLoaded;
@@ -196,7 +220,7 @@ std::string FLlamaInternal::InsertTemplatedPrompt(const std::string& UserPrompt)
 
     Messages.Push({ "assistant", _strdup(Response.c_str()) });
 
-    PrevLen = llama_chat_apply_template(Template, Messages.GetData(), Messages.Num(), false, nullptr, 0);
+    PrevLen = llama_chat_apply_template(Template, Messages.GetData(), Messages.Num(), false, ContextHistory.GetData(), ContextHistory.Num());
     if (PrevLen < 0)
     {
         UE_LOG(LlamaLog, Warning, TEXT("failed to apply the chat template post generation."));

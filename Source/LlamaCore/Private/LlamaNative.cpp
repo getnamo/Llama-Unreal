@@ -68,6 +68,13 @@ bool FLlamaNative::LoadModel()
                 ChatTemplate.TemplateSource = TEXT("tokenizer.chat_template");
                 ChatTemplate.Jinja = TemplateString;
 
+                ModelState.ChatTemplateInUse = ChatTemplate;
+
+                if (OnModelStateChanged)
+                {
+                    OnModelStateChanged(ModelState);
+                }
+
                 if (OnModelLoaded)
                 {
                     OnModelLoaded(ModelParams.PathToModel);
@@ -127,13 +134,19 @@ void FLlamaNative::InsertPrompt(const FString& UserPrompt)
     {
         FString Response = FLlamaString::ToUE(Internal->InsertTemplatedPrompt(UserStdString));
 
+        //It's now safe to sync our history - only
+        GetStructuredChatHistory(ModelState.ChatHistory);
+        RawContextHistory(ModelState.ContextHistory);
+        ModelState.ContextLength = UsedContextLength();
+
         if (ModelParams.Advanced.bEmitOnGameThread && OnResponseGenerated)
         {
             Async(EAsyncExecution::TaskGraphMainThread, [this, Response]
             {
-                //It's now safe to sync our history
-                GetStructuredChatHistory(ModelState.ChatHistory);
-                ModelState.ContextHistory = RawContextHistory();
+                if (OnModelStateChanged)
+                {
+                    OnModelStateChanged(ModelState);
+                }
 
                 if (OnResponseGenerated)
                 {
@@ -143,6 +156,10 @@ void FLlamaNative::InsertPrompt(const FString& UserPrompt)
         }
         else
         {
+            if (OnModelStateChanged)
+            {
+                OnModelStateChanged(ModelState);
+            }
             if (OnResponseGenerated)
             {
                 OnResponseGenerated(Response);
@@ -191,18 +208,18 @@ void FLlamaNative::RegenerateLastReply()
     ResumeGeneration();
 }
 
-FString FLlamaNative::RawContextHistory()
+int32 FLlamaNative::RawContextHistory(FString& OutContextString)
 {
     if (IsGenerating())
     {
         //Todo: handle this case gracefully
         UE_LOG(LlamaLog, Warning, TEXT("RawContextString cannot be called yet during generation."));
-        return FString();
+        return -1;
     }
 
     if (Internal->ContextHistory.Num() == 0)
     {
-        return FString();
+        return 0;
     }
 
     // Find the first null terminator (0) in the buffer
@@ -217,7 +234,9 @@ FString FLlamaNative::RawContextHistory()
     }
 
     // Convert only the valid part to an FString
-    return FString(ValidLength, ANSI_TO_TCHAR(Internal->ContextHistory.GetData()));
+    OutContextString = FString(ValidLength, ANSI_TO_TCHAR(Internal->ContextHistory.GetData()));
+
+    return ValidLength;
 }
 
 void FLlamaNative::GetStructuredChatHistory(FStructuredChatHistory& OutChatHistory)
@@ -228,6 +247,8 @@ void FLlamaNative::GetStructuredChatHistory(FStructuredChatHistory& OutChatHisto
         UE_LOG(LlamaLog, Warning, TEXT("GetStructuredChatHistory cannot be called yet during generation."));
         return;
     }
+
+    OutChatHistory.History.Empty();
 
     for (const llama_chat_message& Msg : Internal->Messages)
     {
@@ -259,4 +280,9 @@ void FLlamaNative::GetStructuredChatHistory(FStructuredChatHistory& OutChatHisto
         // Add to history
         OutChatHistory.History.Add(StructuredMsg);
     }
+}
+
+int32 FLlamaNative::UsedContextLength()
+{
+    return Internal->UsedContext();
 }

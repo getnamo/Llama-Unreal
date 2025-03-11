@@ -22,6 +22,7 @@ public:
 	TFunction<void(const FLlamaRunTimings& Timings)> OnGenerationFinished;
 	TFunction<void(const FString& ModelPath)> OnModelLoaded;
 	TFunction<void(const FString& ErrorMessage)> OnError;
+	TFunction<void(const FLLMModelState& UpdatedModelState)> OnModelStateChanged;
 
 	//Expected to be set before load model
 	void SetModelParams(const FLLMModelParams& Params);
@@ -44,8 +45,9 @@ public:
 	void RegenerateLastReply(); //removes last reply and regenerates (changing seed?)
 
 	//Pure query of current context - not threadsafe, be careful when these get called - TBD: make it safe
-	FString RawContextHistory();
+	int32 RawContextHistory(FString& OutContextString);
 	void GetStructuredChatHistory(FStructuredChatHistory& OutChatHistory);
+	int32 UsedContextLength();
 
 	FLlamaNative();
 	~FLlamaNative();
