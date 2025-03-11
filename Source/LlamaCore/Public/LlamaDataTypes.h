@@ -190,7 +190,7 @@ struct FJinjaChatTemplate
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Jinja Chat Template")
     FString TemplateSource = TEXT("");
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Jinja Chat Template")
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (MultiLine = true), Category = "Jinja Chat Template")
     FString Jinja = TEXT("");
 };
 
