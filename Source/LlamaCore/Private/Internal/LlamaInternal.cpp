@@ -95,21 +95,41 @@ bool FLlamaInternal::LoadModelFromParams(const FLLMModelParams& InModelParams)
 
     ContextHistory.SetNum(llama_n_ctx(Context));
 
+    //empty by default
+    Template = std::string();
+    TemplateSource = FLlamaString::ToStd(InModelParams.CustomChatTemplate.TemplateSource);
+
     //Prioritize: custom jinja, then name, then default
     if (!InModelParams.CustomChatTemplate.Jinja.IsEmpty())
     {
         Template = FLlamaString::ToStd(InModelParams.CustomChatTemplate.Jinja);
+        if (InModelParams.CustomChatTemplate.TemplateSource.IsEmpty())
+        {
+            TemplateSource = std::string("Custom Jinja");
+        }
     }
     else if (   !InModelParams.CustomChatTemplate.TemplateSource.IsEmpty() &&
                 InModelParams.CustomChatTemplate.TemplateSource != TEXT("tokenizer.chat_template"))
     {
-        //apply template source name
-        Template = std::string(llama_model_chat_template(LlamaModel, FLlamaString::ToStd(InModelParams.CustomChatTemplate.TemplateSource).c_str()));
+        //apply template source name, this may fail
+        std::string TemplateName = FLlamaString::ToStd(InModelParams.CustomChatTemplate.TemplateSource);
+        const char* TemplatePtr = llama_model_chat_template(LlamaModel, TemplateName.c_str());
+
+        if (TemplatePtr != nullptr)
+        {
+            Template = std::string(TemplatePtr);
+        }
     }
-    else
+
+    if(Template.empty())
     {
-        //use default template
-        Template = std::string(llama_model_chat_template(LlamaModel, nullptr));
+        const char* TemplatePtr = llama_model_chat_template(LlamaModel, nullptr);
+
+        if (TemplatePtr != nullptr)
+        {
+            Template = std::string(TemplatePtr);
+            TemplateSource = std::string("tokenizer.chat_template");
+        }
     }
     
     PrevLen = 0;
@@ -324,6 +344,11 @@ std::string FLlamaInternal::Generate(const std::string& Prompt)
     }
 
     bGenerationActive = false;
+
+    if (OnGenerationFinished)
+    {
+        OnGenerationFinished();
+    }
 
     return Response;
 }

@@ -18,6 +18,7 @@ public:
 
     //main streaming callback
     TFunction<void(const std::string& TokenPiece)>OnTokenGenerated = nullptr;
+    TFunction<void()>OnGenerationFinished = nullptr;
 
     //Messaging state
     TArray<llama_chat_message> Messages;
@@ -25,7 +26,7 @@ public:
 
     //Loaded state
     std::string Template;
-    //char* Template;
+    std::string TemplateSource;
 
     //Model loading
     bool LoadModelFromParams(const FLLMModelParams& InModelParams);
