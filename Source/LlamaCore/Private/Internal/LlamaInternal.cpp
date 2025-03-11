@@ -43,12 +43,54 @@ bool FLlamaInternal::LoadModelFromParams(const FLLMModelParams& InModelParams)
     }
 
     Sampler = llama_sampler_chain_init(llama_sampler_chain_default_params());
-    //InModelParams.Advanced.
-    llama_sampler_chain_add(Sampler, llama_sampler_init_min_p(0.05f, 1));
-    llama_sampler_chain_add(Sampler, llama_sampler_init_temp(0.8f));
 
-    //if(InModelParams.)
-    llama_sampler_chain_add(Sampler, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
+    //Temperature is always applied
+    llama_sampler_chain_add(Sampler, llama_sampler_init_temp(InModelParams.Advanced.Temp));
+
+    //If any of the repeat penalties are set, apply penalties to sampler
+    if (InModelParams.Advanced.PenaltyLastN != 0 || 
+        InModelParams.Advanced.PenaltyRepeat != 1.f ||
+        InModelParams.Advanced.PenaltyFrequency != 0.f ||
+        InModelParams.Advanced.PenaltyPresence != 0.f)
+    {
+        llama_sampler_chain_add(Sampler, llama_sampler_init_penalties(
+            InModelParams.Advanced.PenaltyLastN, InModelParams.Advanced.PenaltyRepeat,
+            InModelParams.Advanced.PenaltyFrequency, InModelParams.Advanced.PenaltyPresence));
+    }
+    
+    //Optional sampling strategies - MinP should be applied by default of 0.05f
+    if (InModelParams.Advanced.MinP != -1.f)
+    {
+        llama_sampler_chain_add(Sampler, llama_sampler_init_min_p(InModelParams.Advanced.MinP, 1));
+    }
+    if (InModelParams.Advanced.TopK != -1.f)
+    {
+        llama_sampler_chain_add(Sampler, llama_sampler_init_top_k(InModelParams.Advanced.TopK));
+    }
+    if (InModelParams.Advanced.TopP != -1.f)
+    {
+        llama_sampler_chain_add(Sampler, llama_sampler_init_top_p(InModelParams.Advanced.TopP, 1));
+    }
+    if (InModelParams.Advanced.TypicalP != -1.f)
+    {
+        llama_sampler_chain_add(Sampler, llama_sampler_init_typical(InModelParams.Advanced.TypicalP, 1));
+    }
+    if (InModelParams.Advanced.MirostatSeed != -1)
+    {
+        llama_sampler_chain_add(Sampler, llama_sampler_init_mirostat_v2(
+            InModelParams.Advanced.MirostatSeed, InModelParams.Advanced.MirostatTau, InModelParams.Advanced.MirostatEta));
+    }
+
+    //Seed is either default or the one specifically passed in for deterministic results
+    if (InModelParams.Seed == -1)
+    {
+        llama_sampler_chain_add(Sampler, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
+    }
+    else
+    {
+        llama_sampler_chain_add(Sampler, llama_sampler_init_dist(InModelParams.Seed));
+    }
+    
 
     ContextHistory.SetNum(llama_n_ctx(Context));
 

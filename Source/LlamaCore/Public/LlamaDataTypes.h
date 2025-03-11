@@ -40,56 +40,54 @@ struct FLLMModelAdvancedParams
 {
     GENERATED_USTRUCT_BODY();
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
+    //Updates the logits l_i` = l_i/t. When t <= 0.0f, the maximum logit is kept at it's original value, the rest are set to -inf
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params - Sampling")
     float Temp = 0.80f;
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
-    int32 TopK = 40;
+    //Minimum P sampling as described in https://github.com/ggml-org/llama.cpp/pull/3841. if non -1 it will apply, typically good value ~0.05f
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params - Sampling")
+    float MinP = 0.05f;
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
-    float TopP = 0.95f;
+    //Top-K sampling described in academic paper "The Curious Case of Neural Text Degeneration" https://arxiv.org/abs/1904.09751. if non -1 it will apply, typically good value ~40
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params - Sampling")
+    int32 TopK = -1;
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
-    float TfsZ = 1.00f;
+    //Nucleus sampling described in academic paper "The Curious Case of Neural Text Degeneration" https://arxiv.org/abs/1904.09751. if non -1 it will apply, typically good value ~0.95f
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params - Sampling")
+    float TopP = -1.f;
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
-    float TypicalP = 1.00f;
+    //Locally Typical Sampling implementation described in the paper https://arxiv.org/abs/2202.00666. If non -1 it will apply, typically good value 1.f
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params - Sampling")
+    float TypicalP = -1.f;
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
-    int32 RepeatLastN = 64;
+    //Repetition Penalty; avoid using on the full vocabulary as searching for repeated tokens can become slow, consider using Top-k and top-p smapling first. 0 is off, -1 is context
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params - Penalties")
+    int32 PenaltyLastN = 0;
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
-    float RepeatPenalty = 1.10f;
+    //Repetition Penalty. 1 is disabled
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params - Penalties")
+    float PenaltyRepeat = 1.f;
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
-    float AlphaPresence = 0.00f;
+    //Repetition Penalty - frequency based. 0 is disabled
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params - Penalties")
+    float PenaltyFrequency = 0.f;
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
-    float AlphaFrequency = 0.00f;
+    //Repetition Penalty - presence based. 0 is disabled
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params - Penalties")
+    float PenaltyPresence = 0.f;
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
-    int32 Mirostat = 0;
+    //Mirostat 2.0 algorithm described in the paper https://arxiv.org/abs/2007.14966. 
+    //If Mirostat != -1 then it will apply this seed value using mirostat v2 algorithm
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params - Mirostat")
+    int32 MirostatSeed = -1;
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
+    //MirostatSeed -1 disables this
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params - Mirostat")
     float MirostatTau = 5.f;
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
+    //MirostatSeed -1 disables this
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params - Mirostat")
     float MirostatEta = 0.1f;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
-    int MirostatM = 100;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
-    bool PenalizeNl = true;
-
-    //automatically loads template from gguf. Use Empty default template to not override this value.
-    //not yet properly implemented
-    //UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
-    bool bLoadTemplateFromGGUFIfAvailable = true;
-
-    //If true, upon EOS, it will cleanup history such that correct EOS is placed
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
-    bool bEnforceModelEOSFormat = true;
 
     //synced per eos
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
