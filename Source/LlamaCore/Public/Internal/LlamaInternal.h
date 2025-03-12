@@ -36,6 +36,7 @@ public:
 
     //Generation
     void ResetContextHistory();
+    void RollbackHistory(int32 ByNTokens);
     std::string InsertRawPrompt(const std::string& Prompt);
 
     //main internal function - synchronous so should be called from bg thread. Will emit OnTokenGenerated for each token.

@@ -264,6 +264,14 @@ void FLlamaInternal::ResetContextHistory()
     FilledContextLength = 0;
 }
 
+void FLlamaInternal::RollbackHistory(int32 ByNTokens)
+{
+    // clear the last n_regen tokens from the KV cache and update n_past
+    llama_kv_cache_seq_rm(Context, 0, FilledContextLength - ByNTokens, -1);
+
+    FilledContextLength -= ByNTokens;
+}
+
 std::string FLlamaInternal::InsertRawPrompt(const std::string& Prompt)
 {
     if (!bIsModelLoaded)
