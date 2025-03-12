@@ -12,17 +12,27 @@ public class LlamaCore : ModuleRules
 		get { return Path.GetFullPath(Path.Combine(ModuleDirectory, "../../Binaries")); }
 	}
 
-	private string PluginLibPath
+	private string LlamaCppLibPath
 	{
 		get { return Path.GetFullPath(Path.Combine(ModuleDirectory, "../../ThirdParty/LlamaCpp/Lib")); }
+	}
+
+	private string LlamaCppBinariesPath
+	{
+		get { return Path.GetFullPath(Path.Combine(ModuleDirectory, "../../ThirdParty/LlamaCpp/Binaries")); }
+	}
+
+	private string LlamaCppIncludePath
+	{
+		get { return Path.GetFullPath(Path.Combine(ModuleDirectory, "../../ThirdParty/LlamaCpp/Include")); }
 	}
 
 	private void LinkDyLib(string DyLib)
 	{
 		string MacPlatform = "Mac";
-		PublicAdditionalLibraries.Add(Path.Combine(PluginLibPath, MacPlatform, DyLib));
-		PublicDelayLoadDLLs.Add(Path.Combine(PluginLibPath, MacPlatform, DyLib));
-		RuntimeDependencies.Add(Path.Combine(PluginLibPath, MacPlatform, DyLib));
+		PublicAdditionalLibraries.Add(Path.Combine(LlamaCppLibPath, MacPlatform, DyLib));
+		PublicDelayLoadDLLs.Add(Path.Combine(LlamaCppLibPath, MacPlatform, DyLib));
+		RuntimeDependencies.Add(Path.Combine(LlamaCppLibPath, MacPlatform, DyLib));
 	}
 
 	public LlamaCore(ReadOnlyTargetRules Target) : base(Target)
@@ -79,88 +89,94 @@ public class LlamaCore : ModuleRules
 			}
 		);
 
-		PublicIncludePaths.Add(Path.Combine(PluginDirectory, "ThirdParty/LlamaCpp/Include"));
+		PublicIncludePaths.Add(LlamaCppIncludePath);
 
 		if (Target.Platform == UnrealTargetPlatform.Linux)
 		{
-			PublicAdditionalLibraries.Add(Path.Combine(PluginDirectory, "Libraries", "Linux", "libllama.so"));
+			PublicAdditionalLibraries.Add(Path.Combine(LlamaCppLibPath, "Linux", "libllama.so"));
 		} 
 		else if (Target.Platform == UnrealTargetPlatform.Win64)
 		{
+			string Win64LibPath = Path.Combine(LlamaCppLibPath, "Win64");
+			string CudaPath;
+
 			//We default to vulkan build, turn this off if you want to build with CUDA/cpu only
-			bool bVulkanBuild = true;
+			bool bTryToUseVulkan = true;
+			bool bVulkanGGMLFound = false;
 
-			//Toggle this off if your CUDA_PATH is not compatible with the build version or
-			//you definitely only want CPU build			
+			//Toggle this off if you don't want to include the cuda backend	
 			bool bTryToUseCuda = false;
-
-			//First try to load env path llama builds
+			bool bCudaGGMLFound = false;
 			bool bCudaFound = false;
 
-			//Check cuda lib status first
-			if(bTryToUseCuda && !bVulkanBuild)
+			if(bTryToUseVulkan)
 			{
-				//Almost every dev setup has a CUDA_PATH so try to load cuda in plugin path first;
-				//these won't exist unless you're in plugin 'cuda' branch.
-				string CudaPath =  Path.Combine(PluginLibPath, "Win64", "Cuda");
+				bVulkanGGMLFound = File.Exists(Path.Combine(Win64LibPath, "ggml-vulkan.lib"));
+			}
+			if(bTryToUseCuda)
+			{
+				bCudaGGMLFound = File.Exists(Path.Combine(Win64LibPath, "ggml-cuda.lib"));
 
-				//Test to see if we have a cuda.lib
-				bCudaFound = File.Exists(Path.Combine(CudaPath, "cuda.lib"));
-
-				if(!bCudaFound)
+				if(bCudaGGMLFound)
 				{
-					//local cuda not found, try environment path
-					CudaPath = Path.Combine(Environment.GetEnvironmentVariable("CUDA_PATH"), "lib", "x64");
-					bCudaFound = !string.IsNullOrEmpty(CudaPath);
-				}
+					//Almost every dev setup has a CUDA_PATH so try to load cuda in plugin path first;
+					//these won't exist unless you're in plugin 'cuda' branch.
+					CudaPath = Win64LibPath;
 
-				if (bCudaFound)
-				{
-					// PublicAdditionalLibraries.Add(Path.Combine(CudaPath, "cudart.lib"));
-					// PublicAdditionalLibraries.Add(Path.Combine(CudaPath, "cublas.lib"));
-					// PublicAdditionalLibraries.Add(Path.Combine(CudaPath, "cuda.lib"));
+					//Test to see if we have a cuda.lib
+					bCudaFound = File.Exists(Path.Combine(Win64LibPath, "cuda.lib"));
 
-					System.Console.WriteLine("Llama-Unreal building using cuda at path " + CudaPath);
+					if (!bCudaFound)
+					{
+						//local cuda not found, try environment path
+						CudaPath = Path.Combine(Environment.GetEnvironmentVariable("CUDA_PATH"), "lib", "x64");
+						bCudaFound = !string.IsNullOrEmpty(CudaPath);
+					}
+
+					if (bCudaFound)
+					{
+						System.Console.WriteLine("Llama-Unreal building using CUDA dependencies at path " + CudaPath);
+					}
 				}
 			}
 
-			//If you specify LLAMA_PATH, it will take precedence over local path
-			string LlamaPath = Environment.GetEnvironmentVariable("LLAMA_PATH");
-			bool bUsingLlamaEnvPath = !string.IsNullOrEmpty(LlamaPath);
+			//If you specify LLAMA_PATH, it will take precedence over local path for libs
+			string LlamaLibPath = Environment.GetEnvironmentVariable("LLAMA_PATH");
+			string LlamaDllPath = LlamaLibPath;
+			bool bUsingLlamaEnvPath = !string.IsNullOrEmpty(LlamaLibPath);
 
 			if (!bUsingLlamaEnvPath) 
 			{
-				LlamaPath = Path.Combine(PluginLibPath, "Win64", "Base");
+				LlamaLibPath = Win64LibPath;
+				LlamaDllPath = Path.Combine(LlamaCppBinariesPath, "Win64");
 			}
 
-			PublicAdditionalLibraries.Add(Path.Combine(LlamaPath, "llama.lib"));
-			PublicAdditionalLibraries.Add(Path.Combine(LlamaPath, "ggml.lib"));
-			PublicAdditionalLibraries.Add(Path.Combine(LlamaPath, "ggml-base.lib"));
-			PublicAdditionalLibraries.Add(Path.Combine(LlamaPath, "ggml-cpu.lib"));
+			PublicAdditionalLibraries.Add(Path.Combine(LlamaLibPath, "llama.lib"));
+			PublicAdditionalLibraries.Add(Path.Combine(LlamaLibPath, "ggml.lib"));
+			PublicAdditionalLibraries.Add(Path.Combine(LlamaLibPath, "ggml-base.lib"));
+			PublicAdditionalLibraries.Add(Path.Combine(LlamaLibPath, "ggml-cpu.lib"));
 
-			PublicAdditionalLibraries.Add(Path.Combine(LlamaPath, "common.lib"));
+			PublicAdditionalLibraries.Add(Path.Combine(LlamaLibPath, "common.lib"));
 
-			RuntimeDependencies.Add("$(BinaryOutputDir)/ggml.dll", Path.Combine(LlamaPath, "ggml.dll"));
-			RuntimeDependencies.Add("$(BinaryOutputDir)/ggml-base.dll", Path.Combine(LlamaPath, "ggml-base.dll"));
-			RuntimeDependencies.Add("$(BinaryOutputDir)/ggml-cpu.dll", Path.Combine(LlamaPath, "ggml-cpu.dll"));
-			RuntimeDependencies.Add("$(BinaryOutputDir)/llama.dll", Path.Combine(LlamaPath, "llama.dll"));
+			RuntimeDependencies.Add("$(BinaryOutputDir)/ggml.dll", Path.Combine(LlamaDllPath, "ggml.dll"));
+			RuntimeDependencies.Add("$(BinaryOutputDir)/ggml-base.dll", Path.Combine(LlamaDllPath, "ggml-base.dll"));
+			RuntimeDependencies.Add("$(BinaryOutputDir)/ggml-cpu.dll", Path.Combine(LlamaDllPath, "ggml-cpu.dll"));
+			RuntimeDependencies.Add("$(BinaryOutputDir)/llama.dll", Path.Combine(LlamaDllPath, "llama.dll"));
 
-			System.Console.WriteLine("Llama-Unreal building using llama.lib at path " + LlamaPath);
+			System.Console.WriteLine("Llama-Unreal building using llama.lib at path " + LlamaLibPath);
 
-			if(bVulkanBuild)
+			if(bVulkanGGMLFound)
 			{
-				string VulkanPath = Path.Combine(PluginLibPath, "Win64", "Vulkan");
-				PublicAdditionalLibraries.Add(Path.Combine(VulkanPath, "ggml-vulkan.lib"));
-				RuntimeDependencies.Add("$(BinaryOutputDir)/ggml-vulkan.dll", Path.Combine(VulkanPath, "ggml-vulkan.dll"));
-				System.Console.WriteLine("Llama-Unreal building using ggml-vulkan.lib at path " + VulkanPath);
+				PublicAdditionalLibraries.Add(Path.Combine(Win64LibPath, "ggml-vulkan.lib"));
+				RuntimeDependencies.Add("$(BinaryOutputDir)/ggml-vulkan.dll", Path.Combine(LlamaDllPath, "ggml-vulkan.dll"));
+				System.Console.WriteLine("Llama-Unreal building using ggml-vulkan.lib at path " + Win64LibPath);
 			}
-			else if(bCudaFound)
+			if(bCudaGGMLFound)
 			{
-				string CUDAPath = Path.Combine(PluginLibPath, "Win64", "Cuda");
-				PublicAdditionalLibraries.Add(Path.Combine(CUDAPath, "ggml-cuda.lib"));
-				RuntimeDependencies.Add("$(BinaryOutputDir)/ggml-cuda.dll", Path.Combine(CUDAPath, "ggml-cuda.dll"));
+				PublicAdditionalLibraries.Add(Path.Combine(Win64LibPath, "ggml-cuda.lib"));
+				RuntimeDependencies.Add("$(BinaryOutputDir)/ggml-cuda.dll", Path.Combine(LlamaDllPath, "ggml-cuda.dll"));
 
-				System.Console.WriteLine("Llama-Unreal building using ggml-cuda.lib at path " + CUDAPath);
+				System.Console.WriteLine("Llama-Unreal building using ggml-cuda.lib at path " + Win64LibPath);
 			}
 		}
 		else if (Target.Platform == UnrealTargetPlatform.Mac)
