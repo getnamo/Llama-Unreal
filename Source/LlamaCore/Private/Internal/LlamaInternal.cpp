@@ -177,7 +177,7 @@ bool FLlamaInternal::LoadModelFromParams(const FLLMModelParams& InModelParams)
         }
     }
     
-    FilledContextLength = 0;
+    FilledContextCharLength = 0;
 
     bIsModelLoaded = true;
 
@@ -261,76 +261,93 @@ void FLlamaInternal::ResetContextHistory()
     Messages.clear();
 
     llama_kv_cache_clear(Context);
-    FilledContextLength = 0;
+    FilledContextCharLength = 0;
 }
 
 void FLlamaInternal::RollbackHistory(int32 ByNTokens)
 {
     // clear the last n_regen tokens from the KV cache and update n_past
-    llama_kv_cache_seq_rm(Context, 0, FilledContextLength - ByNTokens, -1);
+    llama_kv_cache_seq_rm(Context, 0, FilledContextCharLength - ByNTokens, -1);
 
-    FilledContextLength -= ByNTokens;
+    FilledContextCharLength -= ByNTokens;
+
+    //Run a decode to sync everything else
+    //llama_decode(Context, llama_batch_get_one(nullptr, 0));
 }
 
-std::string FLlamaInternal::InsertRawPrompt(const std::string& Prompt)
+int32 FLlamaInternal::InsertRawPrompt(const std::string& Prompt)
 {
     if (!bIsModelLoaded)
     {
         UE_LOG(LlamaLog, Warning, TEXT("Model isn't loaded"));
-        return "";
-    }
-    std::string Response = Generate(Prompt);
-
-    Messages.push_back({ "assistant", _strdup(Response.c_str()) });
-
-    FilledContextLength = llama_chat_apply_template(Template.c_str(), Messages.data(), Messages.size(), false, nullptr, 0);
-    if (FilledContextLength < 0)
-    {
-        UE_LOG(LlamaLog, Warning, TEXT("failed to apply the chat template post generation."));
-        return "";
+        return 0;
     }
 
-    return Response;
+    return ProcessPrompt(Prompt);
 }
 
-std::string FLlamaInternal::InsertTemplatedPrompt(const std::string& UserPrompt, const std::string& role)
+int32 FLlamaInternal::InsertTemplatedPrompt(const std::string& Prompt, const std::string Role, bool bAddAssistantBoS)
 {
     if (!bIsModelLoaded)
     {
         UE_LOG(LlamaLog, Warning, TEXT("Model isn't loaded"));
-        return "";
+        return 0;
     }
 
-    int NewLen = FilledContextLength;
+    int NewLen = FilledContextCharLength;
 
-    if (!UserPrompt.empty())
+    if (!Prompt.empty())
     {
-        Messages.push_back({ "user", _strdup(UserPrompt.c_str())});  //role.c_str()
+        Messages.push_back({ Role.c_str(), _strdup(Prompt.c_str()) });
         NewLen = llama_chat_apply_template(Template.c_str(), Messages.data(), Messages.size(),
-            true, ContextHistory.data(), ContextHistory.size());
+            bAddAssistantBoS, ContextHistory.data(), ContextHistory.size());
 
-
+        //Resize if contexthistory can't hold it
         if (NewLen > ContextHistory.size())
         {
             ContextHistory.resize(NewLen);
             NewLen = llama_chat_apply_template(Template.c_str(), Messages.data(), Messages.size(),
-                true, ContextHistory.data(), ContextHistory.size());
+                bAddAssistantBoS, ContextHistory.data(), ContextHistory.size());
         }
         if (NewLen < 0)
         {
             UE_LOG(LlamaLog, Warning, TEXT("failed to apply the chat template pre generation."));
-            return "";
+            return 0;
         }
     }
 
-    std::string Prompt(ContextHistory.data() + FilledContextLength, ContextHistory.data() + NewLen);
+    std::string FormattedPrompt(ContextHistory.data() + FilledContextCharLength, ContextHistory.data() + NewLen);
 
-    std::string Response = Generate(Prompt);
+    int32 TokensProcessed = ProcessPrompt(FormattedPrompt);
 
+    FilledContextCharLength = NewLen;
+
+    return TokensProcessed;
+}
+
+std::string FLlamaInternal::InsertTemplatedPromptAndGenerate(const std::string& UserPrompt, const std::string Role, bool bAddAssistantBoS)
+{
+    if (!bIsModelLoaded)
+    {
+        UE_LOG(LlamaLog, Warning, TEXT("Model isn't loaded"));
+        return "";
+    }
+
+    if (!UserPrompt.empty())
+    {
+        //Process initial prompt
+        int32 TokensProcessed = InsertTemplatedPrompt(UserPrompt, Role, bAddAssistantBoS);
+    }
+
+    //Run generation
+    std::string Response = Generate("");
+
+    //Add the response to our templated messages
     Messages.push_back({ "assistant", _strdup(Response.c_str()) });
 
-    FilledContextLength = llama_chat_apply_template(Template.c_str(), Messages.data(), Messages.size(), false, ContextHistory.data(), ContextHistory.size());
-    if (FilledContextLength < 0)
+    //Sync ContextHistory
+    FilledContextCharLength = llama_chat_apply_template(Template.c_str(), Messages.data(), Messages.size(), false, ContextHistory.data(), ContextHistory.size());
+    if (FilledContextCharLength < 0)
     {
         UE_LOG(LlamaLog, Warning, TEXT("failed to apply the chat template post generation."));
         return "";
@@ -342,7 +359,7 @@ std::string FLlamaInternal::InsertTemplatedPrompt(const std::string& UserPrompt,
 std::string FLlamaInternal::ResumeGeneration()
 {
     //run an empty user prompt
-    return InsertTemplatedPrompt(std::string());
+    return InsertTemplatedPromptAndGenerate(std::string());
 }
 
 int32 FLlamaInternal::ProcessPrompt(const std::string& Prompt)
@@ -377,24 +394,18 @@ std::string FLlamaInternal::Generate(const std::string& Prompt)
     const auto StartTime = ggml_time_us();
  
     bGenerationActive = true;
+    
+    if (!Prompt.empty())
+    {
+        int32 TokensProcessed = ProcessPrompt(Prompt);
+    }
 
     std::string Response;
 
     const llama_vocab* Vocab = llama_model_get_vocab(LlamaModel);
 
-    const bool IsFirst = llama_get_kv_cache_used_cells(Context) == 0;
-
-    // tokenize the prompt
-    const int NPromptTokens = -llama_tokenize(Vocab, Prompt.c_str(), Prompt.size(), NULL, 0, IsFirst, true);
-    std::vector<llama_token> PromptTokens(NPromptTokens);
-    if (llama_tokenize(Vocab, Prompt.c_str(), Prompt.size(), PromptTokens.data(), PromptTokens.size(), IsFirst, true) < 0)
-    {
-        bGenerationActive = false;
-        GGML_ABORT("failed to tokenize the prompt\n");
-    }
-
-    // prepare a batch for the prompt
-    llama_batch Batch = llama_batch_get_one(PromptTokens.data(), PromptTokens.size());
+    llama_batch Batch;
+    
     llama_token NewTokenId;
     int32 NDecoded = 0;
 
@@ -404,11 +415,6 @@ std::string FLlamaInternal::Generate(const std::string& Prompt)
     
     while (bGenerationActive) //processing can be aborted by flipping the boolean
     {
-        if (llama_decode(Context, Batch))
-        {
-            GGML_ABORT("failed to decode\n");
-        }
-
         //Common sampler is a bit faster
         if (CommonSampler)
         {
@@ -446,6 +452,11 @@ std::string FLlamaInternal::Generate(const std::string& Prompt)
 
         // prepare the next batch with the sampled token
         Batch = llama_batch_get_one(&NewTokenId, 1);
+
+        if (llama_decode(Context, Batch))
+        {
+            GGML_ABORT("failed to decode\n");
+        }
     }
 
     bGenerationActive = false;

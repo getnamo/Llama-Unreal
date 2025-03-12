@@ -37,10 +37,12 @@ public:
     //Generation
     void ResetContextHistory();
     void RollbackHistory(int32 ByNTokens);
-    std::string InsertRawPrompt(const std::string& Prompt);
+
+    int32 InsertRawPrompt(const std::string& Prompt);
+    int32 InsertTemplatedPrompt(const std::string& Prompt, const std::string Role = "user", bool bAddAssistantBoS = true);
 
     //main internal function - synchronous so should be called from bg thread. Will emit OnTokenGenerated for each token.
-    std::string InsertTemplatedPrompt(const std::string& Prompt, const std::string& role = "user");
+    std::string InsertTemplatedPromptAndGenerate(const std::string& Prompt, const std::string Role = "user", bool bAddAssistantBoS = true);
 
 
     //continue generating from last stop
@@ -64,6 +66,6 @@ protected:
     std::string Generate(const std::string& Prompt);
 
     bool bIsModelLoaded = false;
-    int32 FilledContextLength = 0;
+    int32 FilledContextCharLength = 0;
     FThreadSafeBool bGenerationActive = false;
 };

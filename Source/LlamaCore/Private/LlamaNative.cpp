@@ -159,7 +159,7 @@ void FLlamaNative::InsertPrompt(const FString& UserPrompt)
     //run prompt insert on background thread (NB: should we do one parked thread for llama inference instead of this?)
     Async(EAsyncExecution::ThreadPool, [this, UserStdString]
     {
-        FString Response = FLlamaString::ToUE(Internal->InsertTemplatedPrompt(UserStdString));
+        FString Response = FLlamaString::ToUE(Internal->InsertTemplatedPromptAndGenerate(UserStdString));
 
         //It's now safe to sync our history - only
         GetStructuredChatHistory(ModelState.ChatHistory);
