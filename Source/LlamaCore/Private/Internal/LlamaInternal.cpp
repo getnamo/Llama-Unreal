@@ -54,6 +54,36 @@ bool FLlamaInternal::LoadModelFromParams(const FLLMModelParams& InModelParams)
     if (InModelParams.Advanced.bUseCommonSampler)
     {
         common_params_sampling SamplingParams;
+        
+        if (InModelParams.Advanced.MinP != -1.f)
+        {
+            SamplingParams.min_p = InModelParams.Advanced.MinP;
+        }
+        if (InModelParams.Advanced.TopK != -1.f)
+        {
+            SamplingParams.top_k = InModelParams.Advanced.TopK;
+        }
+        if (InModelParams.Advanced.TopP != -1.f)
+        {
+            SamplingParams.top_p = InModelParams.Advanced.TopP;
+        }
+        if (InModelParams.Advanced.TypicalP != -1.f)
+        {
+            SamplingParams.typ_p = InModelParams.Advanced.TypicalP;
+        }
+        if (InModelParams.Advanced.Mirostat != -1)
+        {
+            SamplingParams.mirostat = InModelParams.Advanced.Mirostat;
+            SamplingParams.mirostat_eta = InModelParams.Advanced.MirostatEta;
+            SamplingParams.mirostat_tau = InModelParams.Advanced.MirostatTau;
+        }
+
+        //Seed is either default or the one specifically passed in for deterministic results
+        if (InModelParams.Seed != -1)
+        {
+            SamplingParams.seed = InModelParams.Seed;
+        }
+
         CommonSampler = common_sampler_init(LlamaModel, SamplingParams);
     }
 
@@ -91,10 +121,10 @@ bool FLlamaInternal::LoadModelFromParams(const FLLMModelParams& InModelParams)
     {
         llama_sampler_chain_add(Sampler, llama_sampler_init_typical(InModelParams.Advanced.TypicalP, 1));
     }
-    if (InModelParams.Advanced.MirostatSeed != -1)
+    if (InModelParams.Advanced.Mirostat != -1)
     {
         llama_sampler_chain_add(Sampler, llama_sampler_init_mirostat_v2(
-            InModelParams.Advanced.MirostatSeed, InModelParams.Advanced.MirostatTau, InModelParams.Advanced.MirostatEta));
+            InModelParams.Advanced.Mirostat, InModelParams.Advanced.MirostatTau, InModelParams.Advanced.MirostatEta));
     }
 
     //Seed is either default or the one specifically passed in for deterministic results
