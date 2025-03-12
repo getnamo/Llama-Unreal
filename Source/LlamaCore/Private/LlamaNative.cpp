@@ -33,6 +33,14 @@ FLlamaNative::FLlamaNative()
         }
     };
 
+    Internal->OnGenerationStats = [this](float Duration, int32 TokensGenerated, float SpeedTPS)
+    {
+        if (ModelParams.Advanced.bLogGenerationStats)
+        {
+            UE_LOG(LlamaLog, Log, TEXT("Generated %d tokens in %1.2fs (%1.2ftps)"), TokensGenerated, Duration, SpeedTPS);
+        }
+    };
+
     bCallbacksAreValid = true;
 }
 

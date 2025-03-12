@@ -101,6 +101,14 @@ struct FLLMModelAdvancedParams
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
     bool bEmitOnGameThread = true;
 
+    //temporarily defaulted on during dev
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
+    bool bLogGenerationStats = true;
+
+    //if true sampling params won't be passed (v0.8)
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
+    bool bUseCommonSampler = true;
+
     //usually . ? !
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
     TArray<FString> PartialsSeparators;
