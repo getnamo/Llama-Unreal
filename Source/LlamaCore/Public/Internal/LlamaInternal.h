@@ -18,7 +18,6 @@ public:
 
     //main streaming callback
     TFunction<void(const std::string& TokenPiece)>OnTokenGenerated = nullptr;
-    TFunction<void()>OnGenerationFinished = nullptr;
 
     //Messaging state
     TArray<llama_chat_message> Messages;

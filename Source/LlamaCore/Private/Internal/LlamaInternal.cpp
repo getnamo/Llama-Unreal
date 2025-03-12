@@ -345,11 +345,6 @@ std::string FLlamaInternal::Generate(const std::string& Prompt)
 
     bGenerationActive = false;
 
-    if (OnGenerationFinished)
-    {
-        OnGenerationFinished();
-    }
-
     return Response;
 }
 
