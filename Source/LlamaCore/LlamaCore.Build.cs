@@ -14,7 +14,7 @@ public class LlamaCore : ModuleRules
 
 	private string PluginLibPath
 	{
-		get { return Path.GetFullPath(Path.Combine(ModuleDirectory, "../../ThirdParty/LlamaCpp")); }
+		get { return Path.GetFullPath(Path.Combine(ModuleDirectory, "../../ThirdParty/LlamaCpp/Lib")); }
 	}
 
 	private void LinkDyLib(string DyLib)
@@ -79,7 +79,7 @@ public class LlamaCore : ModuleRules
 			}
 		);
 
-		PublicIncludePaths.Add(Path.Combine(PluginDirectory, "Includes"));
+		PublicIncludePaths.Add(Path.Combine(PluginDirectory, "ThirdParty/LlamaCpp/Include"));
 
 		if (Target.Platform == UnrealTargetPlatform.Linux)
 		{
