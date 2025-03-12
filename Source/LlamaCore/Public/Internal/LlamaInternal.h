@@ -2,7 +2,6 @@
 
 #include <string>
 #include "llama.h"
-#include "Internal/common.h"
 
 /** 
 * Uses mostly Llama.cpp native API, meant to be embedded in LlamaNative that wraps 
@@ -15,9 +14,11 @@ public:
     llama_model* LlamaModel = nullptr;
     llama_context* Context = nullptr;
     llama_sampler* Sampler = nullptr;
+    struct common_sampler* CommonSampler = nullptr;
 
     //main streaming callback
     TFunction<void(const std::string& TokenPiece)>OnTokenGenerated = nullptr;
+    TFunction<void(float Time, int32 Tokens, float Speed)>OnGenerationStats = nullptr;
 
     //Messaging state
     TArray<llama_chat_message> Messages;
@@ -37,7 +38,7 @@ public:
     std::string InsertRawPrompt(const std::string& Prompt);
 
     //main internal function - synchronous so should be called from bg thread. Will emit OnTokenGenerated for each token.
-    std::string InsertTemplatedPrompt(const std::string& Prompt);
+    std::string InsertTemplatedPrompt(const std::string& Prompt, const std::string& role = "user");
 
 
     //continue generating from last stop

@@ -1,4 +1,6 @@
 #include "Internal/LlamaInternal.h"
+#include "Internal/common.h"
+#include "Internal/sampling.h"
 #include "LlamaDataTypes.h"
 #include "LlamaUtility.h"
 
@@ -42,6 +44,15 @@ bool FLlamaInternal::LoadModelFromParams(const FLLMModelParams& InModelParams)
         UE_LOG(LlamaLog, Error, TEXT("%hs: error: failed to create the llama_context\n"), __func__);
         return false;
     }
+
+    //common sampler strategy
+
+    if (InModelParams.Advanced.bUseCommonSampler)
+    {
+        common_params_sampling SamplingParams;
+        CommonSampler = common_sampler_init(LlamaModel, SamplingParams);
+    }
+
 
     Sampler = llama_sampler_chain_init(llama_sampler_chain_default_params());
 
@@ -156,6 +167,10 @@ void FLlamaInternal::UnloadModel()
         llama_model_free(LlamaModel);
         LlamaModel = nullptr;
     }
+    if (CommonSampler)
+    {
+        common_sampler_free(CommonSampler);
+    }
     ContextHistory.Empty();
 
     bIsModelLoaded = false;
@@ -221,7 +236,7 @@ std::string FLlamaInternal::InsertRawPrompt(const std::string& Prompt)
     return Response;
 }
 
-std::string FLlamaInternal::InsertTemplatedPrompt(const std::string& UserPrompt)
+std::string FLlamaInternal::InsertTemplatedPrompt(const std::string& UserPrompt, const std::string& role)
 {
     if (!bIsModelLoaded)
     {
@@ -233,7 +248,7 @@ std::string FLlamaInternal::InsertTemplatedPrompt(const std::string& UserPrompt)
 
     if (!UserPrompt.empty())
     {
-        Messages.Push({ "user", _strdup(UserPrompt.c_str()) });
+        Messages.Push({ "user", _strdup(UserPrompt.c_str())});  //role.c_str()
         NewLen = llama_chat_apply_template(Template.c_str(), Messages.GetData(), Messages.Num(),
             true, ContextHistory.GetData(), ContextHistory.Num());
 
@@ -275,6 +290,8 @@ std::string FLlamaInternal::ResumeGeneration()
 
 std::string FLlamaInternal::Generate(const std::string& Prompt)
 {
+    const auto StartTime = ggml_time_us();
+ 
     bGenerationActive = true;
 
     std::string Response;
@@ -295,26 +312,29 @@ std::string FLlamaInternal::Generate(const std::string& Prompt)
     // prepare a batch for the prompt
     llama_batch Batch = llama_batch_get_one(PromptTokens.data(), PromptTokens.size());
     llama_token NewTokenId;
+    int32 NDecoded = 0;
+
+    // check if we have enough space in the context to evaluate this batch - might need to be inside loop
+    int NContext = llama_n_ctx(Context);
+    int NContextUsed = llama_get_kv_cache_used_cells(Context);
     
     while (bGenerationActive) //processing can be aborted by flipping the boolean
     {
-        // check if we have enough space in the context to evaluate this batch
-        int NContext = llama_n_ctx(Context);
-        int NContextUsed = llama_get_kv_cache_used_cells(Context);
-        if (NContextUsed + Batch.n_tokens > NContext)
-        {
-            UE_LOG(LlamaLog, Error, TEXT("\033[0m\n"));
-            UE_LOG(LlamaLog, Error, TEXT("context size exceeded\n"));
-            break;
-        }
-
         if (llama_decode(Context, Batch))
         {
             GGML_ABORT("failed to decode\n");
         }
 
-        // sample the next token
-        NewTokenId = llama_sampler_sample(Sampler, Context, -1);
+        //Common sampler is a bit faster
+        if (CommonSampler)
+        {
+            NewTokenId = common_sampler_sample(CommonSampler, Context, -1); //sample using common sampler
+            common_sampler_accept(CommonSampler, NewTokenId, true);
+        }
+        else
+        {
+            NewTokenId = llama_sampler_sample(Sampler, Context, -1);
+        }
 
         // is it an end of generation?
         if (llama_vocab_is_eog(Vocab, NewTokenId))
@@ -323,16 +343,17 @@ std::string FLlamaInternal::Generate(const std::string& Prompt)
         }
 
         // convert the token to a string, print it and add it to the response
-        char Buffer[256];
-        int n = llama_token_to_piece(Vocab, NewTokenId, Buffer, sizeof(Buffer), 0, true);
-        if (n < 0)
-        {
-            bGenerationActive = false;
-            GGML_ABORT("failed to convert token to piece\n");
-            break;
-        }
-        std::string Piece(Buffer, n);
+        std::string Piece = common_token_to_piece(Vocab, NewTokenId, true);
+        
         Response += Piece;
+        NDecoded += 1;
+
+        if (NContextUsed + NDecoded > NContext)
+        {
+            UE_LOG(LlamaLog, Error, TEXT("context size %d exceeded\n"), NContext);
+            bGenerationActive = false;
+            return "";
+        }
 
         if (OnTokenGenerated)
         {
@@ -344,6 +365,14 @@ std::string FLlamaInternal::Generate(const std::string& Prompt)
     }
 
     bGenerationActive = false;
+
+    const auto EndTime = ggml_time_us();
+    const auto Duration = (EndTime - StartTime) / 1000000.0f;
+
+    if (OnGenerationStats)
+    {
+        OnGenerationStats(Duration, NDecoded, NDecoded / Duration);
+    }
 
     return Response;
 }
