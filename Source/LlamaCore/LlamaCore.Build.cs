@@ -92,7 +92,7 @@ public class LlamaCore : ModuleRules
 
 			//Toggle this off if your CUDA_PATH is not compatible with the build version or
 			//you definitely only want CPU build			
-			bool bTryToUseCuda = true;
+			bool bTryToUseCuda = false;
 
 			//First try to load env path llama builds
 			bool bCudaFound = false;
