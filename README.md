@@ -38,6 +38,8 @@ If you want to do builds for your own use case or replace the llama.cpp backend.
 
 Forked Plugin [Llama.cpp](https://github.com/ggml-org/llama.cpp) was built from git has/tag: [b4762](https://github.com/ggml-org/llama.cpp/tree/b4762)
 
+NB: use `-DGGML_NATIVE=OFF` to ensure wider portability.
+
 
 ### Windows build
 With the following build commands for windows (cpu build only, CUDA ignored, see upstream for GPU version):
@@ -47,19 +49,19 @@ With the following build commands for windows (cpu build only, CUDA ignored, see
 ```
 mkdir build
 cd build/
-cmake ..
+cmake .. -DGGML_NATIVE=OFF
 cmake --build . --config Release -j --verbose
 ```
 #### Vulkan
 
 see https://github.com/ggml-org/llama.cpp/blob/b4762/docs/build.md#git-bash-mingw64
 
-e.g. once [Vulkan SDK](https://vulkan.lunarg.com/sdk/home#windows) has been installed run
+e.g. once [Vulkan SDK](https://vulkan.lunarg.com/sdk/home#windows) has been installed run.
 
 ```
 mkdir build
 cd build/
-cmake .. -DGGML_VULKAN=ON
+cmake .. -DGGML_VULKAN=ON -DGGML_NATIVE=OFF
 cmake --build . --config Release -j --verbose
 ```
 
@@ -75,7 +77,7 @@ ATM built for CUDA 12.4 runtime
 ```
 mkdir build
 cd build
-cmake .. -DGGML_CUDA=ON
+cmake .. -DGGML_CUDA=ON -DGGML_NATIVE=OFF
 cmake --build . --config Release -j --verbose
 ```
 
