@@ -163,19 +163,21 @@ public class LlamaCore : ModuleRules
 			RuntimeDependencies.Add("$(BinaryOutputDir)/ggml-cpu.dll", Path.Combine(LlamaDllPath, "ggml-cpu.dll"));
 			RuntimeDependencies.Add("$(BinaryOutputDir)/llama.dll", Path.Combine(LlamaDllPath, "llama.dll"));
 
+
 			System.Console.WriteLine("Llama-Unreal building using llama.lib at path " + LlamaLibPath);
 
 			if(bVulkanGGMLFound)
 			{
 				PublicAdditionalLibraries.Add(Path.Combine(Win64LibPath, "ggml-vulkan.lib"));
 				RuntimeDependencies.Add("$(BinaryOutputDir)/ggml-vulkan.dll", Path.Combine(LlamaDllPath, "ggml-vulkan.dll"));
+				//PublicDelayLoadDLLs.Add("ggml-vulkan.dll");
 				System.Console.WriteLine("Llama-Unreal building using ggml-vulkan.lib at path " + Win64LibPath);
 			}
 			if(bCudaGGMLFound)
 			{
 				PublicAdditionalLibraries.Add(Path.Combine(Win64LibPath, "ggml-cuda.lib"));
 				RuntimeDependencies.Add("$(BinaryOutputDir)/ggml-cuda.dll", Path.Combine(LlamaDllPath, "ggml-cuda.dll"));
-
+				//PublicDelayLoadDLLs.Add("ggml-cuda.dll");
 				System.Console.WriteLine("Llama-Unreal building using ggml-cuda.lib at path " + Win64LibPath);
 			}
 		}

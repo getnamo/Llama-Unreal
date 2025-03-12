@@ -3,10 +3,14 @@
 #include "Internal/sampling.h"
 #include "LlamaDataTypes.h"
 #include "LlamaUtility.h"
+#include "HardwareInfo.h"
 
 bool FLlamaInternal::LoadModelFromParams(const FLLMModelParams& InModelParams)
 {
-    //Early implementation largely converted from: https://github.com/ggml-org/llama.cpp/blob/master/examples/simple-chat/simple-chat.cpp
+    FString RHI = FHardwareInfo::GetHardwareDetailsString();
+    FString GPU = FPlatformMisc::GetPrimaryGPUBrand();
+
+    UE_LOG(LogTemp, Log, TEXT("Device Found: %s %s"), *GPU, *RHI);
 
     // only print errors
     llama_log_set([](enum ggml_log_level level, const char* text, void* /* user_data */) {
