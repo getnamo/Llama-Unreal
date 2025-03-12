@@ -264,15 +264,44 @@ void FLlamaInternal::ResetContextHistory()
     FilledContextCharLength = 0;
 }
 
-void FLlamaInternal::RollbackHistory(int32 ByNTokens)
+void FLlamaInternal::RollbackContextHistoryByTokens(int32 NTokensToErase)
 {
     // clear the last n_regen tokens from the KV cache and update n_past
-    llama_kv_cache_seq_rm(Context, 0, FilledContextCharLength - ByNTokens, -1);
+    int32 TokensUsed = llama_get_kv_cache_used_cells(Context); //FilledContextCharLength
 
-    FilledContextCharLength -= ByNTokens;
+    llama_kv_cache_seq_rm(Context, 0, TokensUsed - NTokensToErase, -1);
+
+    FilledContextCharLength -= NTokensToErase;
 
     //Run a decode to sync everything else
     //llama_decode(Context, llama_batch_get_one(nullptr, 0));
+}
+
+void FLlamaInternal::RollbackContextHistoryByMessages(int32 NMessagesToErase)
+{
+    if (NMessagesToErase <= Messages.size()) {
+        Messages.resize(Messages.size() - NMessagesToErase);
+    }
+
+    //Obtain full prompt before it gets deleted
+    std::string FullPrompt(ContextHistory.data(), ContextHistory.data() + FilledContextCharLength);
+    
+    //resize the context history
+    int32 NewLen = llama_chat_apply_template(Template.c_str(), Messages.data(), Messages.size(),
+        false, ContextHistory.data(), ContextHistory.size());
+
+    //tokenize to find out how many tokens we need to remove
+
+    //Obtain new prompt, find delta
+    std::string FormattedPrompt(ContextHistory.data(), ContextHistory.data() + NewLen);
+
+    std::string PromptToRemove(FullPrompt.substr(FormattedPrompt.length()));
+
+    const llama_vocab* Vocab = llama_model_get_vocab(LlamaModel);
+    const int NPromptTokens = -llama_tokenize(Vocab, PromptToRemove.c_str(), PromptToRemove.size(), NULL, 0, false, true);
+
+    //now rollback KV-cache
+    RollbackContextHistoryByTokens(NPromptTokens);
 }
 
 int32 FLlamaInternal::InsertRawPrompt(const std::string& Prompt)

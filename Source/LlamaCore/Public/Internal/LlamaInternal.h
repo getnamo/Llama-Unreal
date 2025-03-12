@@ -36,7 +36,8 @@ public:
 
     //Generation
     void ResetContextHistory();
-    void RollbackHistory(int32 ByNTokens);
+    void RollbackContextHistoryByTokens(int32 NTokensToErase);
+    void RollbackContextHistoryByMessages(int32 NMessagesToErase);
 
     int32 InsertRawPrompt(const std::string& Prompt);
     int32 InsertTemplatedPrompt(const std::string& Prompt, const std::string Role = "user", bool bAddAssistantBoS = true);
