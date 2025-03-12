@@ -138,7 +138,7 @@ bool FLlamaInternal::LoadModelFromParams(const FLLMModelParams& InModelParams)
     }
     
 
-    ContextHistory.SetNum(llama_n_ctx(Context));
+    ContextHistory.reserve(llama_n_ctx(Context));
 
     //empty by default
     Template = std::string();
@@ -177,7 +177,7 @@ bool FLlamaInternal::LoadModelFromParams(const FLLMModelParams& InModelParams)
         }
     }
     
-    PrevLen = 0;
+    FilledContextLength = 0;
 
     bIsModelLoaded = true;
 
@@ -205,7 +205,8 @@ void FLlamaInternal::UnloadModel()
     {
         common_sampler_free(CommonSampler);
     }
-    ContextHistory.Empty();
+    
+    ContextHistory.clear();
 
     bIsModelLoaded = false;
 }
@@ -249,6 +250,20 @@ bool FLlamaInternal::IsModelLoaded()
     return bIsModelLoaded;
 }
 
+void FLlamaInternal::ResetContextHistory()
+{
+    if (IsGenerating())
+    {
+        StopGeneration();
+    }
+
+    ContextHistory.clear();
+    Messages.clear();
+
+    llama_kv_cache_clear(Context);
+    FilledContextLength = 0;
+}
+
 std::string FLlamaInternal::InsertRawPrompt(const std::string& Prompt)
 {
     if (!bIsModelLoaded)
@@ -258,10 +273,10 @@ std::string FLlamaInternal::InsertRawPrompt(const std::string& Prompt)
     }
     std::string Response = Generate(Prompt);
 
-    Messages.Push({ "assistant", _strdup(Response.c_str()) });
+    Messages.push_back({ "assistant", _strdup(Response.c_str()) });
 
-    PrevLen = llama_chat_apply_template(Template.c_str(), Messages.GetData(), Messages.Num(), false, nullptr, 0);
-    if (PrevLen < 0)
+    FilledContextLength = llama_chat_apply_template(Template.c_str(), Messages.data(), Messages.size(), false, nullptr, 0);
+    if (FilledContextLength < 0)
     {
         UE_LOG(LlamaLog, Warning, TEXT("failed to apply the chat template post generation."));
         return "";
@@ -278,20 +293,20 @@ std::string FLlamaInternal::InsertTemplatedPrompt(const std::string& UserPrompt,
         return "";
     }
 
-    int NewLen = PrevLen;
+    int NewLen = FilledContextLength;
 
     if (!UserPrompt.empty())
     {
-        Messages.Push({ "user", _strdup(UserPrompt.c_str())});  //role.c_str()
-        NewLen = llama_chat_apply_template(Template.c_str(), Messages.GetData(), Messages.Num(),
-            true, ContextHistory.GetData(), ContextHistory.Num());
+        Messages.push_back({ "user", _strdup(UserPrompt.c_str())});  //role.c_str()
+        NewLen = llama_chat_apply_template(Template.c_str(), Messages.data(), Messages.size(),
+            true, ContextHistory.data(), ContextHistory.size());
 
 
-        if (NewLen > ContextHistory.Num())
+        if (NewLen > ContextHistory.size())
         {
-            ContextHistory.Reserve(NewLen);
-            NewLen = llama_chat_apply_template(Template.c_str(), Messages.GetData(), Messages.Num(),
-                true, ContextHistory.GetData(), ContextHistory.Num());
+            ContextHistory.resize(NewLen);
+            NewLen = llama_chat_apply_template(Template.c_str(), Messages.data(), Messages.size(),
+                true, ContextHistory.data(), ContextHistory.size());
         }
         if (NewLen < 0)
         {
@@ -300,14 +315,14 @@ std::string FLlamaInternal::InsertTemplatedPrompt(const std::string& UserPrompt,
         }
     }
 
-    std::string Prompt(ContextHistory.GetData() + PrevLen, ContextHistory.GetData() + NewLen);
+    std::string Prompt(ContextHistory.data() + FilledContextLength, ContextHistory.data() + NewLen);
 
     std::string Response = Generate(Prompt);
 
-    Messages.Push({ "assistant", _strdup(Response.c_str()) });
+    Messages.push_back({ "assistant", _strdup(Response.c_str()) });
 
-    PrevLen = llama_chat_apply_template(Template.c_str(), Messages.GetData(), Messages.Num(), false, ContextHistory.GetData(), ContextHistory.Num());
-    if (PrevLen < 0)
+    FilledContextLength = llama_chat_apply_template(Template.c_str(), Messages.data(), Messages.size(), false, ContextHistory.data(), ContextHistory.size());
+    if (FilledContextLength < 0)
     {
         UE_LOG(LlamaLog, Warning, TEXT("failed to apply the chat template post generation."));
         return "";
@@ -320,6 +335,33 @@ std::string FLlamaInternal::ResumeGeneration()
 {
     //run an empty user prompt
     return InsertTemplatedPrompt(std::string());
+}
+
+int32 FLlamaInternal::ProcessPrompt(const std::string& Prompt)
+{
+    //Grab vocab
+    const llama_vocab* Vocab = llama_model_get_vocab(LlamaModel);
+    const bool IsFirst = llama_get_kv_cache_used_cells(Context) == 0;
+
+    // tokenize the prompt
+    const int NPromptTokens = -llama_tokenize(Vocab, Prompt.c_str(), Prompt.size(), NULL, 0, IsFirst, true);
+    std::vector<llama_token> PromptTokens(NPromptTokens);
+    if (llama_tokenize(Vocab, Prompt.c_str(), Prompt.size(), PromptTokens.data(), PromptTokens.size(), IsFirst, true) < 0)
+    {
+        bGenerationActive = false;
+        GGML_ABORT("failed to tokenize the prompt\n");
+    }
+
+    // prepare a batch for the prompt
+    llama_batch Batch = llama_batch_get_one(PromptTokens.data(), PromptTokens.size());
+
+    // run it through the decode (input)
+    if (llama_decode(Context, Batch))
+    {
+        GGML_ABORT("failed to decode\n");
+    }
+
+    return NPromptTokens;
 }
 
 std::string FLlamaInternal::Generate(const std::string& Prompt)
@@ -415,4 +457,5 @@ FLlamaInternal::~FLlamaInternal()
 {
     OnTokenGenerated = nullptr;
     UnloadModel();
+    llama_backend_free();
 }

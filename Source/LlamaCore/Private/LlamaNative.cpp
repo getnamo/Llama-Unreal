@@ -257,14 +257,14 @@ int32 FLlamaNative::RawContextHistory(FString& OutContextString)
         return -1;
     }
 
-    if (Internal->ContextHistory.Num() == 0)
+    if (Internal->ContextHistory.size() == 0)
     {
         return 0;
     }
 
     // Find the first null terminator (0) in the buffer
-    int32 ValidLength = Internal->ContextHistory.Num();
-    for (int32 i = 0; i < Internal->ContextHistory.Num(); i++)
+    int32 ValidLength = Internal->ContextHistory.size();
+    for (int32 i = 0; i < Internal->ContextHistory.size(); i++)
     {
         if (Internal->ContextHistory[i] == '\0')
         {
@@ -274,7 +274,7 @@ int32 FLlamaNative::RawContextHistory(FString& OutContextString)
     }
 
     // Convert only the valid part to an FString
-    OutContextString = FString(ValidLength, ANSI_TO_TCHAR(Internal->ContextHistory.GetData()));
+    OutContextString = FString(ValidLength, ANSI_TO_TCHAR(Internal->ContextHistory.data()));
 
     return ValidLength;
 }

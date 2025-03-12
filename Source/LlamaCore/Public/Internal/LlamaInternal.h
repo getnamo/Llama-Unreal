@@ -21,8 +21,8 @@ public:
     TFunction<void(float Time, int32 Tokens, float Speed)>OnGenerationStats = nullptr;
 
     //Messaging state
-    TArray<llama_chat_message> Messages;
-    TArray<char> ContextHistory;
+    std::vector<llama_chat_message> Messages;
+    std::vector<char> ContextHistory;
 
     //Loaded state
     std::string Template;
@@ -35,6 +35,7 @@ public:
 
 
     //Generation
+    void ResetContextHistory();
     std::string InsertRawPrompt(const std::string& Prompt);
 
     //main internal function - synchronous so should be called from bg thread. Will emit OnTokenGenerated for each token.
@@ -58,9 +59,10 @@ public:
 
 protected:
     //Wrapper for user<->assistant templated conversation
+    int32 ProcessPrompt(const std::string& Prompt);
     std::string Generate(const std::string& Prompt);
 
     bool bIsModelLoaded = false;
-    int32 PrevLen = 0;
+    int32 FilledContextLength = 0;
     FThreadSafeBool bGenerationActive = false;
 };

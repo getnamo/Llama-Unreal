@@ -79,7 +79,7 @@ struct FLLMModelAdvancedParams
     //Mirostat 2.0 algorithm described in the paper https://arxiv.org/abs/2007.14966. 
     //If Mirostat != -1 then it will apply this seed value using mirostat v2 algorithm
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params - Mirostat")
-    int32 MirostatSeed = -1;
+    int32 Mirostat = -1;
 
     //MirostatSeed -1 disables this
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params - Mirostat")
