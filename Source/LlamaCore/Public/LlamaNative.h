@@ -38,6 +38,9 @@ public:
 	void StopGeneration();
 	void ResumeGeneration();
 
+	//tick forward for safely consuming messages
+	void OnTick(float DeltaTime);
+
 	//Context change - not yet implemented
 	void ResetContextHistory();	//full reset
 	void RemoveLastInput();		//chat rollback to undo last user input
@@ -55,6 +58,11 @@ private:
 
 	FLLMModelParams ModelParams;
 	FLLMModelState ModelState;
+
+	FThreadSafeBool bThreadIsActive = false;
+	FThreadSafeBool bCallbacksAreValid = false;
+
+	TQueue<FString> TokenQueue;
 
 	class FLlamaInternal* Internal = nullptr;
 };

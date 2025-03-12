@@ -14,11 +14,11 @@ FLlamaNative::FLlamaNative()
     {
         const FString Token = FLlamaString::ToUE(TokenPiece);
 
-        if (ModelParams.Advanced.bEmitOnGameThread && OnTokenGenerated)
+        if (ModelParams.Advanced.bEmitOnGameThread && OnTokenGenerated && bCallbacksAreValid)
         {
             Async(EAsyncExecution::TaskGraphMainThread, [this, Token]()
             {
-                if(OnTokenGenerated)
+                if(OnTokenGenerated && bCallbacksAreValid)
                 {
                     OnTokenGenerated(Token);
                 }
@@ -26,18 +26,25 @@ FLlamaNative::FLlamaNative()
         }
         else
         {
-            if (OnTokenGenerated)
+            if (OnTokenGenerated && bCallbacksAreValid)
             {
                 OnTokenGenerated(Token);
             }
         }
-        
     };
+
+    bCallbacksAreValid = true;
 }
 
 FLlamaNative::~FLlamaNative()
 {
-    StopGeneration();   //NB: this isn't sufficient to potentially fail OnTokenGenerated callback during hasty exit
+    bCallbacksAreValid = false;
+    StopGeneration();
+
+    while (bThreadIsActive) 
+    {
+        FPlatformProcess::Sleep(0.01f);
+    }
     delete Internal;
 }
 
@@ -48,6 +55,8 @@ void FLlamaNative::SetModelParams(const FLLMModelParams& Params)
 
 bool FLlamaNative::LoadModel()
 {
+    bThreadIsActive = true;
+
     Async(EAsyncExecution::Thread, [this]
     {
         //Unload first if any is loaded
@@ -59,16 +68,25 @@ bool FLlamaNative::LoadModel()
         //Sync model state
         if (bSuccess)
         {
-            FString TemplateString = FLlamaString::ToUE(Internal->Template);
+            const FString TemplateString = FLlamaString::ToUE(Internal->Template);
+            const FString TemplateSource = FLlamaString::ToUE(Internal->TemplateSource);
 
             //update model params on game thread
-            Async(EAsyncExecution::TaskGraphMainThread, [this, TemplateString]
+            Async(EAsyncExecution::TaskGraphMainThread, [this, TemplateString, TemplateSource]
             {
+                if (!bCallbacksAreValid)
+                {
+                    bThreadIsActive = false;
+                    return;
+                }
+
                 FJinjaChatTemplate ChatTemplate;
-                ChatTemplate.TemplateSource = TEXT("tokenizer.chat_template");
+                ChatTemplate.TemplateSource = TemplateSource;
                 ChatTemplate.Jinja = TemplateString;
 
                 ModelState.ChatTemplateInUse = ChatTemplate;
+                
+                bThreadIsActive = false;
 
                 if (OnModelStateChanged)
                 {
@@ -85,10 +103,11 @@ bool FLlamaNative::LoadModel()
         {
             Async(EAsyncExecution::TaskGraphMainThread, [this]
             {
-                if (OnError)
+                if (OnError && bCallbacksAreValid)
                 {
                     OnError("Failed loading model see logs.");
                 }
+                bThreadIsActive = false;
             });
         }
 
@@ -119,15 +138,15 @@ void FLlamaNative::InsertPrompt(const FString& UserPrompt)
         return;
     }
 
-    //check if we're currently generating
-    if (Internal->IsGenerating())
+    if (bThreadIsActive)
     {
-        //Todo: queue inputs once we have history manipulation working.
-        UE_LOG(LlamaLog, Warning, TEXT("Aborting: already generating, in this version this fails to queue up."));
+        UE_LOG(LlamaLog, Warning, TEXT("Prompting while generation is active isn't currently supported, prompt not sent."));
         return;
     }
 
     const std::string UserStdString = FLlamaString::ToStd(UserPrompt);
+
+    bThreadIsActive = true;
 
     //run prompt insert on background thread (NB: should we do one parked thread for llama inference instead of this?)
     Async(EAsyncExecution::ThreadPool, [this, UserStdString]
@@ -139,31 +158,40 @@ void FLlamaNative::InsertPrompt(const FString& UserPrompt)
         RawContextHistory(ModelState.ContextHistory);
         ModelState.ContextLength = UsedContextLength();
 
-        if (ModelParams.Advanced.bEmitOnGameThread && OnResponseGenerated)
+        if (ModelParams.Advanced.bEmitOnGameThread && OnResponseGenerated && bCallbacksAreValid)
         {
             Async(EAsyncExecution::TaskGraphMainThread, [this, Response]
+            {
+                if (bCallbacksAreValid)
+                {
+                    if (OnModelStateChanged)
+                    {
+                        OnModelStateChanged(ModelState);
+                    }
+
+                    if (OnResponseGenerated)
+                    {
+                        OnResponseGenerated(Response);
+                    }
+                }
+
+                bThreadIsActive = false;
+            });
+        }
+        else
+        {
+            if (bCallbacksAreValid)
             {
                 if (OnModelStateChanged)
                 {
                     OnModelStateChanged(ModelState);
                 }
-
                 if (OnResponseGenerated)
                 {
                     OnResponseGenerated(Response);
                 }
-            });
-        }
-        else
-        {
-            if (OnModelStateChanged)
-            {
-                OnModelStateChanged(ModelState);
             }
-            if (OnResponseGenerated)
-            {
-                OnResponseGenerated(Response);
-            }
+            bThreadIsActive = false;
         }
     });
 }
@@ -181,6 +209,10 @@ void FLlamaNative::StopGeneration()
 void FLlamaNative::ResumeGeneration()
 {
     Internal->ResumeGeneration();
+}
+
+void FLlamaNative::OnTick(float DeltaTime)
+{
 }
 
 void FLlamaNative::ResetContextHistory()
