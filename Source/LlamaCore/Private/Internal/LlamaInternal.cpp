@@ -137,8 +137,8 @@ bool FLlamaInternal::LoadModelFromParams(const FLLMModelParams& InModelParams)
         llama_sampler_chain_add(Sampler, llama_sampler_init_dist(InModelParams.Seed));
     }
     
-
-    ContextHistory.reserve(llama_n_ctx(Context));
+    //NB: this is just a starting heuristic, 
+    ContextHistory.reserve(1024);
 
     //empty by default
     Template = std::string();
@@ -304,7 +304,7 @@ void FLlamaInternal::RollbackContextHistoryByMessages(int32 NMessagesToErase)
     RollbackContextHistoryByTokens(NPromptTokens);
 }
 
-int32 FLlamaInternal::InsertRawPrompt(const std::string& Prompt)
+std::string FLlamaInternal::InsertRawPrompt(const std::string& Prompt, bool bGenerateReply)
 {
     if (!bIsModelLoaded)
     {
@@ -312,7 +312,17 @@ int32 FLlamaInternal::InsertRawPrompt(const std::string& Prompt)
         return 0;
     }
 
-    return ProcessPrompt(Prompt);
+    int32 TokensProcessed = ProcessPrompt(Prompt);
+
+
+    FLlamaString::AppendToCharVector(ContextHistory, Prompt);
+
+    if (bGenerateReply)
+    {
+        std::string Response = Generate("");
+        FLlamaString::AppendToCharVector(ContextHistory, Response);
+    }
+    return "";
 }
 
 int32 FLlamaInternal::InsertTemplatedPrompt(const std::string& Prompt, EChatTemplateRole Role, bool bAddAssistantBoS)
@@ -329,22 +339,9 @@ int32 FLlamaInternal::InsertTemplatedPrompt(const std::string& Prompt, EChatTemp
 
     if (!Prompt.empty())
     {
-        Messages.push_back({ RoleForEnum(Role), _strdup(Prompt.c_str())});
-        NewLen = llama_chat_apply_template(Template.c_str(), Messages.data(), Messages.size(),
-            bAddAssistantBoS, ContextHistory.data(), ContextHistory.size());
+        Messages.push_back({ RoleForEnum(Role), _strdup(Prompt.c_str()) });
 
-        //Resize if contexthistory can't hold it
-        if (NewLen > ContextHistory.size())
-        {
-            ContextHistory.resize(NewLen);
-            NewLen = llama_chat_apply_template(Template.c_str(), Messages.data(), Messages.size(),
-                bAddAssistantBoS, ContextHistory.data(), ContextHistory.size());
-        }
-        if (NewLen < 0)
-        {
-            UE_LOG(LlamaLog, Warning, TEXT("failed to apply the chat template pre generation."));
-            return 0;
-        }
+        NewLen = ApplyTemplateToContextHistory(false);
     }
 
     std::string FormattedPrompt(ContextHistory.data() + FilledContextCharLength, ContextHistory.data() + NewLen);
@@ -386,12 +383,7 @@ std::string FLlamaInternal::InsertTemplatedPromptAndGenerate(const std::string& 
     Messages.push_back({ RoleForEnum(EChatTemplateRole::Assistant), _strdup(Response.c_str())});
 
     //Sync ContextHistory
-    FilledContextCharLength = llama_chat_apply_template(Template.c_str(), Messages.data(), Messages.size(), false, ContextHistory.data(), ContextHistory.size());
-    if (FilledContextCharLength < 0)
-    {
-        UE_LOG(LlamaLog, Warning, TEXT("failed to apply the chat template post generation."));
-        return "";
-    }
+    FilledContextCharLength = ApplyTemplateToContextHistory(false);
 
     return Response;
 }
@@ -512,6 +504,25 @@ std::string FLlamaInternal::Generate(const std::string& Prompt)
     }
 
     return Response;
+}
+
+int32 FLlamaInternal::ApplyTemplateToContextHistory(bool bAddAssistantBOS)
+{
+    int32 NewLen = llama_chat_apply_template(Template.c_str(), Messages.data(), Messages.size(),
+        bAddAssistantBOS, ContextHistory.data(), ContextHistory.size());
+
+    //Resize if contexthistory can't hold it
+    if (NewLen > ContextHistory.size())
+    {
+        ContextHistory.resize(NewLen);
+        NewLen = llama_chat_apply_template(Template.c_str(), Messages.data(), Messages.size(),
+            bAddAssistantBOS, ContextHistory.data(), ContextHistory.size());
+    }
+    if (NewLen < 0)
+    {
+        UE_LOG(LlamaLog, Warning, TEXT("failed to apply the chat template pre generation."));
+    }
+    return NewLen;
 }
 
 const char* FLlamaInternal::RoleForEnum(EChatTemplateRole Role)

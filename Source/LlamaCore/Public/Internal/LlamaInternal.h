@@ -41,7 +41,8 @@ public:
     void RollbackContextHistoryByTokens(int32 NTokensToErase);
     void RollbackContextHistoryByMessages(int32 NMessagesToErase);
 
-    int32 InsertRawPrompt(const std::string& Prompt);
+
+    std::string InsertRawPrompt(const std::string& Prompt, bool bGenerateReply = true);
     int32 InsertTemplatedPrompt(const std::string& Prompt, EChatTemplateRole Role = EChatTemplateRole::User, bool bAddAssistantBoS = true);
 
     //main internal function - synchronous so should be called from bg thread. Will emit OnTokenGenerated for each token.
@@ -61,7 +62,6 @@ public:
     int32 MaxContext();
     int32 UsedContext();
 
-
     FLlamaInternal();
     ~FLlamaInternal();
 
@@ -69,6 +69,8 @@ protected:
     //Wrapper for user<->assistant templated conversation
     int32 ProcessPrompt(const std::string& Prompt);
     std::string Generate(const std::string& Prompt);
+
+    int32 ApplyTemplateToContextHistory(bool bAddAssistantBOS = false);
 
     const char* RoleForEnum(EChatTemplateRole Role);
 
