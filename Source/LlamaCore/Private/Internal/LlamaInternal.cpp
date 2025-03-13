@@ -315,7 +315,7 @@ int32 FLlamaInternal::InsertRawPrompt(const std::string& Prompt)
     return ProcessPrompt(Prompt);
 }
 
-int32 FLlamaInternal::InsertTemplatedPrompt(const std::string& Prompt, const std::string Role, bool bAddAssistantBoS)
+int32 FLlamaInternal::InsertTemplatedPrompt(const std::string& Prompt, EChatTemplateRole Role, bool bAddAssistantBoS)
 {
     if (!bIsModelLoaded)
     {
@@ -327,7 +327,7 @@ int32 FLlamaInternal::InsertTemplatedPrompt(const std::string& Prompt, const std
 
     if (!Prompt.empty())
     {
-        Messages.push_back({ Role.c_str(), _strdup(Prompt.c_str()) });
+        Messages.push_back({ RoleForEnum(Role), _strdup(Prompt.c_str())});
         NewLen = llama_chat_apply_template(Template.c_str(), Messages.data(), Messages.size(),
             bAddAssistantBoS, ContextHistory.data(), ContextHistory.size());
 
@@ -354,7 +354,7 @@ int32 FLlamaInternal::InsertTemplatedPrompt(const std::string& Prompt, const std
     return TokensProcessed;
 }
 
-std::string FLlamaInternal::InsertTemplatedPromptAndGenerate(const std::string& UserPrompt, const std::string Role, bool bAddAssistantBoS)
+std::string FLlamaInternal::InsertTemplatedPromptAndGenerate(const std::string& UserPrompt, EChatTemplateRole Role, bool bAddAssistantBoS)
 {
     if (!bIsModelLoaded)
     {
@@ -372,7 +372,7 @@ std::string FLlamaInternal::InsertTemplatedPromptAndGenerate(const std::string& 
     std::string Response = Generate("");
 
     //Add the response to our templated messages
-    Messages.push_back({ "assistant", _strdup(Response.c_str()) });
+    Messages.push_back({ RoleForEnum(EChatTemplateRole::Assistant), _strdup(Response.c_str())});
 
     //Sync ContextHistory
     FilledContextCharLength = llama_chat_apply_template(Template.c_str(), Messages.data(), Messages.size(), false, ContextHistory.data(), ContextHistory.size());
@@ -387,6 +387,8 @@ std::string FLlamaInternal::InsertTemplatedPromptAndGenerate(const std::string& 
 
 std::string FLlamaInternal::ResumeGeneration()
 {
+    //Todo: erase last assistant message to merge the two messages if the last message was the assistant one.
+
     //run an empty user prompt
     return InsertTemplatedPromptAndGenerate(std::string());
 }
@@ -499,6 +501,30 @@ std::string FLlamaInternal::Generate(const std::string& Prompt)
     }
 
     return Response;
+}
+
+const char* FLlamaInternal::RoleForEnum(EChatTemplateRole Role)
+{
+    if (Role == EChatTemplateRole::User)
+    {
+        return "user";
+    }
+    else if (Role == EChatTemplateRole::Assistant)
+    {
+        return "assistant";
+    }
+    else if (Role == EChatTemplateRole::System)
+    {
+        return "system";
+    }
+    else {
+        return "unknown";
+    }
+}
+
+FLlamaInternal::FLlamaInternal()
+{
+
 }
 
 FLlamaInternal::~FLlamaInternal()

@@ -33,7 +33,8 @@ public:
 	bool IsModelLoaded();
 
 	//Prompt input
-	void InsertPrompt(const FString& Prompt);
+	void InsertTemplatedPrompt(const FString& Prompt, EChatTemplateRole Role = EChatTemplateRole::User, bool bAddAssistantBOS = false, bool bGenerateReply = true);
+	void InsertRawPrompt(const FString& Prompt);
 	bool IsGenerating();
 	void StopGeneration();
 	void ResumeGeneration();
@@ -46,6 +47,9 @@ public:
 	void RemoveLastInput();		//chat rollback to undo last user input
 	void RemoveLastReply();		//chat rollback to undo last assistant input.
 	void RegenerateLastReply(); //removes last reply and regenerates (changing seed?)
+
+	//Todo: Use this api + state checks to use RemoveLastInput and RemoveLastReply wrappers.
+	void RemoveLastNMessages(int32 MessageCount);	//rollback
 
 	//Pure query of current context - not threadsafe, be careful when these get called - TBD: make it safe
 	int32 RawContextHistory(FString& OutContextString);

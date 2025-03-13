@@ -76,8 +76,9 @@ public:
     //UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
     void ResetContextHistory();
 
+    //Main input function
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
-    void InsertTemplatedPrompt(UPARAM(meta=(MultiLine=true)) const FString &Text);
+    void InsertTemplatedPrompt(UPARAM(meta=(MultiLine=true)) const FString &Text, EChatTemplateRole Role = EChatTemplateRole::User, bool bAddAssistantBOS = false, bool bGenerateReply = true);
 
     //does not apply formatting before running inference
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")

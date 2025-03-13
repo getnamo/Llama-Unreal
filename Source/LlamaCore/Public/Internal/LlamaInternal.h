@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include "LlamaDataTypes.h"
 #include "llama.h"
 
 /** 
@@ -40,10 +41,10 @@ public:
     void RollbackContextHistoryByMessages(int32 NMessagesToErase);
 
     int32 InsertRawPrompt(const std::string& Prompt);
-    int32 InsertTemplatedPrompt(const std::string& Prompt, const std::string Role = "user", bool bAddAssistantBoS = true);
+    int32 InsertTemplatedPrompt(const std::string& Prompt, EChatTemplateRole Role = EChatTemplateRole::User, bool bAddAssistantBoS = true);
 
     //main internal function - synchronous so should be called from bg thread. Will emit OnTokenGenerated for each token.
-    std::string InsertTemplatedPromptAndGenerate(const std::string& Prompt, const std::string Role = "user", bool bAddAssistantBoS = true);
+    std::string InsertTemplatedPromptAndGenerate(const std::string& Prompt, EChatTemplateRole Role = EChatTemplateRole::User, bool bAddAssistantBoS = true);
 
 
     //continue generating from last stop
@@ -59,12 +60,16 @@ public:
     int32 MaxContext();
     int32 UsedContext();
 
+
+    FLlamaInternal();
     ~FLlamaInternal();
 
 protected:
     //Wrapper for user<->assistant templated conversation
     int32 ProcessPrompt(const std::string& Prompt);
     std::string Generate(const std::string& Prompt);
+
+    const char* RoleForEnum(EChatTemplateRole Role);
 
     bool bIsModelLoaded = false;
     int32 FilledContextCharLength = 0;

@@ -138,7 +138,7 @@ bool FLlamaNative::IsModelLoaded()
     return Internal->IsModelLoaded();
 }
 
-void FLlamaNative::InsertPrompt(const FString& UserPrompt)
+void FLlamaNative::InsertTemplatedPrompt(const FString& Prompt, EChatTemplateRole Role, bool bAddAssistantBOS, bool bGenerateReply)
 {
     if (!IsModelLoaded())
     {
@@ -152,14 +152,23 @@ void FLlamaNative::InsertPrompt(const FString& UserPrompt)
         return;
     }
 
-    const std::string UserStdString = FLlamaString::ToStd(UserPrompt);
+    const std::string UserStdString = FLlamaString::ToStd(Prompt);
 
     bThreadIsActive = true;
 
     //run prompt insert on background thread (NB: should we do one parked thread for llama inference instead of this?)
-    Async(EAsyncExecution::ThreadPool, [this, UserStdString]
+    Async(EAsyncExecution::Thread, [this, UserStdString, Role, bAddAssistantBOS, bGenerateReply]
     {
-        FString Response = FLlamaString::ToUE(Internal->InsertTemplatedPromptAndGenerate(UserStdString));
+        FString Response;
+
+        if (bGenerateReply)
+        {
+            Response = FLlamaString::ToUE(Internal->InsertTemplatedPromptAndGenerate(UserStdString, Role, bAddAssistantBOS));
+        }
+        else
+        {
+            Internal->InsertTemplatedPrompt(UserStdString, Role, bAddAssistantBOS);
+        }
 
         //It's now safe to sync our history - only
         GetStructuredChatHistory(ModelState.ChatHistory);
@@ -169,22 +178,22 @@ void FLlamaNative::InsertPrompt(const FString& UserPrompt)
         if (ModelParams.Advanced.bEmitOnGameThread && OnResponseGenerated && bCallbacksAreValid)
         {
             Async(EAsyncExecution::TaskGraphMainThread, [this, Response]
-            {
-                if (bCallbacksAreValid)
                 {
-                    if (OnModelStateChanged)
+                    if (bCallbacksAreValid)
                     {
-                        OnModelStateChanged(ModelState);
+                        if (OnModelStateChanged)
+                        {
+                            OnModelStateChanged(ModelState);
+                        }
+
+                        if (OnResponseGenerated)
+                        {
+                            OnResponseGenerated(Response);
+                        }
                     }
 
-                    if (OnResponseGenerated)
-                    {
-                        OnResponseGenerated(Response);
-                    }
-                }
-
-                bThreadIsActive = false;
-            });
+                    bThreadIsActive = false;
+                });
         }
         else
         {
@@ -202,6 +211,15 @@ void FLlamaNative::InsertPrompt(const FString& UserPrompt)
             bThreadIsActive = false;
         }
     });
+}
+
+void FLlamaNative::InsertRawPrompt(const FString& Prompt)
+{
+}
+
+void FLlamaNative::RemoveLastNMessages(int32 MessageCount)
+{
+    Internal->RollbackContextHistoryByMessages(MessageCount);
 }
 
 bool FLlamaNative::IsGenerating()

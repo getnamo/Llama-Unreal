@@ -44,11 +44,9 @@ void ULlamaComponent::TickComponent(float DeltaTime,
     Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 }
 
-void ULlamaComponent::InsertTemplatedPrompt(const FString& Prompt)
+void ULlamaComponent::InsertTemplatedPrompt(const FString& Prompt, EChatTemplateRole Role, bool bAddAssistantBOS, bool bGenerateReply)
 {
-    //todo: add support for adjusting the role...
-
-    LlamaNative->InsertPrompt(Prompt);
+    LlamaNative->InsertTemplatedPrompt(Prompt, Role, bAddAssistantBOS, bGenerateReply);
 }
 
 void ULlamaComponent::LoadModel()
