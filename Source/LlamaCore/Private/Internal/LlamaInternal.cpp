@@ -218,9 +218,7 @@ std::string FLlamaInternal::WrapPromptForRole(const std::string& Text, EChatTemp
 
     //pre-allocate buffer 2x the size of text
     std::vector<char> Buffer;
-    Buffer.resize(Text.size() * 2);
 
-    
     int32 NewLen = 0;
 
     if (OverrideTemplate.empty())
@@ -560,14 +558,14 @@ int32 FLlamaInternal::ApplyTemplateToContextHistory(bool bAddAssistantBOS)
 
 int32 FLlamaInternal::ApplyTemplateFromMessagesToBuffer(const std::string& InTemplate, std::vector<llama_chat_message>& FromMessages, std::vector<char>& ToBuffer, bool bAddAssistantBoS)
 {
-    int32 NewLen = llama_chat_apply_template(Template.c_str(), FromMessages.data(), FromMessages.size(),
+    int32 NewLen = llama_chat_apply_template(InTemplate.c_str(), FromMessages.data(), FromMessages.size(),
         bAddAssistantBoS, ToBuffer.data(), ToBuffer.size());
 
-    //Resize if contexthistory can't hold it
+    //Resize if ToBuffer can't hold it
     if (NewLen > ToBuffer.size())
     {
-        ContextHistory.resize(NewLen);
-        NewLen = llama_chat_apply_template(Template.c_str(), FromMessages.data(), FromMessages.size(),
+        ToBuffer.resize(NewLen);
+        NewLen = llama_chat_apply_template(InTemplate.c_str(), FromMessages.data(), FromMessages.size(),
             bAddAssistantBoS, ToBuffer.data(), ToBuffer.size());
     }
     if (NewLen < 0)
