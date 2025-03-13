@@ -57,17 +57,16 @@ FLlamaNative::FLlamaNative()
         }
     };
 
-    Internal->OnGenerationComplete = [this](const std::string& Response, float Duration, int32 TokensGenerated, float SpeedTPS)
+    Internal->OnGenerationComplete = [this](const std::string& Response, float Duration, int32 TokensGenerated, float SpeedTps)
     {
         if (ModelParams.Advanced.bLogGenerationStats)
         {
-            UE_LOG(LlamaLog, Log, TEXT("Generated %d tokens in %1.2fs (%1.2ftps)"), TokensGenerated, Duration, SpeedTPS);
+            UE_LOG(LlamaLog, Log, TEXT("Generated %d tokens in %1.2fs (%1.2ftps)"), TokensGenerated, Duration, SpeedTps);
         }
 
+        //Sync history data on bg thread
         FStructuredChatHistory ChatHistory;
         FString ContextHistory;
-
-        //It's now safe to sync our history - only
         GetStructuredChatHistory(ChatHistory);
         RawContextHistory(ContextHistory);
         int32 UsedContext = UsedContextLength();
@@ -79,7 +78,7 @@ FLlamaNative::FLlamaNative()
 
         if (bCallbacksAreValid)
         {
-            Async(EAsyncExecution::TaskGraphMainThread, [this, ResponseString, ChatHistory, ContextHistory, UsedContext]
+            Async(EAsyncExecution::TaskGraphMainThread, [this, ResponseString, ChatHistory, ContextHistory, UsedContext, SpeedTps]
             {
                 if (bCallbacksAreValid)
                 {
@@ -87,6 +86,8 @@ FLlamaNative::FLlamaNative()
                     ModelState.ContextUsed = UsedContext;
                     ModelState.ChatHistory = ChatHistory;
                     ModelState.ContextHistory = ContextHistory;
+                    ModelState.LastTokenGenerationSpeed = SpeedTps;
+
                     if (ChatHistory.History.Num() > 0)
                     {
                         ModelState.LastRole = ChatHistory.History.Last().Role;
@@ -106,15 +107,27 @@ FLlamaNative::FLlamaNative()
         }
     };
 
-    Internal->OnPromptProcessed = [this](int32 TokensProcessed, EChatTemplateRole RoleProcessed, float Speed)
+    Internal->OnPromptProcessed = [this](int32 TokensProcessed, EChatTemplateRole RoleProcessed, float SpeedTps)
     {
         if (OnPromptProcessed && bCallbacksAreValid)
         {
-            Async(EAsyncExecution::TaskGraphMainThread, [this, TokensProcessed, RoleProcessed, Speed]
+            //Sync history data on bg thread
+            FStructuredChatHistory ChatHistory;
+            FString ContextHistory;
+            GetStructuredChatHistory(ChatHistory);
+            RawContextHistory(ContextHistory);
+            int32 UsedContext = UsedContextLength();
+
+            Async(EAsyncExecution::TaskGraphMainThread, [this, TokensProcessed, RoleProcessed, SpeedTps, ChatHistory, ContextHistory, UsedContext]
             {
+                ModelState.ContextUsed = UsedContext;
+                ModelState.ChatHistory = ChatHistory;
+                ModelState.ContextHistory = ContextHistory;
+                ModelState.LastPromptProcessingSpeed = SpeedTps;
+
                 if (OnPromptProcessed && bCallbacksAreValid)
                 {
-                    OnPromptProcessed(TokensProcessed, RoleProcessed, Speed);
+                    OnPromptProcessed(TokensProcessed, RoleProcessed, SpeedTps);
                 }
             });
         }

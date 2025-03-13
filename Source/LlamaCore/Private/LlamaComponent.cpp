@@ -58,7 +58,7 @@ void ULlamaComponent::LoadModel()
     LlamaNative->OnResponseGenerated = [this](const FString& Response)
     {
         OnResponseGenerated.Broadcast(Response);
-        OnEndOfStream.Broadcast(true, ModelState.LastTokensPerSecond);
+        OnEndOfStream.Broadcast(true, ModelState.LastTokenGenerationSpeed);
     };
 
     LlamaNative->OnTokenGenerated = [this](const FString& Token)

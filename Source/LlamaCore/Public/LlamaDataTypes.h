@@ -273,9 +273,13 @@ struct FLLMModelState
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model State")
     int32 ContextUsed = 0;
 
-    //Stored the last speed reading on this model
+    //Updates after each eos1
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model State")
-    float LastTokensPerSecond = 0.f;
+    float LastTokenGenerationSpeed = 0.f;
+
+    //Updates after each prompt processing
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model State")
+    float LastPromptProcessingSpeed = 0.f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model State")
     EChatTemplateRole LastRole = EChatTemplateRole::Unknown;
