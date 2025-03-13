@@ -240,11 +240,12 @@ void FLlamaNative::InsertTemplatedPrompt(const FString& Prompt, EChatTemplateRol
     {
         if (bGenerateReply)
         {
-            FLlamaString::ToUE(Internal->InsertTemplatedPromptAndGenerate(UserStdString, Role, bAddAssistantBOS));
+            FLlamaString::ToUE(Internal->InsertTemplatedPrompt(UserStdString, Role, bAddAssistantBOS, true));
         }
         else
         {
-            Internal->InsertTemplatedPrompt(UserStdString, Role, bAddAssistantBOS);
+            //importantly turn off generation
+            Internal->InsertTemplatedPrompt(UserStdString, Role, bAddAssistantBOS, false);
         }
 
         bThreadIsActive = false;

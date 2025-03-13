@@ -324,7 +324,7 @@ std::string FLlamaInternal::InsertRawPrompt(const std::string& Prompt, bool bGen
     return "";
 }
 
-int32 FLlamaInternal::InsertTemplatedPrompt(const std::string& Prompt, EChatTemplateRole Role, bool bAddAssistantBoS)
+std::string FLlamaInternal::InsertTemplatedPrompt(const std::string& Prompt, EChatTemplateRole Role, bool bAddAssistantBoS, bool bGenerateReply)
 {
     if (!bIsModelLoaded)
     {
@@ -332,9 +332,7 @@ int32 FLlamaInternal::InsertTemplatedPrompt(const std::string& Prompt, EChatTemp
         return 0;
     }
 
-    const auto StartTime = ggml_time_us();
-
-    int NewLen = FilledContextCharLength;
+    int32 NewLen = FilledContextCharLength;
 
     if (!Prompt.empty())
     {
@@ -345,29 +343,17 @@ int32 FLlamaInternal::InsertTemplatedPrompt(const std::string& Prompt, EChatTemp
 
     std::string FormattedPrompt(ContextHistory.data() + FilledContextCharLength, ContextHistory.data() + NewLen);
 
-    int32 TokensProcessed = ProcessPrompt(FormattedPrompt);
+    int32 TokensProcessed = ProcessPrompt(FormattedPrompt, Role);
 
     FilledContextCharLength = NewLen;
 
-    return TokensProcessed;
-}
-
-std::string FLlamaInternal::InsertTemplatedPromptAndGenerate(const std::string& UserPrompt, EChatTemplateRole Role, bool bAddAssistantBoS)
-{
-    if (!bIsModelLoaded)
+    //Check for a reply if we want to generate one, otherwise return an empty reply
+    std::string Response;
+    if (bGenerateReply)
     {
-        UE_LOG(LlamaLog, Warning, TEXT("Model isn't loaded"));
-        return "";
+        //Run generation
+        Response = Generate("", true);
     }
-
-    if (!UserPrompt.empty())
-    {
-        //Process initial prompt
-        int32 TokensProcessed = InsertTemplatedPrompt(UserPrompt, Role, bAddAssistantBoS);
-    }
-
-    //Run generation
-    std::string Response = Generate("", true);
 
     return Response;
 }
@@ -377,7 +363,7 @@ std::string FLlamaInternal::ResumeGeneration()
     //Todo: erase last assistant message to merge the two messages if the last message was the assistant one.
 
     //run an empty user prompt
-    return InsertTemplatedPromptAndGenerate(std::string());
+    return InsertTemplatedPrompt(std::string());
 }
 
 int32 FLlamaInternal::ProcessPrompt(const std::string& Prompt, EChatTemplateRole Role)

@@ -41,12 +41,11 @@ public:
     void RollbackContextHistoryByTokens(int32 NTokensToErase);
     void RollbackContextHistoryByMessages(int32 NMessagesToErase);
 
-
+    //raw prompt insert doesn't not update messages, just context history
     std::string InsertRawPrompt(const std::string& Prompt, bool bGenerateReply = true);
-    int32 InsertTemplatedPrompt(const std::string& Prompt, EChatTemplateRole Role = EChatTemplateRole::User, bool bAddAssistantBoS = true);
 
-    //main internal function - synchronous so should be called from bg thread. Will emit OnTokenGenerated for each token.
-    std::string InsertTemplatedPromptAndGenerate(const std::string& Prompt, EChatTemplateRole Role = EChatTemplateRole::User, bool bAddAssistantBoS = true);
+    //main function for structure insert and generation
+    std::string InsertTemplatedPrompt(const std::string& Prompt, EChatTemplateRole Role = EChatTemplateRole::User, bool bAddAssistantBoS = true, bool bGenerateReply = true);
 
 
     //continue generating from last stop
