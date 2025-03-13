@@ -253,6 +253,27 @@ void FLlamaNative::InsertTemplatedPrompt(const FString& Prompt, EChatTemplateRol
 
 void FLlamaNative::InsertRawPrompt(const FString& Prompt)
 {
+    if (!IsModelLoaded())
+    {
+        UE_LOG(LlamaLog, Warning, TEXT("Model isn't loaded, can't run prompt."));
+        return;
+    }
+
+    if (bThreadIsActive)
+    {
+        UE_LOG(LlamaLog, Warning, TEXT("Prompting while generation is active isn't currently supported, prompt not sent."));
+        return;
+    }
+
+    const std::string PromptStdString = FLlamaString::ToStd(Prompt);
+
+    bThreadIsActive = true;
+
+    //run prompt insert on a background thread
+    Async(EAsyncExecution::ThreadPool, [this, PromptStdString]
+    {
+        Internal->InsertRawPrompt(PromptStdString);
+    });
 }
 
 void FLlamaNative::RemoveLastNMessages(int32 MessageCount)
@@ -290,7 +311,7 @@ void FLlamaNative::ResetContextHistory(bool bKeepSystemPrompt)
     }
 }
 
-void FLlamaNative::RemoveLastInput()
+void FLlamaNative::RemoveLastUserInput()
 {
     //lazily removes last reply and last input
     RemoveLastNMessages(2);
