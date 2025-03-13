@@ -37,7 +37,7 @@ public:
 
 
     //Generation
-    void ResetContextHistory();
+    void ResetContextHistory(bool bKeepSystemsPrompt = false);
     void RollbackContextHistoryByTokens(int32 NTokensToErase);
     void RollbackContextHistoryByMessages(int32 NMessagesToErase);
 
@@ -67,7 +67,7 @@ public:
 protected:
     //Wrapper for user<->assistant templated conversation
     int32 ProcessPrompt(const std::string& Prompt, EChatTemplateRole Role = EChatTemplateRole::Unknown);
-    std::string Generate(const std::string& Prompt, bool bAppendToMessageHistory = true);
+    std::string Generate(const std::string& Prompt = "", bool bAppendToMessageHistory = true);
 
     int32 ApplyTemplateToContextHistory(bool bAddAssistantBOS = false);
 

@@ -250,13 +250,25 @@ bool FLlamaInternal::IsModelLoaded()
     return bIsModelLoaded;
 }
 
-void FLlamaInternal::ResetContextHistory()
+void FLlamaInternal::ResetContextHistory(bool bKeepSystemsPrompt)
 {
     if (IsGenerating())
     {
         StopGeneration();
     }
 
+    if (bKeepSystemsPrompt)
+    {
+        //Valid trim case
+        if (Messages.size() > 1)
+        {
+            //Rollback all the messages except the first one
+            RollbackContextHistoryByMessages(Messages.size() - 1);
+            return;
+        }
+    }
+
+    //Full Reset
     ContextHistory.clear();
     Messages.clear();
 
@@ -279,7 +291,13 @@ void FLlamaInternal::RollbackContextHistoryByTokens(int32 NTokensToErase)
 
 void FLlamaInternal::RollbackContextHistoryByMessages(int32 NMessagesToErase)
 {
-    if (NMessagesToErase <= Messages.size()) {
+    if (IsGenerating())
+    {
+        StopGeneration();
+    }
+
+    if (NMessagesToErase <= Messages.size()) 
+    {
         Messages.resize(Messages.size() - NMessagesToErase);
     }
 
@@ -304,6 +322,9 @@ void FLlamaInternal::RollbackContextHistoryByMessages(int32 NMessagesToErase)
 
     //Sync resized length;
     FilledContextCharLength = NewLen;
+
+    //Shrink to fit
+    ContextHistory.resize(FilledContextCharLength);
 }
 
 std::string FLlamaInternal::InsertRawPrompt(const std::string& Prompt, bool bGenerateReply)
@@ -354,7 +375,7 @@ std::string FLlamaInternal::InsertTemplatedPrompt(const std::string& Prompt, ECh
     if (bGenerateReply)
     {
         //Run generation
-        Response = Generate("", true);
+        Response = Generate();
     }
 
     return Response;
@@ -365,7 +386,7 @@ std::string FLlamaInternal::ResumeGeneration()
     //Todo: erase last assistant message to merge the two messages if the last message was the assistant one.
 
     //run an empty user prompt
-    return InsertTemplatedPrompt(std::string());
+    return Generate();
 }
 
 int32 FLlamaInternal::ProcessPrompt(const std::string& Prompt, EChatTemplateRole Role)
@@ -429,6 +450,7 @@ std::string FLlamaInternal::Generate(const std::string& Prompt, bool bAppendToMe
     // check if we have enough space in the context to evaluate this batch - might need to be inside loop
     int NContext = llama_n_ctx(Context);
     int NContextUsed = llama_get_kv_cache_used_cells(Context);
+    bool bEOGExit = false;
     
     while (bGenerationActive) //processing can be aborted by flipping the boolean
     {
@@ -446,6 +468,7 @@ std::string FLlamaInternal::Generate(const std::string& Prompt, bool bAppendToMe
         // is it an end of generation?
         if (llama_vocab_is_eog(Vocab, NewTokenId))
         {
+            bEOGExit = true;
             break;
         }
 

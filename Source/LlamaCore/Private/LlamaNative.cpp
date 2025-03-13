@@ -125,6 +125,11 @@ FLlamaNative::FLlamaNative()
                 ModelState.ContextHistory = ContextHistory;
                 ModelState.LastPromptProcessingSpeed = SpeedTps;
 
+                if (ModelState.ChatHistory.History.Num() > 0)
+                {
+                    ModelState.LastRole = ModelState.ChatHistory.History.Last().Role;
+                }
+
                 if (OnPromptProcessed && bCallbacksAreValid)
                 {
                     OnPromptProcessed(TokensProcessed, RoleProcessed, SpeedTps);
@@ -146,6 +151,20 @@ FLlamaNative::~FLlamaNative()
         FPlatformProcess::Sleep(0.01f);
     }
     delete Internal;
+}
+
+void FLlamaNative::SyncModelStateToInternal()
+{
+    GetStructuredChatHistory(ModelState.ChatHistory);
+    RawContextHistory(ModelState.ContextHistory);
+    if (ModelState.ChatHistory.History.Num() > 0)
+    {
+        ModelState.LastRole = ModelState.ChatHistory.History.Last().Role;
+    }
+    if (OnModelStateChanged)
+    {
+        OnModelStateChanged(ModelState);
+    }
 }
 
 void FLlamaNative::SetModelParams(const FLLMModelParams& Params)
@@ -293,6 +312,9 @@ void FLlamaNative::InsertRawPrompt(const FString& Prompt)
 void FLlamaNative::RemoveLastNMessages(int32 MessageCount)
 {
     Internal->RollbackContextHistoryByMessages(MessageCount);
+
+    //Sync state
+    SyncModelStateToInternal();
 }
 
 bool FLlamaNative::IsGenerating()
@@ -307,7 +329,22 @@ void FLlamaNative::StopGeneration()
 
 void FLlamaNative::ResumeGeneration()
 {
-    Internal->ResumeGeneration();
+    if (!IsModelLoaded())
+    {
+        UE_LOG(LlamaLog, Warning, TEXT("Model isn't loaded, can't ResumeGeneration."));
+        return;
+    }
+
+    if (bThreadIsActive)
+    {
+        UE_LOG(LlamaLog, Warning, TEXT("ResumeGeneration while generation is active isn't currently supported."));
+        return;
+    }
+
+    Async(EAsyncExecution::ThreadPool, [this]
+    {
+        Internal->ResumeGeneration();
+    });
 }
 
 void FLlamaNative::OnTick(float DeltaTime)
@@ -316,13 +353,15 @@ void FLlamaNative::OnTick(float DeltaTime)
 
 void FLlamaNative::ResetContextHistory(bool bKeepSystemPrompt)
 {
-    Internal->ResetContextHistory();
+    Internal->ResetContextHistory(bKeepSystemPrompt);
+
+    SyncModelStateToInternal();
 
     //Lazy keep version, just re-insert. TODO: implement optimized reset
-    if (bKeepSystemPrompt)
+    /*if (bKeepSystemPrompt)
     {
         InsertTemplatedPrompt(ModelParams.SystemPrompt, EChatTemplateRole::System, false, false);
-    }
+    }*/
 }
 
 void FLlamaNative::RemoveLastUserInput()
@@ -415,6 +454,11 @@ void FLlamaNative::GetStructuredChatHistory(FStructuredChatHistory& OutChatHisto
         // Add to history
         OutChatHistory.History.Add(StructuredMsg);
     }
+}
+
+void FLlamaNative::SyncPassedModelStateToNative(FLLMModelState& StateToSync)
+{
+    StateToSync = ModelState;
 }
 
 int32 FLlamaNative::UsedContextLength()

@@ -56,11 +56,14 @@ public:
 	//Pure query of current context - not threadsafe, be careful when these get called - TBD: make it safe
 	int32 RawContextHistory(FString& OutContextString);
 	void GetStructuredChatHistory(FStructuredChatHistory& OutChatHistory);
+	void SyncPassedModelStateToNative(FLLMModelState& StateToSync);
 	int32 UsedContextLength();
 
 	FLlamaNative();
 	~FLlamaNative();
 private:
+
+	void SyncModelStateToInternal();
 
 	FLLMModelParams ModelParams;
 	FLLMModelState ModelState;

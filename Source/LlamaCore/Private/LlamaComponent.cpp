@@ -162,10 +162,9 @@ FString ULlamaComponent::RawContextHistory()
     return History;
 }
 
-FStructuredChatHistory ULlamaComponent::GetStructuredHistory()
+FStructuredChatHistory ULlamaComponent::GetStructuredChatHistory()
 {
     FStructuredChatHistory Chat;
     LlamaNative->GetStructuredChatHistory(Chat);
-
     return Chat;
 }

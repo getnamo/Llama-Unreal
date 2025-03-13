@@ -123,7 +123,7 @@ public:
     FString RawContextHistory();
 
     UFUNCTION(BlueprintPure, Category = "LLM Model Component")
-    FStructuredChatHistory GetStructuredHistory();
+    FStructuredChatHistory GetStructuredChatHistory();
 
     //EChatTemplateRole LastRoleFromStructuredHistory();
 
