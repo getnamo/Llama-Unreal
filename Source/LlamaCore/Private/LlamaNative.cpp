@@ -465,3 +465,8 @@ int32 FLlamaNative::UsedContextLength()
 {
     return Internal->UsedContext();
 }
+
+FString FLlamaNative::WrapPromptForRole(const FString& Text, EChatTemplateRole Role, const FString& OverrideTemplate, bool bAddAssistantBoS)
+{
+    return FLlamaString::ToUE( Internal->WrapPromptForRole(FLlamaString::ToStd(Text), Role, FLlamaString::ToStd(OverrideTemplate), bAddAssistantBoS) );
+}

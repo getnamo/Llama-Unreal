@@ -35,7 +35,6 @@ public:
     void UnloadModel();
     bool IsModelLoaded();
 
-
     //Generation
     void ResetContextHistory(bool bKeepSystemsPrompt = false);
     void RollbackContextHistoryByTokens(int32 NTokensToErase);
@@ -47,12 +46,13 @@ public:
     //main function for structure insert and generation
     std::string InsertTemplatedPrompt(const std::string& Prompt, EChatTemplateRole Role = EChatTemplateRole::User, bool bAddAssistantBoS = true, bool bGenerateReply = true);
 
-
     //continue generating from last stop
     std::string ResumeGeneration();
 
     //delete the last message and tries again
     //std::string RerollLastGeneration();
+
+    std::string WrapPromptForRole(const std::string& Text, EChatTemplateRole Role, const std::string& OverrideTemplate, bool bAddAssistantBoS = false);
 
     //flips bGenerationActive which will stop generation on next token. Threadsafe call.
     void StopGeneration();
@@ -70,6 +70,7 @@ protected:
     std::string Generate(const std::string& Prompt = "", bool bAppendToMessageHistory = true);
 
     int32 ApplyTemplateToContextHistory(bool bAddAssistantBOS = false);
+    int32 ApplyTemplateFromMessagesToBuffer(const std::string& Template, std::vector<llama_chat_message>& FromMessages, std::vector<char>& ToBuffer, bool bAddAssistantBoS = false);
 
     const char* RoleForEnum(EChatTemplateRole Role);
 

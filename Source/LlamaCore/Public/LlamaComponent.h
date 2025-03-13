@@ -103,7 +103,7 @@ public:
     * Won't make a new message split until role is swapped from last. 
     *  - Not yet implemented in v0.8
     */
-    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
+    //UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
     void UserImpersonateText(const FString& Text, EChatTemplateRole Role = EChatTemplateRole::Assistant,  bool bIsEos = false);
 
     //if you want to manually wrap prompt, if template is empty string, default model template is applies - Not yet implemented in v0.8

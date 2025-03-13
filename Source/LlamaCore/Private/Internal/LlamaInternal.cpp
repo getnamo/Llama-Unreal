@@ -211,6 +211,37 @@ void FLlamaInternal::UnloadModel()
     bIsModelLoaded = false;
 }
 
+std::string FLlamaInternal::WrapPromptForRole(const std::string& Text, EChatTemplateRole Role, const std::string& OverrideTemplate, bool bAddAssistantBoS)
+{
+    std::vector<llama_chat_message> MessageListWrapper;
+    MessageListWrapper.push_back({ RoleForEnum(Role), _strdup(Text.c_str()) });
+
+    //pre-allocate buffer 2x the size of text
+    std::vector<char> Buffer;
+    Buffer.resize(Text.size() * 2);
+
+    
+    int32 NewLen = 0;
+
+    if (OverrideTemplate.empty())
+    {
+        NewLen = ApplyTemplateFromMessagesToBuffer(Template, MessageListWrapper, Buffer, bAddAssistantBoS);
+    }
+    else
+    {
+        NewLen = ApplyTemplateFromMessagesToBuffer(OverrideTemplate, MessageListWrapper, Buffer, bAddAssistantBoS);
+    }
+
+    if(NewLen > 0)
+    {
+        return std::string(Buffer.data(), Buffer.data() + NewLen);
+    }
+    else
+    {
+        return std::string("");
+    }
+}
+
 void FLlamaInternal::StopGeneration()
 {
     bGenerationActive = false;
@@ -524,19 +555,24 @@ std::string FLlamaInternal::Generate(const std::string& Prompt, bool bAppendToMe
 //NB: this function will apply out of range errors in log, this is normal behavior due to how templates are applied
 int32 FLlamaInternal::ApplyTemplateToContextHistory(bool bAddAssistantBOS)
 {
-    int32 NewLen = llama_chat_apply_template(Template.c_str(), Messages.data(), Messages.size(),
-        bAddAssistantBOS, ContextHistory.data(), ContextHistory.size());
+    return ApplyTemplateFromMessagesToBuffer(Template, Messages, ContextHistory, bAddAssistantBOS);
+}
+
+int32 FLlamaInternal::ApplyTemplateFromMessagesToBuffer(const std::string& InTemplate, std::vector<llama_chat_message>& FromMessages, std::vector<char>& ToBuffer, bool bAddAssistantBoS)
+{
+    int32 NewLen = llama_chat_apply_template(Template.c_str(), FromMessages.data(), FromMessages.size(),
+        bAddAssistantBoS, ToBuffer.data(), ToBuffer.size());
 
     //Resize if contexthistory can't hold it
-    if (NewLen > ContextHistory.size())
+    if (NewLen > ToBuffer.size())
     {
         ContextHistory.resize(NewLen);
-        NewLen = llama_chat_apply_template(Template.c_str(), Messages.data(), Messages.size(),
-            bAddAssistantBOS, ContextHistory.data(), ContextHistory.size());
+        NewLen = llama_chat_apply_template(Template.c_str(), FromMessages.data(), FromMessages.size(),
+            bAddAssistantBoS, ToBuffer.data(), ToBuffer.size());
     }
     if (NewLen < 0)
     {
-        UE_LOG(LlamaLog, Warning, TEXT("failed to apply the chat template pre generation."));
+        UE_LOG(LlamaLog, Warning, TEXT("failed to apply the chat template ApplyTemplateFromMessagesToBuffer."));
     }
     return NewLen;
 }

@@ -59,6 +59,8 @@ public:
 	void SyncPassedModelStateToNative(FLLMModelState& StateToSync);
 	int32 UsedContextLength();
 
+	FString WrapPromptForRole(const FString& Text, EChatTemplateRole Role, const FString& OverrideTemplate, bool bAddAssistantBoS = false);
+
 	FLlamaNative();
 	~FLlamaNative();
 private:

@@ -142,7 +142,7 @@ void ULlamaComponent::UserImpersonateText(const FString& Text, EChatTemplateRole
 
 FString ULlamaComponent::WrapPromptForRole(const FString& Text, EChatTemplateRole Role, const FString& Template)
 {
-    return FString();
+    return LlamaNative->WrapPromptForRole(Text, Role, Template);
 }
 
 void ULlamaComponent::StopGeneration()
