@@ -1,237 +1,11 @@
-// 2023 (c) Mika Pi, Modifications Getnamo
+// Copyright 2025-current Getnamo.
 
 #pragma once
 #include <Components/ActorComponent.h>
 #include <CoreMinimal.h>
+#include "LlamaDataTypes.h"
 
 #include "LlamaComponent.generated.h"
-
-namespace Internal
-{
-    class FLlama;
-}
-
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnErrorSignature, FString, ErrorMessage);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnNewTokenGeneratedSignature, FString, NewToken);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPartialSignature, const FString&, Partial);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPromptHistorySignature, FString, History);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnEndOfStreamSignature, bool, bStopSequenceTriggered, float, TokensPerSecond);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE(FVoidEventSignature);
-
-USTRUCT(BlueprintType)
-struct FLLMModelAdvancedParams
-{
-    GENERATED_USTRUCT_BODY();
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
-    float Temp = 0.80f;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
-    int32 TopK = 40;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
-    float TopP = 0.95f;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
-    float TfsZ = 1.00f;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
-    float TypicalP = 1.00f;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
-    int32 RepeatLastN = 64;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
-    float RepeatPenalty = 1.10f;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
-    float AlphaPresence = 0.00f;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
-    float AlphaFrequency = 0.00f;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
-    int32 Mirostat = 0;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
-    float MirostatTau = 5.f;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
-    float MirostatEta = 0.1f;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
-    int MirostatM = 100;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
-    bool PenalizeNl = true;
-
-    //automatically loads template from gguf. Use Empty default template to not override this value.
-    //not yet properly implemented
-    //UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
-    bool bLoadTemplateFromGGUFIfAvailable = true;
-
-    //If true, upon EOS, it will cleanup history such that correct EOS is placed
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
-    bool bEnforceModelEOSFormat = true;
-
-    //synced per eos
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
-    bool bSyncStructuredChatHistory = true;
-
-    //run processing to emit e.g. sentence level breakups
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
-    bool bEmitPartials = true;
-
-    //usually . ? !
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
-    TArray<FString> PartialsSeparators;
-};
-
-UENUM(BlueprintType)
-enum class EChatTemplateRole : uint8
-{
-    User,
-    Assistant,
-    System,
-    Unknown = 255
-};
-
-USTRUCT(BlueprintType)
-struct FStructuredChatMessage
-{
-    GENERATED_USTRUCT_BODY();
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Structured Chat Message")
-    EChatTemplateRole Role = EChatTemplateRole::Assistant;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Structured Chat Message")
-    FString Content;
-};
-
-USTRUCT(BlueprintType)
-struct FStructuredChatHistory
-{
-    GENERATED_USTRUCT_BODY();
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Structured Chat History")
-    TArray<FStructuredChatMessage> History;
-};
-
-
-//Easy user-specified chat template, or use common templates. Don't specify if you wish to load GGUF template.
-USTRUCT(BlueprintType)
-struct FChatTemplate
-{
-    GENERATED_USTRUCT_BODY();
-
-    //Role: System
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chat Template")
-    FString System;
-
-    //Role: User
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chat Template")
-    FString User;
-
-    //Role: Assistant
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chat Template")
-    FString Assistant;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chat Template")
-    FString CommonSuffix;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chat Template")
-    FString Delimiter;
-
-    FChatTemplate()
-    {
-        System = TEXT("");
-        User = TEXT("");
-        Assistant = TEXT("");
-        CommonSuffix = TEXT("");
-        Delimiter = TEXT("");
-    }
-    bool IsEmptyTemplate()
-    {
-        return (
-            System == TEXT("") &&
-            User == TEXT("") &&
-            Assistant == TEXT("") &&
-            CommonSuffix == TEXT("") && 
-            Delimiter == TEXT(""));
-    }
-};
-
-//Initial state fed into the model
-USTRUCT(BlueprintType)
-struct FLLMModelParams
-{
-    GENERATED_USTRUCT_BODY();
-
-    //If path begins with a . it's considered relative to Saved/Models path, otherwise it's an absolute path.
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
-    FString PathToModel = "./model.gguf";
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params", meta=(MultiLine=true))
-    FString Prompt = "You are a helpful assistant.";
-
-    //If not different than default empty, no template will be applied
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
-    FChatTemplate ChatTemplate;
-
-    //If set anything other than unknown, AI chat role will be enforced. Assistant is default
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
-    EChatTemplateRole ModelRole = EChatTemplateRole::Assistant;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
-    TArray<FString> StopSequences;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
-    int32 MaxContextLength = 2048;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
-    int32 GPULayers = 50;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
-    int32 Threads = 8;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
-    int32 BatchCount = 512;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
-    int32 Seed = -1;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
-    FLLMModelAdvancedParams Advanced;
-};
-
-//Current State
-USTRUCT(BlueprintType)
-struct FLLMModelState
-{
-    GENERATED_USTRUCT_BODY();
-
-    //One true store that should be synced to the model internal history, accessible on game thread.
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model State")
-    FString PromptHistory;
-
-    //Where prompt history is raw, chat is an ordered structure. May not be relevant for non-chat type llm data
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model State")
-    FStructuredChatHistory ChatHistory;
-
-    //Optional split according to partials
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model State")
-    TArray<FString> Partials;
-
-    //Synced with current context length
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model State")
-    int32 ContextLength = 0;
-
-    //Stored the last speed reading on this model
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model State")
-    float LastTokensPerSecond = 0.f;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model State")
-    EChatTemplateRole LastRole = EChatTemplateRole::Unknown;
-};
 
 UCLASS(Category = "LLM", BlueprintType, meta = (BlueprintSpawnableComponent))
 class LLAMACORE_API ULlamaComponent : public UActorComponent
@@ -247,13 +21,20 @@ public:
                                 ELevelTick TickType,
                                 FActorComponentTickFunction* ThisTickFunction) override;
 
-    //Main callback
+    //Main callback, updates for each token generated
     UPROPERTY(BlueprintAssignable)
-    FOnNewTokenGeneratedSignature OnNewTokenGenerated;
+    FOnTokenGeneratedSignature OnTokenGenerated;
+
+    //Only called when full response has been received (EOS/etc)
+    UPROPERTY(BlueprintAssignable)
+    FOnResponseGeneratedSignature OnResponseGenerated;
 
     //Utility split emit e.g. sentence level emits, useful for speech generation
     UPROPERTY(BlueprintAssignable)
-    FOnPartialSignature OnPartialParsed;
+    FOnPartialSignature OnPartialGenerated;
+
+    UPROPERTY(BlueprintAssignable)
+    FOnPromptProcessedSignature OnPromptProcessed;
 
     UPROPERTY(BlueprintAssignable)
     FVoidEventSignature OnStartEval;
@@ -265,13 +46,18 @@ public:
     UPROPERTY(BlueprintAssignable)
     FVoidEventSignature OnContextReset;
 
+    UPROPERTY(BlueprintAssignable)
+    FModelNameSignature OnModelLoaded;
+
     //Catch internal errors
     UPROPERTY(BlueprintAssignable)
     FOnErrorSignature OnError;
 
+    //Modify these before loading model to apply settings
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Component")
     FLLMModelParams ModelParams;
 
+    //This state gets updated typically after every response
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Component")
     FLLMModelState ModelState;
 
@@ -283,66 +69,66 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Component")
     bool bSyncPromptHistory = true;
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Component")
-    TMap<FString, FChatTemplate> CommonChatTemplates;
+    //loads model from ModelParams
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
+    void LoadModel();
 
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
-    void InsertPrompt(UPARAM(meta=(MultiLine=true)) const FString &Text);
+    void UnloadModel();
+
+
+    //Clears the prompt, allowing a new context - optionally keeping the initial system prompt
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
+    void ResetContextHistory(bool bKeepSystemPrompt = false);
+
+    //removes what the LLM replied
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
+    void RemoveLastAssistantReply();
+
+    //removes what you said and what the LLM replied
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
+    void RemoveLastUserInput();
+
+    //Main input function
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
+    void InsertTemplatedPrompt(UPARAM(meta=(MultiLine=true)) const FString &Text, EChatTemplateRole Role = EChatTemplateRole::User, bool bAddAssistantBOS = false, bool bGenerateReply = true);
+
+    //does not apply formatting before running inference
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
+    void InsertRawPrompt(UPARAM(meta = (MultiLine = true)) const FString& Text);
 
     /** 
     * Use this function to bypass input from AI, e.g. streaming input from another source. 
     * All downstream event functions will trigger from this call as if it came from the LLM.
-    * Won't make a new message split until role is swapped from last. */
-    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
+    * Won't make a new message split until role is swapped from last. 
+    *  - Not yet implemented in v0.8
+    */
+    //UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
     void UserImpersonateText(const FString& Text, EChatTemplateRole Role = EChatTemplateRole::Assistant,  bool bIsEos = false);
 
+    //if you want to manually wrap prompt, if template is empty string, default model template is applies - Not yet implemented in v0.8
     UFUNCTION(BlueprintPure, Category = "LLM Model Component")
-    FString WrapPromptForRole(const FString& Text, EChatTemplateRole Role, bool AppendModelRolePrefix=false);
+    FString WrapPromptForRole(const FString& Text, EChatTemplateRole Role, const FString& OverrideTemplate);
 
-    UFUNCTION(BlueprintPure, Category = "LLM Model Component")
-    FString GetRolePrefix(EChatTemplateRole Role = EChatTemplateRole::Assistant);
-
-    //This will wrap your input given the specific role using chat template specified
-    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
-    void InsertPromptTemplated(UPARAM(meta=(MultiLine=true)) const FString& Text, EChatTemplateRole Role);
-
-
-    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
-    void StartStopQThread(bool bShouldRun = true);
 
     //Force stop generating new tokens
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
-    void StopGenerating();
+    void StopGeneration();
 
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
-    void ResumeGenerating();
+    void ResumeGeneration();
 
-    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
-    void SyncParamsToLlama();
-
+    //Obtain the currently formatted context
+    UFUNCTION(BlueprintPure, Category = "LLM Model Component")
+    FString RawContextHistory();
 
     UFUNCTION(BlueprintPure, Category = "LLM Model Component")
-    FString GetTemplateStrippedPrompt();
+    FStructuredChatHistory GetStructuredChatHistory();
 
-    FStructuredChatMessage FirstChatMessageInHistory(const FString& History, FString& Remainder);
-
-    UFUNCTION(BlueprintPure, Category = "LLM Model Component")
-    FStructuredChatHistory GetStructuredHistory();
-
-
-    //String Utility
-    bool IsSentenceEndingPunctuation(const TCHAR Char);
-    FString GetLastSentence(const FString& InputString);
-
-    EChatTemplateRole LastRoleFromStructuredHistory();
-
-
-    //Utility function for debugging model location and file enumeration
-    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
-    TArray<FString> DebugListDirectoryContent(const FString& InPath);
+    //EChatTemplateRole LastRoleFromStructuredHistory();
 
 private:
-    class Internal::FLlama* Llama;
+    class FLlamaNative* LlamaNative;
 
     TFunction<void(FString, int32)> TokenCallbackInternal;
 };

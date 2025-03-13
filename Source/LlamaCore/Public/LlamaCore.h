@@ -1,4 +1,4 @@
-// 2023 (c) Mika Pi, Modifications Getnamo
+// Copyright 2023 Mika Pi, Modifications 2025-current Getnamo
 
 #pragma once
 
@@ -10,8 +10,4 @@ class FLlamaCoreModule final : public IModuleInterface
 public:
   virtual void StartupModule() override;
   virtual void ShutdownModule() override;
-
-private:
-	void* LlamaDllHandle = nullptr;
-	void* GgmlDllHandle = nullptr;
 };
