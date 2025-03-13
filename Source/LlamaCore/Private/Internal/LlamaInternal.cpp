@@ -495,9 +495,9 @@ std::string FLlamaInternal::Generate(const std::string& Prompt)
     const auto EndTime = ggml_time_us();
     const auto Duration = (EndTime - StartTime) / 1000000.0f;
 
-    if (OnGenerationStats)
+    if (OnGenerationComplete)
     {
-        OnGenerationStats(Duration, NDecoded, NDecoded / Duration);
+        OnGenerationComplete(Response, Duration, NDecoded, NDecoded / Duration);
     }
 
     return Response;

@@ -97,7 +97,7 @@ struct FLLMModelAdvancedParams
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
     bool bEmitPartials = true;
 
-    //by default process callbacks on gamethread
+    //Process callbacks on gamethread - NB: always emits on game thread for now, option doesn't do anything.
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
     bool bEmitOnGameThread = true;
 

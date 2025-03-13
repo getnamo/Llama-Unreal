@@ -14,30 +14,95 @@ FLlamaNative::FLlamaNative()
     {
         const FString Token = FLlamaString::ToUE(TokenPiece);
 
-        if (ModelParams.Advanced.bEmitOnGameThread && OnTokenGenerated && bCallbacksAreValid)
+        //Accumalate
+        CombinedPieceText += Token;
+
+        FString Partial;
+
+        //Compute Partials
+        if (ModelParams.Advanced.bEmitPartials)
         {
-            Async(EAsyncExecution::TaskGraphMainThread, [this, Token]()
+            bool bSplitFound = false;
+            //Check new token for separators
+            for (const FString& Separator : ModelParams.Advanced.PartialsSeparators)
             {
-                if(OnTokenGenerated && bCallbacksAreValid)
+                if (Token.Contains(Separator))
                 {
-                    OnTokenGenerated(Token);
+                    bSplitFound = true;
+                }
+            }
+            if (bSplitFound)
+            {
+                Partial = FLlamaString::GetLastSentence(CombinedPieceText);
+            }
+        }
+
+        //Emit token to game thread
+        if (OnTokenGenerated && bCallbacksAreValid)
+        {
+            Async(EAsyncExecution::TaskGraphMainThread, [this, Token, Partial]()
+            {
+                if(bCallbacksAreValid)
+                {
+                    if (OnTokenGenerated)
+                    {
+                        OnTokenGenerated(Token);
+                    }
+                    if (OnPartialGenerated && !Partial.IsEmpty())
+                    {
+                        OnPartialGenerated(Partial);
+                    }
                 }
             });
         }
-        else
-        {
-            if (OnTokenGenerated && bCallbacksAreValid)
-            {
-                OnTokenGenerated(Token);
-            }
-        }
     };
 
-    Internal->OnGenerationStats = [this](float Duration, int32 TokensGenerated, float SpeedTPS)
+    Internal->OnGenerationComplete = [this](const std::string& Response, float Duration, int32 TokensGenerated, float SpeedTPS)
     {
         if (ModelParams.Advanced.bLogGenerationStats)
         {
             UE_LOG(LlamaLog, Log, TEXT("Generated %d tokens in %1.2fs (%1.2ftps)"), TokensGenerated, Duration, SpeedTPS);
+        }
+
+        FStructuredChatHistory ChatHistory;
+        FString ContextHistory;
+
+        //It's now safe to sync our history - only
+        GetStructuredChatHistory(ChatHistory);
+        RawContextHistory(ContextHistory);
+        int32 UsedContext = UsedContextLength();
+
+        //Clear our partial text parser
+        CombinedPieceText.Empty();
+
+        FString ResponseString = FLlamaString::ToUE(Response);
+
+        if (bCallbacksAreValid)
+        {
+            Async(EAsyncExecution::TaskGraphMainThread, [this, ResponseString, ChatHistory, ContextHistory, UsedContext]
+            {
+                if (bCallbacksAreValid)
+                {
+                    //Sync state information
+                    ModelState.ContextLength = UsedContext;
+                    ModelState.ChatHistory = ChatHistory;
+                    ModelState.ContextHistory = ContextHistory;
+                    if (ChatHistory.History.Num() > 0)
+                    {
+                        ModelState.LastRole = ChatHistory.History.Last().Role;
+                    }
+
+                    if (OnModelStateChanged)
+                    {
+                        OnModelStateChanged(ModelState);
+                    }
+
+                    if (OnResponseGenerated)
+                    {
+                        OnResponseGenerated(ResponseString);
+                    }
+                }
+            });
         }
     };
 
@@ -156,60 +221,19 @@ void FLlamaNative::InsertTemplatedPrompt(const FString& Prompt, EChatTemplateRol
 
     bThreadIsActive = true;
 
-    //run prompt insert on background thread (NB: should we do one parked thread for llama inference instead of this?)
-    Async(EAsyncExecution::Thread, [this, UserStdString, Role, bAddAssistantBOS, bGenerateReply]
+    //run prompt insert on a background thread
+    Async(EAsyncExecution::ThreadPool, [this, UserStdString, Role, bAddAssistantBOS, bGenerateReply]
     {
-        FString Response;
-
         if (bGenerateReply)
         {
-            Response = FLlamaString::ToUE(Internal->InsertTemplatedPromptAndGenerate(UserStdString, Role, bAddAssistantBOS));
+            FLlamaString::ToUE(Internal->InsertTemplatedPromptAndGenerate(UserStdString, Role, bAddAssistantBOS));
         }
         else
         {
             Internal->InsertTemplatedPrompt(UserStdString, Role, bAddAssistantBOS);
         }
 
-        //It's now safe to sync our history - only
-        GetStructuredChatHistory(ModelState.ChatHistory);
-        RawContextHistory(ModelState.ContextHistory);
-        ModelState.ContextLength = UsedContextLength();
-
-        if (ModelParams.Advanced.bEmitOnGameThread && OnResponseGenerated && bCallbacksAreValid)
-        {
-            Async(EAsyncExecution::TaskGraphMainThread, [this, Response]
-                {
-                    if (bCallbacksAreValid)
-                    {
-                        if (OnModelStateChanged)
-                        {
-                            OnModelStateChanged(ModelState);
-                        }
-
-                        if (OnResponseGenerated)
-                        {
-                            OnResponseGenerated(Response);
-                        }
-                    }
-
-                    bThreadIsActive = false;
-                });
-        }
-        else
-        {
-            if (bCallbacksAreValid)
-            {
-                if (OnModelStateChanged)
-                {
-                    OnModelStateChanged(ModelState);
-                }
-                if (OnResponseGenerated)
-                {
-                    OnResponseGenerated(Response);
-                }
-            }
-            bThreadIsActive = false;
-        }
+        bThreadIsActive = false;
     });
 }
 

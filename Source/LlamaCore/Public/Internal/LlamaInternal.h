@@ -19,7 +19,7 @@ public:
 
     //main streaming callback
     TFunction<void(const std::string& TokenPiece)>OnTokenGenerated = nullptr;
-    TFunction<void(float Time, int32 Tokens, float Speed)>OnGenerationStats = nullptr;
+    TFunction<void(const std::string& Response, float Time, int32 Tokens, float Speed)>OnGenerationComplete = nullptr;
 
     //Messaging state
     std::vector<llama_chat_message> Messages;

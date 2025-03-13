@@ -17,6 +17,7 @@ public:
 
 	//Callbacks
 	TFunction<void(const FString& Token)> OnTokenGenerated;
+	TFunction<void(const FString& Partial)> OnPartialGenerated;		//usually considered sentences, good for TTS.
 	TFunction<void(const FString& Response)> OnResponseGenerated;	//per round
 	TFunction<void()> OnGenerationStarted;
 	TFunction<void(const FLlamaRunTimings& Timings)> OnGenerationFinished;
@@ -67,6 +68,8 @@ private:
 	FThreadSafeBool bCallbacksAreValid = false;
 
 	TQueue<FString> TokenQueue;
+
+	FString CombinedPieceText;	//accumulates tokens into full string during per-token inference.
 
 	class FLlamaInternal* Internal = nullptr;
 };
