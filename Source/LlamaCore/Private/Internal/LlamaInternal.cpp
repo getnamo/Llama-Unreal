@@ -1,6 +1,6 @@
 #include "Internal/LlamaInternal.h"
-#include "Internal/common.h"
-#include "Internal/sampling.h"
+#include "common/common.h"
+#include "common/sampling.h"
 #include "LlamaDataTypes.h"
 #include "LlamaUtility.h"
 #include "HardwareInfo.h"
