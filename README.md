@@ -52,7 +52,6 @@ cmake --build . --config Release -j --verbose
 - Copy `{llama.cpp root}/common/` `common.h` and `sampling.h` 
 - into `{plugin root}/ThirdParty/LlamaCpp/Include/common`
 
-- into `{plugin root}/ThirdParty/LlamaCpp/Include`
 4. Libs: Assuming `{llama.cpp root}/build` as `{build root}`. 
 
 - Copy `{build root}/src/Release/llama.lib`, 
