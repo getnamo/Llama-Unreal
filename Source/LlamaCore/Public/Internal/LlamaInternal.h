@@ -19,6 +19,7 @@ public:
 
     //main streaming callback
     TFunction<void(const std::string& TokenPiece)>OnTokenGenerated = nullptr;
+    TFunction<void(int32 TokensProcessed, EChatTemplateRole ForRole, float Speed)>OnPromptProcessed = nullptr;   //useful for waiting for system prompt ready
     TFunction<void(const std::string& Response, float Time, int32 Tokens, float Speed)>OnGenerationComplete = nullptr;
 
     //Messaging state

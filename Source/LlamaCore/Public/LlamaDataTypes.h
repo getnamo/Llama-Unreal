@@ -4,6 +4,15 @@
 
 #include "LlamaDataTypes.generated.h"
 
+UENUM(BlueprintType)
+enum class EChatTemplateRole : uint8
+{
+    User,
+    Assistant,
+    System,
+    Unknown = 255
+};
+
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnErrorSignature, const FString&, ErrorMessage);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnTokenGeneratedSignature, const FString&, Token);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnResponseGeneratedSignature, const FString&, Response);
@@ -11,6 +20,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FModelNameSignature, const FString&,
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPartialSignature, const FString&, Partial);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPromptHistorySignature, FString, History);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnEndOfStreamSignature, bool, bStopSequenceTriggered, float, TokensPerSecond);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnPromptProcessedSignature, int32, TokensProcessed, EChatTemplateRole, Role, float, TokensPerSecond);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FVoidEventSignature);
 
 USTRUCT(BlueprintType)
@@ -114,15 +124,6 @@ struct FLLMModelAdvancedParams
     TArray<FString> PartialsSeparators;
 };
 
-UENUM(BlueprintType)
-enum class EChatTemplateRole : uint8
-{
-    User,
-    Assistant,
-    System,
-    Unknown = 255
-};
-
 USTRUCT(BlueprintType)
 struct FStructuredChatMessage
 {
@@ -216,6 +217,9 @@ struct FLLMModelParams
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params", meta=(MultiLine=true))
     FString SystemPrompt = "You are a helpful assistant.";
 
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
+    bool bAutoInsertSystemPromptOnLoad = true;
+
     //If not different than default empty, no template will be applied
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
     FJinjaChatTemplate CustomChatTemplate = "";
@@ -267,7 +271,7 @@ struct FLLMModelState
 
     //Synced with current context length
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model State")
-    int32 ContextLength = 0;
+    int32 ContextUsed = 0;
 
     //Stored the last speed reading on this model
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model State")

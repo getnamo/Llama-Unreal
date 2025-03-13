@@ -19,6 +19,7 @@ public:
 	TFunction<void(const FString& Token)> OnTokenGenerated;
 	TFunction<void(const FString& Partial)> OnPartialGenerated;		//usually considered sentences, good for TTS.
 	TFunction<void(const FString& Response)> OnResponseGenerated;	//per round
+	TFunction<void(int32 TokensProcessed, EChatTemplateRole ForRole, float Speed)> OnPromptProcessed;	//when an inserted prompt has finished processing (non-generation prompt)
 	TFunction<void()> OnGenerationStarted;
 	TFunction<void(const FLlamaRunTimings& Timings)> OnGenerationFinished;
 	TFunction<void(const FString& ModelPath)> OnModelLoaded;

@@ -34,6 +34,9 @@ public:
     FOnPartialSignature OnPartialGenerated;
 
     UPROPERTY(BlueprintAssignable)
+    FOnPromptProcessedSignature OnPromptProcessed;
+
+    UPROPERTY(BlueprintAssignable)
     FVoidEventSignature OnStartEval;
 
     //Whenever the model stops generating
@@ -50,9 +53,11 @@ public:
     UPROPERTY(BlueprintAssignable)
     FOnErrorSignature OnError;
 
+    //Modify these before loading model to apply settings
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Component")
     FLLMModelParams ModelParams;
 
+    //This state gets updated typically after every response
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Component")
     FLLMModelState ModelState;
 

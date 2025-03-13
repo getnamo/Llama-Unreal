@@ -323,6 +323,8 @@ int32 FLlamaInternal::InsertTemplatedPrompt(const std::string& Prompt, EChatTemp
         return 0;
     }
 
+    const auto StartTime = ggml_time_us();
+
     int NewLen = FilledContextCharLength;
 
     if (!Prompt.empty())
@@ -349,7 +351,16 @@ int32 FLlamaInternal::InsertTemplatedPrompt(const std::string& Prompt, EChatTemp
 
     int32 TokensProcessed = ProcessPrompt(FormattedPrompt);
 
+    const auto StopTime = ggml_time_us();
+    const float Duration = (StopTime - StartTime) / 1000000.0f;
+
     FilledContextCharLength = NewLen;
+
+    if (OnPromptProcessed)
+    {
+        float Speed = TokensProcessed / Duration;
+        OnPromptProcessed(TokensProcessed, Role, Speed);
+    }
 
     return TokensProcessed;
 }
@@ -492,8 +503,8 @@ std::string FLlamaInternal::Generate(const std::string& Prompt)
 
     bGenerationActive = false;
 
-    const auto EndTime = ggml_time_us();
-    const auto Duration = (EndTime - StartTime) / 1000000.0f;
+    const auto StopTime = ggml_time_us();
+    const float Duration = (StopTime - StartTime) / 1000000.0f;
 
     if (OnGenerationComplete)
     {

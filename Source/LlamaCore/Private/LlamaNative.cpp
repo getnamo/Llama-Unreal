@@ -84,7 +84,7 @@ FLlamaNative::FLlamaNative()
                 if (bCallbacksAreValid)
                 {
                     //Sync state information
-                    ModelState.ContextLength = UsedContext;
+                    ModelState.ContextUsed = UsedContext;
                     ModelState.ChatHistory = ChatHistory;
                     ModelState.ContextHistory = ContextHistory;
                     if (ChatHistory.History.Num() > 0)
@@ -101,6 +101,20 @@ FLlamaNative::FLlamaNative()
                     {
                         OnResponseGenerated(ResponseString);
                     }
+                }
+            });
+        }
+    };
+
+    Internal->OnPromptProcessed = [this](int32 TokensProcessed, EChatTemplateRole RoleProcessed, float Speed)
+    {
+        if (OnPromptProcessed && bCallbacksAreValid)
+        {
+            Async(EAsyncExecution::TaskGraphMainThread, [this, TokensProcessed, RoleProcessed, Speed]
+            {
+                if (OnPromptProcessed && bCallbacksAreValid)
+                {
+                    OnPromptProcessed(TokensProcessed, RoleProcessed, Speed);
                 }
             });
         }

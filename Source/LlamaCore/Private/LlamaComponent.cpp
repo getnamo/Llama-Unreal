@@ -58,6 +58,7 @@ void ULlamaComponent::LoadModel()
     LlamaNative->OnResponseGenerated = [this](const FString& Response)
     {
         OnResponseGenerated.Broadcast(Response);
+        OnEndOfStream.Broadcast(true, ModelState.LastTokensPerSecond);
     };
 
     LlamaNative->OnTokenGenerated = [this](const FString& Token)
@@ -67,6 +68,11 @@ void ULlamaComponent::LoadModel()
 
     LlamaNative->OnModelLoaded = [this](const FString& ModelPath)
     {
+        if (ModelParams.bAutoInsertSystemPromptOnLoad)
+        {
+            InsertTemplatedPrompt(ModelParams.SystemPrompt, EChatTemplateRole::System, false, false);
+        }
+
         //Todo: we need model name from path...
         OnModelLoaded.Broadcast(ModelPath);
     };
