@@ -45,8 +45,13 @@ cd build/
 cmake .. -DGGML_VULKAN=ON -DGGML_NATIVE=OFF
 cmake --build . --config Release -j --verbose
 ```
-3. Includes: After build 
-- Copy `{llama.cpp root}/include` and `{llama.cpp root}/ggml/include` 
+3. Include: After build 
+- Copy `{llama.cpp root}/include`
+- Copy `{llama.cpp root}/ggml/include`
+- into `{plugin root}/ThirdParty/LlamaCpp/Include`
+- Copy `{llama.cpp root}/common/` `common.h` and `sampling.h` 
+- into `{plugin root}/ThirdParty/LlamaCpp/Include/common`
+
 - into `{plugin root}/ThirdParty/LlamaCpp/Include`
 4. Libs: Assuming `{llama.cpp root}/build` as `{build root}`. 
 
