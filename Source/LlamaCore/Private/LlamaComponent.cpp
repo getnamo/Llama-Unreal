@@ -101,9 +101,14 @@ void ULlamaComponent::ResetContextHistory(bool bKeepSystemPrompt)
     LlamaNative->ResetContextHistory(bKeepSystemPrompt);
 }
 
-void ULlamaComponent::RemoveLastReply()
+void ULlamaComponent::RemoveLastAssistantReply()
 {
     LlamaNative->RemoveLastReply();
+}
+
+void ULlamaComponent::RemoveLastUserInput()
+{
+    LlamaNative->RemoveLastUserInput();
 }
 
 void ULlamaComponent::InsertRawPrompt(const FString& Text)

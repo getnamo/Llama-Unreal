@@ -77,12 +77,17 @@ public:
     void UnloadModel();
 
 
-    //Clears the prompt, allowing a new context
+    //Clears the prompt, allowing a new context - optionally keeping the initial system prompt
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
     void ResetContextHistory(bool bKeepSystemPrompt = false);
 
+    //removes what the LLM replied
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
-    void RemoveLastReply();
+    void RemoveLastAssistantReply();
+
+    //removes what you said and what the LLM replied
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
+    void RemoveLastUserInput();
 
     //Main input function
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
