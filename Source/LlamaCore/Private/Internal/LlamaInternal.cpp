@@ -314,7 +314,6 @@ std::string FLlamaInternal::InsertRawPrompt(const std::string& Prompt, bool bGen
 
     int32 TokensProcessed = ProcessPrompt(Prompt);
 
-
     FLlamaString::AppendToCharVector(ContextHistory, Prompt);
 
     if (bGenerateReply)
@@ -348,16 +347,7 @@ int32 FLlamaInternal::InsertTemplatedPrompt(const std::string& Prompt, EChatTemp
 
     int32 TokensProcessed = ProcessPrompt(FormattedPrompt);
 
-    const auto StopTime = ggml_time_us();
-    const float Duration = (StopTime - StartTime) / 1000000.0f;
-
     FilledContextCharLength = NewLen;
-
-    if (OnPromptProcessed)
-    {
-        float Speed = TokensProcessed / Duration;
-        OnPromptProcessed(TokensProcessed, Role, Speed);
-    }
 
     return TokensProcessed;
 }
@@ -390,8 +380,10 @@ std::string FLlamaInternal::ResumeGeneration()
     return InsertTemplatedPromptAndGenerate(std::string());
 }
 
-int32 FLlamaInternal::ProcessPrompt(const std::string& Prompt)
+int32 FLlamaInternal::ProcessPrompt(const std::string& Prompt, EChatTemplateRole Role)
 {
+    const auto StartTime = ggml_time_us();
+
     //Grab vocab
     const llama_vocab* Vocab = llama_model_get_vocab(LlamaModel);
     const bool IsFirst = llama_get_kv_cache_used_cells(Context) == 0;
@@ -412,6 +404,15 @@ int32 FLlamaInternal::ProcessPrompt(const std::string& Prompt)
     if (llama_decode(Context, Batch))
     {
         GGML_ABORT("failed to decode\n");
+    }
+
+    const auto StopTime = ggml_time_us();
+    const float Duration = (StopTime - StartTime) / 1000000.0f;
+
+    if (OnPromptProcessed)
+    {
+        float Speed = NPromptTokens / Duration;
+        OnPromptProcessed(NPromptTokens, Role, Speed);
     }
 
     return NPromptTokens;

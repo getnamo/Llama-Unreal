@@ -67,7 +67,7 @@ public:
 
 protected:
     //Wrapper for user<->assistant templated conversation
-    int32 ProcessPrompt(const std::string& Prompt);
+    int32 ProcessPrompt(const std::string& Prompt, EChatTemplateRole Role = EChatTemplateRole::Unknown);
     std::string Generate(const std::string& Prompt, bool bAppendToMessageHistory = true);
 
     int32 ApplyTemplateToContextHistory(bool bAddAssistantBOS = false);
