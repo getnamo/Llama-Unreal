@@ -71,6 +71,11 @@ void ULlamaComponent::LoadModel()
         OnModelLoaded.Broadcast(ModelPath);
     };
 
+    LlamaNative->OnPartialGenerated = [this](const FString& Partial)
+    {
+        OnPartialGenerated.Broadcast(Partial);
+    };
+
     LlamaNative->SetModelParams(ModelParams);
     LlamaNative->LoadModel();
 }

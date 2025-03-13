@@ -31,7 +31,7 @@ public:
 
     //Utility split emit e.g. sentence level emits, useful for speech generation
     UPROPERTY(BlueprintAssignable)
-    FOnPartialSignature OnPartialParsed;
+    FOnPartialSignature OnPartialGenerated;
 
     UPROPERTY(BlueprintAssignable)
     FVoidEventSignature OnStartEval;
