@@ -271,7 +271,7 @@ void FLlamaInternal::RollbackContextHistoryByTokens(int32 NTokensToErase)
 
     llama_kv_cache_seq_rm(Context, 0, TokensUsed - NTokensToErase, -1);
 
-    FilledContextCharLength -= NTokensToErase;
+    //FilledContextCharLength -= NTokensToErase;
 
     //Run a decode to sync everything else
     //llama_decode(Context, llama_batch_get_one(nullptr, 0));
@@ -287,8 +287,7 @@ void FLlamaInternal::RollbackContextHistoryByMessages(int32 NMessagesToErase)
     std::string FullPrompt(ContextHistory.data(), ContextHistory.data() + FilledContextCharLength);
     
     //resize the context history
-    int32 NewLen = llama_chat_apply_template(Template.c_str(), Messages.data(), Messages.size(),
-        false, ContextHistory.data(), ContextHistory.size());
+    int32 NewLen = ApplyTemplateToContextHistory(false);
 
     //tokenize to find out how many tokens we need to remove
 
@@ -302,6 +301,9 @@ void FLlamaInternal::RollbackContextHistoryByMessages(int32 NMessagesToErase)
 
     //now rollback KV-cache
     RollbackContextHistoryByTokens(NPromptTokens);
+
+    //Sync resized length;
+    FilledContextCharLength = NewLen;
 }
 
 std::string FLlamaInternal::InsertRawPrompt(const std::string& Prompt, bool bGenerateReply)
@@ -496,6 +498,7 @@ std::string FLlamaInternal::Generate(const std::string& Prompt, bool bAppendToMe
     return Response;
 }
 
+//NB: this function will apply out of range errors in log, this is normal behavior due to how templates are applied
 int32 FLlamaInternal::ApplyTemplateToContextHistory(bool bAddAssistantBOS)
 {
     int32 NewLen = llama_chat_apply_template(Template.c_str(), Messages.data(), Messages.size(),
