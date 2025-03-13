@@ -45,7 +45,7 @@ public:
 	void OnTick(float DeltaTime);
 
 	//Context change - not yet implemented
-	void ResetContextHistory();	//full reset
+	void ResetContextHistory(bool bKeepSystemPrompt = false);	//full reset
 	void RemoveLastInput();		//chat rollback to undo last user input
 	void RemoveLastReply();		//chat rollback to undo last assistant input.
 	void RegenerateLastReply(); //removes last reply and regenerates (changing seed?)

@@ -96,9 +96,14 @@ void ULlamaComponent::UnloadModel()
     LlamaNative->UnloadModel();
 }
 
-void ULlamaComponent::ResetContextHistory()
+void ULlamaComponent::ResetContextHistory(bool bKeepSystemPrompt)
 {
-    //todo:implement
+    LlamaNative->ResetContextHistory(bKeepSystemPrompt);
+}
+
+void ULlamaComponent::RemoveLastReply()
+{
+    LlamaNative->RemoveLastReply();
 }
 
 void ULlamaComponent::InsertRawPrompt(const FString& Text)

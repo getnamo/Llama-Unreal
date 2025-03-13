@@ -69,7 +69,7 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Component")
     bool bSyncPromptHistory = true;
 
-    //loads model from params
+    //loads model from ModelParams
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
     void LoadModel();
 
@@ -77,9 +77,12 @@ public:
     void UnloadModel();
 
 
-    //Clears the prompt, allowing a new context - Not yet implemented
-    //UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
-    void ResetContextHistory();
+    //Clears the prompt, allowing a new context
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
+    void ResetContextHistory(bool bKeepSystemPrompt = false);
+
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
+    void RemoveLastReply();
 
     //Main input function
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
@@ -93,14 +96,14 @@ public:
     * Use this function to bypass input from AI, e.g. streaming input from another source. 
     * All downstream event functions will trigger from this call as if it came from the LLM.
     * Won't make a new message split until role is swapped from last. 
-    * Doesn't work in v0.8 yet
+    *  - Not yet implemented in v0.8
     */
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
     void UserImpersonateText(const FString& Text, EChatTemplateRole Role = EChatTemplateRole::Assistant,  bool bIsEos = false);
 
-    //if you want to manually wrap prompt, if template is empty string, default model template is applies
+    //if you want to manually wrap prompt, if template is empty string, default model template is applies - Not yet implemented in v0.8
     UFUNCTION(BlueprintPure, Category = "LLM Model Component")
-    FString WrapPromptForRole(const FString& Text, EChatTemplateRole Role, const FString& Template);
+    FString WrapPromptForRole(const FString& Text, EChatTemplateRole Role, const FString& OverrideTemplate);
 
 
     //Force stop generating new tokens

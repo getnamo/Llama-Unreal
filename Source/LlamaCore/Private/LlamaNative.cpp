@@ -279,22 +279,26 @@ void FLlamaNative::OnTick(float DeltaTime)
 {
 }
 
-void FLlamaNative::ResetContextHistory()
+void FLlamaNative::ResetContextHistory(bool bKeepSystemPrompt)
 {
-    //TODO: implement
+    Internal->ResetContextHistory();
+
+    //Lazy keep version, just re-insert. TODO: implement optimized reset
+    if (bKeepSystemPrompt)
+    {
+        InsertTemplatedPrompt(ModelParams.SystemPrompt, EChatTemplateRole::System, false, false);
+    }
 }
 
 void FLlamaNative::RemoveLastInput()
 {
-    //TODO: implement
+    //lazily removes last reply and last input
+    RemoveLastNMessages(2);
 }
 
 void FLlamaNative::RemoveLastReply()
 {
-    //Rollback messages
-    //Reformat history from rollback
-    //Ready to continue
-    //TODO: implement
+    RemoveLastNMessages(1);
 }
 
 void FLlamaNative::RegenerateLastReply()
