@@ -242,7 +242,7 @@ struct FLLMModelParams
     int32 Threads = 8;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
-    int32 MaxBatchLength = 4096;
+    int32 MaxBatchLength = 1024;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
     int32 Seed = -1;
