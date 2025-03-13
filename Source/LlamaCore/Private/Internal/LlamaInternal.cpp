@@ -319,7 +319,7 @@ std::string FLlamaInternal::InsertRawPrompt(const std::string& Prompt, bool bGen
 
     if (bGenerateReply)
     {
-        std::string Response = Generate("");
+        std::string Response = Generate("", false);
         FLlamaString::AppendToCharVector(ContextHistory, Response);
     }
     return "";
@@ -341,7 +341,7 @@ int32 FLlamaInternal::InsertTemplatedPrompt(const std::string& Prompt, EChatTemp
     {
         Messages.push_back({ RoleForEnum(Role), _strdup(Prompt.c_str()) });
 
-        NewLen = ApplyTemplateToContextHistory(false);
+        NewLen = ApplyTemplateToContextHistory(bAddAssistantBoS);
     }
 
     std::string FormattedPrompt(ContextHistory.data() + FilledContextCharLength, ContextHistory.data() + NewLen);
@@ -377,13 +377,7 @@ std::string FLlamaInternal::InsertTemplatedPromptAndGenerate(const std::string& 
     }
 
     //Run generation
-    std::string Response = Generate("");
-
-    //Add the response to our templated messages
-    Messages.push_back({ RoleForEnum(EChatTemplateRole::Assistant), _strdup(Response.c_str())});
-
-    //Sync ContextHistory
-    FilledContextCharLength = ApplyTemplateToContextHistory(false);
+    std::string Response = Generate("", true);
 
     return Response;
 }
@@ -423,7 +417,7 @@ int32 FLlamaInternal::ProcessPrompt(const std::string& Prompt)
     return NPromptTokens;
 }
 
-std::string FLlamaInternal::Generate(const std::string& Prompt)
+std::string FLlamaInternal::Generate(const std::string& Prompt, bool bAppendToMessageHistory)
 {
     const auto StartTime = ggml_time_us();
  
@@ -497,6 +491,15 @@ std::string FLlamaInternal::Generate(const std::string& Prompt)
 
     const auto StopTime = ggml_time_us();
     const float Duration = (StopTime - StartTime) / 1000000.0f;
+
+    if (bAppendToMessageHistory)
+    {
+        //Add the response to our templated messages
+        Messages.push_back({ RoleForEnum(EChatTemplateRole::Assistant), _strdup(Response.c_str()) });
+
+        //Sync ContextHistory
+        FilledContextCharLength = ApplyTemplateToContextHistory(false);
+    }
 
     if (OnGenerationComplete)
     {

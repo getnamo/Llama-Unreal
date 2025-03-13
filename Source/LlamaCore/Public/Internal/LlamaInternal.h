@@ -68,7 +68,7 @@ public:
 protected:
     //Wrapper for user<->assistant templated conversation
     int32 ProcessPrompt(const std::string& Prompt);
-    std::string Generate(const std::string& Prompt);
+    std::string Generate(const std::string& Prompt, bool bAppendToMessageHistory = true);
 
     int32 ApplyTemplateToContextHistory(bool bAddAssistantBOS = false);
 
