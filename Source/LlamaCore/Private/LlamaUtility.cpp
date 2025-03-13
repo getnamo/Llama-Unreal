@@ -169,4 +169,9 @@ FString FLlamaString::GetLastSentence(const FString& InputString)
     return InputString.Mid(StartIndex, LastPunctuationIndex - StartIndex + 1).TrimStartAndEnd();
 }
 
+void FLlamaString::AppendToCharVector(std::vector<char>& VectorHistory, const std::string& Text)
+{
+    VectorHistory.insert(VectorHistory.end(), Text.begin(), Text.end());
+}
+
 

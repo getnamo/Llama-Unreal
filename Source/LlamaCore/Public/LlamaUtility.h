@@ -22,4 +22,6 @@ public:
 	//Simple utility functions to find the last sentence
 	static bool IsSentenceEndingPunctuation(const TCHAR Char);
 	static FString GetLastSentence(const FString& InputString);
+
+	static void AppendToCharVector(std::vector<char>& VectorHistory, const std::string& Text);
 };
