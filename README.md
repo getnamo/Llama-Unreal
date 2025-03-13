@@ -1,10 +1,9 @@
 # Llama Unreal
 
-An Unreal focused API wrapper for [llama.cpp](https://github.com/ggml-org/llama.cpp) to support embedding LLMs into your games locally. Forked from [upstream](https://github.com/mika314/UELlama) to focus on improved API with wider support for builds (CPU, CUDA, Android, Mac).
+An Unreal plugin for [llama.cpp](https://github.com/ggml-org/llama.cpp) to support embedding local LLMs in your projects.
 
-Early releases, api still pretty unstable YMMV.
+Fork is modern re-write from [upstream](https://github.com/mika314/UELlama) to support latest API, including: GPULayers, advanced sampling (MinP, Miro, etc), Jinja templates, chat history, partial rollback & context reset, regeneration, and more. Defaults to Vulkan build on windows for wider hardware support at about ~10% perf loss compared to CUDA backend. 
 
-NB: currently has [#7 issue](https://github.com/getnamo/Llama-Unreal/issues/7) which may require you to do your own static llama.cpp build until resolved.
 
 [Discord Server](https://discord.gg/qfJUyxaW4s)
 
@@ -15,7 +14,6 @@ NB: currently has [#7 issue](https://github.com/getnamo/Llama-Unreal/issues/7) w
 3. Browse to your project folder (project root)
 4. Copy *Plugins* folder from .7z release into your project root.
 5. Plugin should now be ready to use.
-NB: You may need to manually copy `ggml.dll` and `llama.dll` to your project binaries folder for it to run correctly. (v0.5.0 issue)
 
 # How to use - Basics
 
@@ -25,7 +23,9 @@ Everything is wrapped inside a [`ULlamaComponent`](https://github.com/getnamo/Ll
 
 1) Setup your [`ModelParams`](https://github.com/getnamo/Llama-Unreal/blob/5b149eabccd2832fb630bb08f0d9f0c14325ed82/Source/LlamaCore/Public/LlamaComponent.h#L273) of type [`FLLMModelParams`](https://github.com/getnamo/Llama-Unreal/blob/5b149eabccd2832fb630bb08f0d9f0c14325ed82/Source/LlamaCore/Public/LlamaComponent.h#L165) 
 
-2) Call [`InsertPromptTemplated`](https://github.com/getnamo/Llama-Unreal/blob/5b149eabccd2832fb630bb08f0d9f0c14325ed82/Source/LlamaCore/Public/LlamaComponent.h#L307) (or [`InsertPrompt`](https://github.com/getnamo/Llama-Unreal/blob/5b149eabccd2832fb630bb08f0d9f0c14325ed82/Source/LlamaCore/Public/LlamaComponent.h#L290) if you're doing raw input style without formatting. NB: only `ChatML` templating is currently specified for templated input.
+3) Call `LoadModel`
+
+2) Call [`InsertPromptTemplated`](https://github.com/getnamo/Llama-Unreal/blob/5b149eabccd2832fb630bb08f0d9f0c14325ed82/Source/LlamaCore/Public/LlamaComponent.h#L307) (or [`InsertPrompt`](https://github.com/getnamo/Llama-Unreal/blob/5b149eabccd2832fb630bb08f0d9f0c14325ed82/Source/LlamaCore/Public/LlamaComponent.h#L290) if you're doing raw input style without formatting.
 
 3) You should receive replies via [`OnNewTokenGenerated`](https://github.com/getnamo/Llama-Unreal/blob/5b149eabccd2832fb630bb08f0d9f0c14325ed82/Source/LlamaCore/Public/LlamaComponent.h#L252) callback
 
@@ -34,9 +34,35 @@ Explore [LlamaComponent.h](https://github.com/getnamo/Llama-Unreal/blob/main/Sou
 
 # Llama.cpp Build Instructions
 
-If you want to do builds for your own use case or replace the llama.cpp backend. Note that these build instructions should be run from the cloned llama.cpp root directory, not the plugin root.
+To do custom backends or support platforms not currently supported you can follow these build instruction. Note that these build instructions should be run from the cloned llama.cpp root directory, not the plugin root.
 
-Forked Plugin [Llama.cpp](https://github.com/ggml-org/llama.cpp) was built from git has/tag: [b4762](https://github.com/ggml-org/llama.cpp/tree/b4762)
+### Basic Build Steps
+1. clone [Llama.cpp](https://github.com/ggml-org/llama.cpp)
+2. build using commands given below e.g. for Vulkan
+```
+mkdir build
+cd build/
+cmake .. -DGGML_VULKAN=ON -DGGML_NATIVE=OFF
+cmake --build . --config Release -j --verbose
+```
+3. Includes: After build 
+- Copy `{llama.cpp root}/include` and `{llama.cpp root}/ggml/include` 
+- into `{plugin root}/ThirdParty/LlamaCpp/Include`
+4. Libs: Assuming `{llama.cpp root}/build` as `{build root}`. 
+
+- Copy `{build root}/src/Release/llama.lib`, 
+- Copy `{build root}/common/Release/common.lib`, 
+- Copy `{build root}/ggml/src/Release/` `ggml.lib`, `ggml-base.lib` & `ggml-cpu.lib`, 
+- Copy `{build root}/ggml/src/Release/ggml-vulkan/Release/ggml-vulkan.lib` 
+- into `{plugin root}/ThirdParty/LlamaCpp/Lib/Win64`
+
+5. Dlls: 
+- Copy `{build root}/bin/Release/` `ggml.dll`, `ggml-base.dll`, `ggml-cpu.dll`, `ggml-vulkan.dll`, & `llama.dll` 
+- into `{plugin root}/ThirdParty/LlamaCpp/Binaries/Win64`
+6. Build plugin
+
+### Current Version
+Current Plugin [Llama.cpp](https://github.com/ggml-org/llama.cpp) was built from git has/tag: [b4879](https://github.com/ggml-org/llama.cpp/tree/b4879)
 
 
 ### Windows build
@@ -59,7 +85,7 @@ e.g. once [Vulkan SDK](https://vulkan.lunarg.com/sdk/home#windows) has been inst
 ```
 mkdir build
 cd build/
-cmake .. -DGGML_VULKAN=ON
+cmake .. -DGGML_VULKAN=ON -DGGML_NATIVE=OFF
 cmake --build . --config Release -j --verbose
 ```
 
@@ -75,7 +101,7 @@ ATM built for CUDA 12.4 runtime
 ```
 mkdir build
 cd build
-cmake .. -DGGML_CUDA=ON
+cmake .. -DGGML_CUDA=ON -DGGML_NATIVE=OFF
 cmake --build . --config Release -j --verbose
 ```
 
