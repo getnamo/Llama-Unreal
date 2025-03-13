@@ -82,6 +82,11 @@ void ULlamaComponent::LoadModel()
         OnPartialGenerated.Broadcast(Partial);
     };
 
+    LlamaNative->OnPromptProcessed = [this](int32 TokensProcessed, EChatTemplateRole Role, float Speed)
+    {
+        OnPromptProcessed.Broadcast(TokensProcessed, Role, Speed);
+    };
+
     LlamaNative->SetModelParams(ModelParams);
     LlamaNative->LoadModel();
 }
