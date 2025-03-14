@@ -287,3 +287,17 @@ struct FLLMModelState
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model State")
     FJinjaChatTemplate ChatTemplateInUse;
 };
+
+
+USTRUCT()
+struct FLLMThreadTask
+{
+    GENERATED_USTRUCT_BODY();
+
+    TFunction<void()> TaskFunction;
+
+    TFunction<void(int64)> TaskCallbackFunction;
+
+    UPROPERTY()
+    int64 TaskId = 0;
+};

@@ -143,9 +143,10 @@ FLlamaNative::FLlamaNative()
 
 FLlamaNative::~FLlamaNative()
 {
-    bCallbacksAreValid = false;
     StopGeneration();
+    bThreadShouldrun = false;
 
+    //Wait for the thread to stop
     while (bThreadIsActive) 
     {
         FPlatformProcess::Sleep(0.01f);
@@ -165,6 +166,40 @@ void FLlamaNative::SyncModelStateToInternal()
     {
         OnModelStateChanged(ModelState);
     }
+}
+
+void FLlamaNative::StartLLMThread()
+{
+    bThreadShouldrun = true;
+    Async(EAsyncExecution::Thread, [this]
+    {
+        bThreadIsActive = true;
+
+        while (bThreadShouldRun)
+        {
+            //Run all queued tasks
+            while (!BackgroundTasks.IsEmpty())
+            {
+                FLLMThreadTask Task;
+                BackgroundTasks.Dequeue(Task);
+                if (Task.TaskFunction)
+                {
+                    //Run Task
+                    Task.TaskFunction();
+
+                    //Run Callback Task if any
+                    if (Task.TaskCallbackFunction)
+                    {
+                        Task.TaskCallbackFunction(Task.TaskId);
+                    }
+                }
+            }
+
+            FPlatformProcess::Sleep(ThreadIdleSleepDuration);
+        }
+
+        bThreadIsActive = false;
+    });
 }
 
 void FLlamaNative::SetModelParams(const FLLMModelParams& Params)

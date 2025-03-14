@@ -63,7 +63,10 @@ public:
 
 	FLlamaNative();
 	~FLlamaNative();
-private:
+
+	float ThreadIdleSleepDuration = 0.005f; //5ms sleep timer for BG thread
+
+protected:
 
 	void SyncModelStateToInternal();
 
@@ -71,9 +74,12 @@ private:
 	FLLMModelState ModelState;
 
 	FThreadSafeBool bThreadIsActive = false;
+	FThreadSafeBool bThreadShouldrun = false;
 	FThreadSafeBool bCallbacksAreValid = false;
 
-	TQueue<FString> TokenQueue;
+	void StartLLMThread();
+	TQueue<FLLMThreadTask> BackgroundTasks;
+	TQueue<FLLMThreadTask> GameThreadTasks;
 
 	FString CombinedPieceText;	//accumulates tokens into full string during per-token inference.
 
