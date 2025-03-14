@@ -294,9 +294,7 @@ struct FLLMThreadTask
 {
     GENERATED_USTRUCT_BODY();
 
-    TFunction<void()> TaskFunction;
-
-    TFunction<void(int64)> TaskCallbackFunction;
+    TFunction<void(int64)> TaskFunction;
 
     UPROPERTY()
     int64 TaskId = 0;

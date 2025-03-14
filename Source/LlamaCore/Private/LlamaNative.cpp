@@ -144,7 +144,7 @@ FLlamaNative::FLlamaNative()
 FLlamaNative::~FLlamaNative()
 {
     StopGeneration();
-    bThreadShouldrun = false;
+    bThreadShouldRun = false;
 
     //Wait for the thread to stop
     while (bThreadIsActive) 
@@ -170,7 +170,7 @@ void FLlamaNative::SyncModelStateToInternal()
 
 void FLlamaNative::StartLLMThread()
 {
-    bThreadShouldrun = true;
+    bThreadShouldRun = true;
     Async(EAsyncExecution::Thread, [this]
     {
         bThreadIsActive = true;
@@ -185,13 +185,7 @@ void FLlamaNative::StartLLMThread()
                 if (Task.TaskFunction)
                 {
                     //Run Task
-                    Task.TaskFunction();
-
-                    //Run Callback Task if any
-                    if (Task.TaskCallbackFunction)
-                    {
-                        Task.TaskCallbackFunction(Task.TaskId);
-                    }
+                    Task.TaskFunction(Task.TaskId);
                 }
             }
 
@@ -202,16 +196,51 @@ void FLlamaNative::StartLLMThread()
     });
 }
 
+int64 FLlamaNative::GetNextTaskId()
+{
+    TaskIdCounter++;
+
+    return TaskIdCounter;
+}
+
+void FLlamaNative::EnqueueBGTask(TFunction<void(int64)> TaskFunction)
+{
+    FLLMThreadTask Task;
+    Task.TaskId = GetNextTaskId();
+    Task.TaskFunction = TaskFunction;
+
+    BackgroundTasks.Enqueue(Task);
+}
+
+void FLlamaNative::EnqueueGTTask(TFunction<void()> TaskFunction, int64 LinkedTaskId)
+{
+    FLLMThreadTask Task;
+    
+    if (LinkedTaskId == -1)
+    {
+        Task.TaskId = GetNextTaskId();
+    }
+    else
+    {
+        Task.TaskId = LinkedTaskId;
+    }
+
+    Task.TaskFunction = [TaskFunction](int64 InTaskId) 
+    {
+        TaskFunction();
+    };
+
+    GameThreadTasks.Enqueue(Task);
+}
+
 void FLlamaNative::SetModelParams(const FLLMModelParams& Params)
 {
 	ModelParams = Params;
 }
 
-bool FLlamaNative::LoadModel()
+void FLlamaNative::LoadModel(TFunction<void(const FString&, int32 StatusCode)> ModelLoadedCallback)
 {
-    bThreadIsActive = true;
-
-    Async(EAsyncExecution::Thread, [this]
+    EnqueueBGTask([this, ModelLoadedCallback](int64 TaskId)
     {
         //Unload first if any is loaded
         UnloadModel();
@@ -225,8 +254,7 @@ bool FLlamaNative::LoadModel()
             const FString TemplateString = FLlamaString::ToUE(Internal->Template);
             const FString TemplateSource = FLlamaString::ToUE(Internal->TemplateSource);
 
-            //update model params on game thread
-            Async(EAsyncExecution::TaskGraphMainThread, [this, TemplateString, TemplateSource]
+            EnqueueGTTask([this, TemplateString, TemplateSource, ModelLoadedCallback]
             {
                 if (!bCallbacksAreValid)
                 {
@@ -239,44 +267,50 @@ bool FLlamaNative::LoadModel()
                 ChatTemplate.Jinja = TemplateString;
 
                 ModelState.ChatTemplateInUse = ChatTemplate;
-                
-                bThreadIsActive = false;
 
                 if (OnModelStateChanged)
                 {
                     OnModelStateChanged(ModelState);
                 }
 
-                if (OnModelLoaded)
+                if (ModelLoadedCallback)
                 {
-                    OnModelLoaded(ModelParams.PathToModel);
+                    ModelLoadedCallback(ModelParams.PathToModel, 0);
                 }
-            });
+            }, TaskId);
         }
         else
         {
-            Async(EAsyncExecution::TaskGraphMainThread, [this]
+            EnqueueGTTask([this, ModelLoadedCallback]
             {
-                if (OnError && bCallbacksAreValid)
+                if (OnError)
                 {
                     OnError("Failed loading model see logs.");
                 }
-                bThreadIsActive = false;
-            });
+                ModelLoadedCallback(ModelParams.PathToModel, -1);
+            }, TaskId);
         }
-
     });
-
-    return true;
 }
 
-bool FLlamaNative::UnloadModel()
+void FLlamaNative::UnloadModel(TFunction<void(int32 StatusCode)> ModelUnloadedCallback)
 {
-    if (IsModelLoaded())
+    EnqueueBGTask([this, ModelUnloadedCallback](int64 TaskId)
     {
-        Internal->UnloadModel();
-    }
-    return true;
+        if (IsModelLoaded())
+        {
+            Internal->UnloadModel();
+        }
+
+        //Reply with code
+        EnqueueGTTask([this, ModelUnloadedCallback]
+        {
+            if (ModelUnloadedCallback)
+            {
+                ModelUnloadedCallback(0);
+            }
+        });
+    });
 }
 
 bool FLlamaNative::IsModelLoaded()
@@ -384,6 +418,21 @@ void FLlamaNative::ResumeGeneration()
 
 void FLlamaNative::OnTick(float DeltaTime)
 {
+    //Handle all the game thread callbacks
+    if (!GameThreadTasks.IsEmpty())
+    {
+        //Run all queued tasks
+        while (!GameThreadTasks.IsEmpty())
+        {
+            FLLMThreadTask Task;
+            GameThreadTasks.Dequeue(Task);
+            if (Task.TaskFunction)
+            {
+                //Run Task
+                Task.TaskFunction(Task.TaskId);
+            }
+        }
+    }
 }
 
 void FLlamaNative::ResetContextHistory(bool bKeepSystemPrompt)

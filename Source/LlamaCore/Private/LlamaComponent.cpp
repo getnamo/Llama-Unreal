@@ -42,6 +42,9 @@ void ULlamaComponent::TickComponent(float DeltaTime,
                                     FActorComponentTickFunction* ThisTickFunction)
 {
     Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+
+    //Forward tick to llama so it can process the game thread callbacks
+    LlamaNative->OnTick(DeltaTime);
 }
 
 void ULlamaComponent::InsertTemplatedPrompt(const FString& Prompt, EChatTemplateRole Role, bool bAddAssistantBOS, bool bGenerateReply)
@@ -65,18 +68,7 @@ void ULlamaComponent::LoadModel()
     {
         OnTokenGenerated.Broadcast(Token);
     };
-
-    LlamaNative->OnModelLoaded = [this](const FString& ModelPath)
-    {
-        if (ModelParams.bAutoInsertSystemPromptOnLoad)
-        {
-            InsertTemplatedPrompt(ModelParams.SystemPrompt, EChatTemplateRole::System, false, false);
-        }
-
-        //Todo: we need model name from path...
-        OnModelLoaded.Broadcast(ModelPath);
-    };
-
+    
     LlamaNative->OnPartialGenerated = [this](const FString& Partial)
     {
         OnPartialGenerated.Broadcast(Partial);
@@ -88,12 +80,29 @@ void ULlamaComponent::LoadModel()
     };
 
     LlamaNative->SetModelParams(ModelParams);
-    LlamaNative->LoadModel();
+    LlamaNative->LoadModel([this](const FString& ModelPath, int32 StatusCode)
+    {
+        {
+            if (ModelParams.bAutoInsertSystemPromptOnLoad)
+            {
+                InsertTemplatedPrompt(ModelParams.SystemPrompt, EChatTemplateRole::System, false, false);
+            }
+
+            //Todo: we need model name from path...
+            OnModelLoaded.Broadcast(ModelPath);
+        };
+    });
 }
 
 void ULlamaComponent::UnloadModel()
 {
-    LlamaNative->UnloadModel();
+    LlamaNative->UnloadModel([this](int32 StatusCode)
+    {
+        if (StatusCode != 0)
+        {
+            UE_LOG(LlamaLog, Warning, TEXT("UnloadModel return error code: %d"), StatusCode);
+        }
+    });
 }
 
 void ULlamaComponent::ResetContextHistory(bool bKeepSystemPrompt)

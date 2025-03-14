@@ -17,12 +17,12 @@ public:
 
 	//Callbacks
 	TFunction<void(const FString& Token)> OnTokenGenerated;
+	TFunction<void(const FString& int64)> OnTaskCompletion;
 	TFunction<void(const FString& Partial)> OnPartialGenerated;		//usually considered sentences, good for TTS.
 	TFunction<void(const FString& Response)> OnResponseGenerated;	//per round
 	TFunction<void(int32 TokensProcessed, EChatTemplateRole ForRole, float Speed)> OnPromptProcessed;	//when an inserted prompt has finished processing (non-generation prompt)
 	TFunction<void()> OnGenerationStarted;
 	TFunction<void(const FLlamaRunTimings& Timings)> OnGenerationFinished;
-	TFunction<void(const FString& ModelPath)> OnModelLoaded;
 	TFunction<void(const FString& ErrorMessage)> OnError;
 	TFunction<void(const FLLMModelState& UpdatedModelState)> OnModelStateChanged;
 
@@ -30,8 +30,8 @@ public:
 	void SetModelParams(const FLLMModelParams& Params);
 
 	//Loads the model found at ModelParams.PathToModel, use SetModelParams to specify params before loading
-	bool LoadModel();
-	bool UnloadModel();
+	void LoadModel(TFunction<void(const FString&, int32 StatusCode)> ModelLoadedCallback = nullptr);
+	void UnloadModel(TFunction<void(int32 StatusCode)> ModelUnloadedCallback = nullptr);
 	bool IsModelLoaded();
 
 	//Prompt input
@@ -41,7 +41,7 @@ public:
 	void StopGeneration();
 	void ResumeGeneration();
 
-	//tick forward for safely consuming messages
+	//tick forward for safely consuming game thread messages without hanging
 	void OnTick(float DeltaTime);
 
 	//Context change - not yet implemented
@@ -70,18 +70,25 @@ protected:
 
 	void SyncModelStateToInternal();
 
+	//State
 	FLLMModelParams ModelParams;
 	FLLMModelState ModelState;
+	FString CombinedPieceText;	//accumulates tokens into full string during per-token inference.
 
-	FThreadSafeBool bThreadIsActive = false;
-	FThreadSafeBool bThreadShouldrun = false;
+	//likely to be removed
 	FThreadSafeBool bCallbacksAreValid = false;
 
+	//Threading
 	void StartLLMThread();
 	TQueue<FLLMThreadTask> BackgroundTasks;
 	TQueue<FLLMThreadTask> GameThreadTasks;
+	FThreadSafeBool bThreadIsActive = false;
+	FThreadSafeBool bThreadShouldRun = false;
+	int64 TaskIdCounter = 0;
+	int64 GetNextTaskId();
 
-	FString CombinedPieceText;	//accumulates tokens into full string during per-token inference.
+	void EnqueueBGTask(TFunction<void(int64)> Task);
+	void EnqueueGTTask(TFunction<void()> Task, int64 LinkedTaskId = -1);
 
 	class FLlamaInternal* Internal = nullptr;
 };
