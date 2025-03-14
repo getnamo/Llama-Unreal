@@ -17,9 +17,8 @@ public:
 
 	//Callbacks
 	TFunction<void(const FString& Token)> OnTokenGenerated;
-	TFunction<void(const FString& int64)> OnTaskCompletion;
 	TFunction<void(const FString& Partial)> OnPartialGenerated;		//usually considered sentences, good for TTS.
-	TFunction<void(const FString& Response)> OnResponseGenerated;	//per round
+	//TFunction<void(const FString& Response)> OnResponseGenerated;	//per round
 	TFunction<void(int32 TokensProcessed, EChatTemplateRole ForRole, float Speed)> OnPromptProcessed;	//when an inserted prompt has finished processing (non-generation prompt)
 	TFunction<void()> OnGenerationStarted;
 	TFunction<void(const FLlamaRunTimings& Timings)> OnGenerationFinished;
@@ -35,8 +34,9 @@ public:
 	bool IsModelLoaded();
 
 	//Prompt input
-	void InsertTemplatedPrompt(const FString& Prompt, EChatTemplateRole Role = EChatTemplateRole::User, bool bAddAssistantBOS = false, bool bGenerateReply = true);
-	void InsertRawPrompt(const FString& Prompt);
+	void InsertTemplatedPrompt(const FLlamaChatPrompt& Prompt, 
+		TFunction<void(const FString& Response)>OnResponseFinished = nullptr);
+	void InsertRawPrompt(const FString& Prompt, TFunction<void(const FString& Response)>OnResponseFinished = nullptr);
 	bool IsGenerating();
 	void StopGeneration();
 	void ResumeGeneration();
@@ -74,9 +74,6 @@ protected:
 	FLLMModelParams ModelParams;
 	FLLMModelState ModelState;
 	FString CombinedPieceText;	//accumulates tokens into full string during per-token inference.
-
-	//likely to be removed
-	FThreadSafeBool bCallbacksAreValid = false;
 
 	//Threading
 	void StartLLMThread();

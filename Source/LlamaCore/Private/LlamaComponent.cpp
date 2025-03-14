@@ -49,7 +49,24 @@ void ULlamaComponent::TickComponent(float DeltaTime,
 
 void ULlamaComponent::InsertTemplatedPrompt(const FString& Prompt, EChatTemplateRole Role, bool bAddAssistantBOS, bool bGenerateReply)
 {
-    LlamaNative->InsertTemplatedPrompt(Prompt, Role, bAddAssistantBOS, bGenerateReply);
+    FLlamaChatPrompt ChatPrompt;
+    ChatPrompt.Prompt = Prompt;
+    ChatPrompt.Role = Role;
+    ChatPrompt.bAddAssistantBOS = bAddAssistantBOS;
+    ChatPrompt.bGenerateReply = bGenerateReply;
+
+    LlamaNative->InsertTemplatedPrompt(ChatPrompt, [this, ChatPrompt](const FString& Response)
+    {
+        if (!ChatPrompt.bGenerateReply)
+        {
+            //OnPromptProcessed.Broadcast()
+        }
+        else
+        {
+            OnResponseGenerated.Broadcast(Response);
+            OnEndOfStream.Broadcast(true, ModelState.LastTokenGenerationSpeed);
+        }
+    });
 }
 
 void ULlamaComponent::LoadModel()
@@ -57,11 +74,6 @@ void ULlamaComponent::LoadModel()
     LlamaNative->OnModelStateChanged = [this](const FLLMModelState& UpdatedModelState)
     {
         ModelState = UpdatedModelState;
-    };
-    LlamaNative->OnResponseGenerated = [this](const FString& Response)
-    {
-        OnResponseGenerated.Broadcast(Response);
-        OnEndOfStream.Broadcast(true, ModelState.LastTokenGenerationSpeed);
     };
 
     LlamaNative->OnTokenGenerated = [this](const FString& Token)
@@ -74,6 +86,7 @@ void ULlamaComponent::LoadModel()
         OnPartialGenerated.Broadcast(Partial);
     };
 
+    //move to function callbacks?
     LlamaNative->OnPromptProcessed = [this](int32 TokensProcessed, EChatTemplateRole Role, float Speed)
     {
         OnPromptProcessed.Broadcast(TokensProcessed, Role, Speed);
@@ -82,15 +95,13 @@ void ULlamaComponent::LoadModel()
     LlamaNative->SetModelParams(ModelParams);
     LlamaNative->LoadModel([this](const FString& ModelPath, int32 StatusCode)
     {
+        if (ModelParams.bAutoInsertSystemPromptOnLoad)
         {
-            if (ModelParams.bAutoInsertSystemPromptOnLoad)
-            {
-                InsertTemplatedPrompt(ModelParams.SystemPrompt, EChatTemplateRole::System, false, false);
-            }
+            InsertTemplatedPrompt(ModelParams.SystemPrompt, EChatTemplateRole::System, false, false);
+        }
 
-            //Todo: we need model name from path...
-            OnModelLoaded.Broadcast(ModelPath);
-        };
+        //Todo: we need model name from path...
+        OnModelLoaded.Broadcast(ModelPath);
     });
 }
 

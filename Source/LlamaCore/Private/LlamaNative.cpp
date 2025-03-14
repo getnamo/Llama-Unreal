@@ -38,20 +38,17 @@ FLlamaNative::FLlamaNative()
         }
 
         //Emit token to game thread
-        if (OnTokenGenerated && bCallbacksAreValid)
+        if (OnTokenGenerated)
         {
             Async(EAsyncExecution::TaskGraphMainThread, [this, Token, Partial]()
             {
-                if(bCallbacksAreValid)
+                if (OnTokenGenerated)
                 {
-                    if (OnTokenGenerated)
-                    {
-                        OnTokenGenerated(Token);
-                    }
-                    if (OnPartialGenerated && !Partial.IsEmpty())
-                    {
-                        OnPartialGenerated(Partial);
-                    }
+                    OnTokenGenerated(Token);
+                }
+                if (OnPartialGenerated && !Partial.IsEmpty())
+                {
+                    OnPartialGenerated(Partial);
                 }
             });
         }
@@ -76,40 +73,29 @@ FLlamaNative::FLlamaNative()
 
         FString ResponseString = FLlamaString::ToUE(Response);
 
-        if (bCallbacksAreValid)
+        EnqueueGTTask([this, ResponseString, ChatHistory, ContextHistory, UsedContext, SpeedTps]
         {
-            Async(EAsyncExecution::TaskGraphMainThread, [this, ResponseString, ChatHistory, ContextHistory, UsedContext, SpeedTps]
+            //Sync state information
+            ModelState.ContextUsed = UsedContext;
+            ModelState.ChatHistory = ChatHistory;
+            ModelState.ContextHistory = ContextHistory;
+            ModelState.LastTokenGenerationSpeed = SpeedTps;
+
+            if (ChatHistory.History.Num() > 0)
             {
-                if (bCallbacksAreValid)
-                {
-                    //Sync state information
-                    ModelState.ContextUsed = UsedContext;
-                    ModelState.ChatHistory = ChatHistory;
-                    ModelState.ContextHistory = ContextHistory;
-                    ModelState.LastTokenGenerationSpeed = SpeedTps;
+                ModelState.LastRole = ChatHistory.History.Last().Role;
+            }
 
-                    if (ChatHistory.History.Num() > 0)
-                    {
-                        ModelState.LastRole = ChatHistory.History.Last().Role;
-                    }
-
-                    if (OnModelStateChanged)
-                    {
-                        OnModelStateChanged(ModelState);
-                    }
-
-                    if (OnResponseGenerated)
-                    {
-                        OnResponseGenerated(ResponseString);
-                    }
-                }
-            });
-        }
+            if (OnModelStateChanged)
+            {
+                OnModelStateChanged(ModelState);
+            }
+        });
     };
 
     Internal->OnPromptProcessed = [this](int32 TokensProcessed, EChatTemplateRole RoleProcessed, float SpeedTps)
     {
-        if (OnPromptProcessed && bCallbacksAreValid)
+        if (OnPromptProcessed)
         {
             //Sync history data on bg thread
             FStructuredChatHistory ChatHistory;
@@ -130,15 +116,13 @@ FLlamaNative::FLlamaNative()
                     ModelState.LastRole = ModelState.ChatHistory.History.Last().Role;
                 }
 
-                if (OnPromptProcessed && bCallbacksAreValid)
+                if (OnPromptProcessed)
                 {
                     OnPromptProcessed(TokensProcessed, RoleProcessed, SpeedTps);
                 }
             });
         }
     };
-
-    bCallbacksAreValid = true;
 }
 
 FLlamaNative::~FLlamaNative()
@@ -256,12 +240,6 @@ void FLlamaNative::LoadModel(TFunction<void(const FString&, int32 StatusCode)> M
 
             EnqueueGTTask([this, TemplateString, TemplateSource, ModelLoadedCallback]
             {
-                if (!bCallbacksAreValid)
-                {
-                    bThreadIsActive = false;
-                    return;
-                }
-
                 FJinjaChatTemplate ChatTemplate;
                 ChatTemplate.TemplateSource = TemplateSource;
                 ChatTemplate.Jinja = TemplateString;
@@ -318,7 +296,7 @@ bool FLlamaNative::IsModelLoaded()
     return Internal->IsModelLoaded();
 }
 
-void FLlamaNative::InsertTemplatedPrompt(const FString& Prompt, EChatTemplateRole Role, bool bAddAssistantBOS, bool bGenerateReply)
+void FLlamaNative::InsertTemplatedPrompt(const FLlamaChatPrompt& Prompt, TFunction<void(const FString& Response)> OnResponseFinished)
 {
     if (!IsModelLoaded())
     {
@@ -326,55 +304,53 @@ void FLlamaNative::InsertTemplatedPrompt(const FString& Prompt, EChatTemplateRol
         return;
     }
 
-    if (bThreadIsActive)
-    {
-        UE_LOG(LlamaLog, Warning, TEXT("Prompting while generation is active isn't currently supported, prompt not sent."));
-        return;
-    }
-
-    const std::string UserStdString = FLlamaString::ToStd(Prompt);
-
-    bThreadIsActive = true;
+    FLlamaChatPrompt ThreadSafePrompt = Prompt;
 
     //run prompt insert on a background thread
-    Async(EAsyncExecution::ThreadPool, [this, UserStdString, Role, bAddAssistantBOS, bGenerateReply]
+    EnqueueBGTask([this, ThreadSafePrompt, OnResponseFinished](int64 TaskId)
     {
-        if (bGenerateReply)
+        const std::string UserStdString = FLlamaString::ToStd(ThreadSafePrompt.Prompt);
+        
+        if (ThreadSafePrompt.bGenerateReply)
         {
-            FLlamaString::ToUE(Internal->InsertTemplatedPrompt(UserStdString, Role, bAddAssistantBOS, true));
+            FString Response = FLlamaString::ToUE(Internal->InsertTemplatedPrompt(UserStdString, ThreadSafePrompt.Role, ThreadSafePrompt.bAddAssistantBOS, true));
+
+            EnqueueGTTask([this, Response, OnResponseFinished]()
+            {
+                if (OnResponseFinished)
+                {
+                    OnResponseFinished(Response);
+                }
+            });
         }
         else
         {
-            //importantly turn off generation
-            Internal->InsertTemplatedPrompt(UserStdString, Role, bAddAssistantBOS, false);
+            //importantly turn off generation (last param)
+            Internal->InsertTemplatedPrompt(UserStdString, ThreadSafePrompt.Role, ThreadSafePrompt.bAddAssistantBOS, false);
         }
-
-        bThreadIsActive = false;
     });
 }
 
-void FLlamaNative::InsertRawPrompt(const FString& Prompt)
+void FLlamaNative::InsertRawPrompt(const FString& Prompt, TFunction<void(const FString& Response)>OnResponseFinished)
 {
     if (!IsModelLoaded())
     {
         UE_LOG(LlamaLog, Warning, TEXT("Model isn't loaded, can't run prompt."));
-        return;
-    }
-
-    if (bThreadIsActive)
-    {
-        UE_LOG(LlamaLog, Warning, TEXT("Prompting while generation is active isn't currently supported, prompt not sent."));
         return;
     }
 
     const std::string PromptStdString = FLlamaString::ToStd(Prompt);
 
-    bThreadIsActive = true;
-
-    //run prompt insert on a background thread
-    Async(EAsyncExecution::ThreadPool, [this, PromptStdString]
+    EnqueueBGTask([this, PromptStdString, OnResponseFinished](int64 TaskId)
     {
-        Internal->InsertRawPrompt(PromptStdString);
+        FString Response = FLlamaString::ToUE(Internal->InsertRawPrompt(PromptStdString));
+        EnqueueGTTask([this, Response, OnResponseFinished]
+        {
+            if (OnResponseFinished)
+            {
+                OnResponseFinished(Response);
+            }
+        });
     });
 }
 
@@ -401,12 +377,6 @@ void FLlamaNative::ResumeGeneration()
     if (!IsModelLoaded())
     {
         UE_LOG(LlamaLog, Warning, TEXT("Model isn't loaded, can't ResumeGeneration."));
-        return;
-    }
-
-    if (bThreadIsActive)
-    {
-        UE_LOG(LlamaLog, Warning, TEXT("ResumeGeneration while generation is active isn't currently supported."));
         return;
     }
 

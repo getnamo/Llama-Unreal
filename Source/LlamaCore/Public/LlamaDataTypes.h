@@ -288,7 +288,6 @@ struct FLLMModelState
     FJinjaChatTemplate ChatTemplateInUse;
 };
 
-
 USTRUCT()
 struct FLLMThreadTask
 {
@@ -298,4 +297,38 @@ struct FLLMThreadTask
 
     UPROPERTY()
     int64 TaskId = 0;
+};
+
+
+USTRUCT(BlueprintType)
+struct FLlamaChatPrompt
+{
+    GENERATED_BODY()
+
+public:
+    /** The prompt string */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chat")
+    FString Prompt;
+
+    /** The role of the chat message */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chat")
+    EChatTemplateRole Role = EChatTemplateRole::User;
+
+    /** Whether to add Assistant Beginning-of-Stream token */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chat")
+    bool bAddAssistantBOS = false;
+
+    /** Whether to generate a reply */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chat")
+    bool bGenerateReply = true;
+
+    FLlamaChatPrompt() {}
+
+    FLlamaChatPrompt(const FString& InPrompt, EChatTemplateRole InRole = EChatTemplateRole::User, bool bInAddAssistantBOS = false, bool bInGenerateReply = true)
+        : Prompt(InPrompt)
+        , Role(InRole)
+        , bAddAssistantBOS(bInAddAssistantBOS)
+        , bGenerateReply(bInGenerateReply)
+    {
+    }
 };
