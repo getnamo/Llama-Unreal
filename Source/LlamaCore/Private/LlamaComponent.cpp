@@ -8,6 +8,26 @@ ULlamaComponent::ULlamaComponent(const FObjectInitializer &ObjectInitializer)
 {
     LlamaNative = new FLlamaNative();
 
+    //Hookup native callbacks
+    LlamaNative->OnModelStateChanged = [this](const FLLMModelState& UpdatedModelState)
+    {
+        ModelState = UpdatedModelState;
+    };
+
+    LlamaNative->OnTokenGenerated = [this](const FString& Token)
+    {
+        OnTokenGenerated.Broadcast(Token);
+    };
+
+    LlamaNative->OnPartialGenerated = [this](const FString& Partial)
+    {
+        OnPartialGenerated.Broadcast(Partial);
+    };
+    LlamaNative->OnPromptProcessed = [this](int32 TokensProcessed, EChatTemplateRole Role, float Speed)
+    {
+        OnPromptProcessed.Broadcast(TokensProcessed, Role, Speed);
+    };
+
     PrimaryComponentTick.bCanEverTick = true;
     PrimaryComponentTick.bStartWithTickEnabled = true;
 
@@ -49,19 +69,26 @@ void ULlamaComponent::TickComponent(float DeltaTime,
 
 void ULlamaComponent::InsertTemplatedPrompt(const FString& Prompt, EChatTemplateRole Role, bool bAddAssistantBOS, bool bGenerateReply)
 {
-    FLlamaChatPrompt ChatPrompt;
-    ChatPrompt.Prompt = Prompt;
-    ChatPrompt.Role = Role;
-    ChatPrompt.bAddAssistantBOS = bAddAssistantBOS;
-    ChatPrompt.bGenerateReply = bGenerateReply;
+    InsertTemplatedPromptStruct(Prompt);
+}
 
+void ULlamaComponent::InsertTemplatedPromptStruct(const FLlamaChatPrompt& ChatPrompt)
+{
     LlamaNative->InsertTemplatedPrompt(ChatPrompt, [this, ChatPrompt](const FString& Response)
     {
-        if (!ChatPrompt.bGenerateReply)
+        if (ChatPrompt.bGenerateReply)
         {
-            //OnPromptProcessed.Broadcast()
+            OnResponseGenerated.Broadcast(Response);
+            OnEndOfStream.Broadcast(true, ModelState.LastTokenGenerationSpeed);
         }
-        else
+    });
+}
+
+void ULlamaComponent::InsertRawPrompt(const FString& Text, bool bGenerateReply)
+{
+    LlamaNative->InsertRawPrompt(Text, bGenerateReply, [this, bGenerateReply](const FString& Response)
+    {
+        if (bGenerateReply)
         {
             OnResponseGenerated.Broadcast(Response);
             OnEndOfStream.Broadcast(true, ModelState.LastTokenGenerationSpeed);
@@ -71,27 +98,6 @@ void ULlamaComponent::InsertTemplatedPrompt(const FString& Prompt, EChatTemplate
 
 void ULlamaComponent::LoadModel()
 {
-    LlamaNative->OnModelStateChanged = [this](const FLLMModelState& UpdatedModelState)
-    {
-        ModelState = UpdatedModelState;
-    };
-
-    LlamaNative->OnTokenGenerated = [this](const FString& Token)
-    {
-        OnTokenGenerated.Broadcast(Token);
-    };
-    
-    LlamaNative->OnPartialGenerated = [this](const FString& Partial)
-    {
-        OnPartialGenerated.Broadcast(Partial);
-    };
-
-    //move to function callbacks?
-    LlamaNative->OnPromptProcessed = [this](int32 TokensProcessed, EChatTemplateRole Role, float Speed)
-    {
-        OnPromptProcessed.Broadcast(TokensProcessed, Role, Speed);
-    };
-
     LlamaNative->SetModelParams(ModelParams);
     LlamaNative->LoadModel([this](const FString& ModelPath, int32 StatusCode)
     {
@@ -131,35 +137,6 @@ void ULlamaComponent::RemoveLastUserInput()
     LlamaNative->RemoveLastUserInput();
 }
 
-void ULlamaComponent::InsertRawPrompt(const FString& Text)
-{
-}
-
-void ULlamaComponent::UserImpersonateText(const FString& Text, EChatTemplateRole Role, bool bIsEos)
-{
-    FString CombinedText = Text;
-
-    /**
-    //Check last role, ensure we give ourselves an assistant role if we haven't yet.
-    if (ModelState.LastRole != Role)
-    {
-        CombinedText = GetRolePrefix(Role) + Text;
-
-        //Modify the role
-        ModelState.LastRole = Role;
-    }
-
-    //If this was the last text in the stream, auto-wrap suffix
-    if (bIsEos)
-    {
-        CombinedText += ModelParams.ChatTemplate.CommonSuffix + ModelParams.ChatTemplate.Delimiter;
-    }
-
-    TokenCallbackInternal(CombinedText, ModelState.ContextLength + CombinedText.Len());
-
-    */
-}
-
 FString ULlamaComponent::WrapPromptForRole(const FString& Text, EChatTemplateRole Role, const FString& Template)
 {
     return LlamaNative->WrapPromptForRole(Text, Role, Template);
@@ -177,14 +154,10 @@ void ULlamaComponent::ResumeGeneration()
 
 FString ULlamaComponent::RawContextHistory()
 {
-    FString History;
-    LlamaNative->RawContextHistory(History);
-    return History;
+    return ModelState.ContextHistory;
 }
 
 FStructuredChatHistory ULlamaComponent::GetStructuredChatHistory()
 {
-    FStructuredChatHistory Chat;
-    LlamaNative->GetStructuredChatHistory(Chat);
-    return Chat;
+    return ModelState.ChatHistory;
 }

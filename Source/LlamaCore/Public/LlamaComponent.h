@@ -91,25 +91,18 @@ public:
 
     //Main input function
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
-    void InsertTemplatedPrompt(UPARAM(meta=(MultiLine=true)) const FString &Text, EChatTemplateRole Role = EChatTemplateRole::User, bool bAddAssistantBOS = false, bool bGenerateReply = true);
+    void InsertTemplatedPrompt(UPARAM(meta=(MultiLine=true)) const FString& Text, EChatTemplateRole Role = EChatTemplateRole::User, bool bAddAssistantBOS = false, bool bGenerateReply = true);
+
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
+    void InsertTemplatedPromptStruct(const FLlamaChatPrompt& Prompt);
 
     //does not apply formatting before running inference
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
-    void InsertRawPrompt(UPARAM(meta = (MultiLine = true)) const FString& Text);
+    void InsertRawPrompt(UPARAM(meta = (MultiLine = true)) const FString& Text, bool bGenerateReply = true);
 
-    /** 
-    * Use this function to bypass input from AI, e.g. streaming input from another source. 
-    * All downstream event functions will trigger from this call as if it came from the LLM.
-    * Won't make a new message split until role is swapped from last. 
-    *  - Not yet implemented in v0.8
-    */
-    //UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
-    void UserImpersonateText(const FString& Text, EChatTemplateRole Role = EChatTemplateRole::Assistant,  bool bIsEos = false);
-
-    //if you want to manually wrap prompt, if template is empty string, default model template is applies - Not yet implemented in v0.8
+    //if you want to manually wrap prompt, if template is empty string, default model template is applied. NB: this function may be unsafe to use atm
     UFUNCTION(BlueprintPure, Category = "LLM Model Component")
     FString WrapPromptForRole(const FString& Text, EChatTemplateRole Role, const FString& OverrideTemplate);
-
 
     //Force stop generating new tokens
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")

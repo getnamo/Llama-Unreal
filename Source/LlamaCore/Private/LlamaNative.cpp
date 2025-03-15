@@ -3,13 +3,14 @@
 #include "LlamaNative.h"
 #include "LlamaUtility.h"
 #include "Internal/LlamaInternal.h"
+#include "Async/TaskGraphInterfaces.h"
 #include "Async/Async.h"
 
 FLlamaNative::FLlamaNative()
 {
     Internal = new FLlamaInternal();
 
-    //Hookup internal listeners
+    //Hookup internal listeners - these get called on BG thread
     Internal->OnTokenGenerated = [this](const std::string& TokenPiece)
     {
         const FString Token = FLlamaString::ToUE(TokenPiece);
@@ -40,7 +41,7 @@ FLlamaNative::FLlamaNative()
         //Emit token to game thread
         if (OnTokenGenerated)
         {
-            Async(EAsyncExecution::TaskGraphMainThread, [this, Token, Partial]()
+            EnqueueGTTask([this, Token, Partial]()
             {
                 if (OnTokenGenerated)
                 {
@@ -61,67 +62,48 @@ FLlamaNative::FLlamaNative()
             UE_LOG(LlamaLog, Log, TEXT("Generated %d tokens in %1.2fs (%1.2ftps)"), TokensGenerated, Duration, SpeedTps);
         }
 
-        //Sync history data on bg thread
-        FStructuredChatHistory ChatHistory;
-        FString ContextHistory;
-        GetStructuredChatHistory(ChatHistory);
-        RawContextHistory(ContextHistory);
         int32 UsedContext = UsedContextLength();
+
+        //Sync history data on bg thread
+        SyncModelStateToInternal([this, UsedContext, SpeedTps]
+        {
+            ModelState.ContextUsed = UsedContext;
+            ModelState.LastTokenGenerationSpeed = SpeedTps;
+        });
 
         //Clear our partial text parser
         CombinedPieceText.Empty();
 
+        //Emit response generated to general listeners
         FString ResponseString = FLlamaString::ToUE(Response);
-
-        EnqueueGTTask([this, ResponseString, ChatHistory, ContextHistory, UsedContext, SpeedTps]
+        EnqueueGTTask([this, ResponseString]
         {
-            //Sync state information
-            ModelState.ContextUsed = UsedContext;
-            ModelState.ChatHistory = ChatHistory;
-            ModelState.ContextHistory = ContextHistory;
-            ModelState.LastTokenGenerationSpeed = SpeedTps;
-
-            if (ChatHistory.History.Num() > 0)
+            if (OnResponseGenerated)
             {
-                ModelState.LastRole = ChatHistory.History.Last().Role;
-            }
-
-            if (OnModelStateChanged)
-            {
-                OnModelStateChanged(ModelState);
+                OnResponseGenerated(ResponseString);
             }
         });
     };
 
     Internal->OnPromptProcessed = [this](int32 TokensProcessed, EChatTemplateRole RoleProcessed, float SpeedTps)
     {
-        if (OnPromptProcessed)
+        int32 UsedContext = UsedContextLength();
+
+        //Sync history data with additional state updates
+        SyncModelStateToInternal([this, UsedContext, SpeedTps]
         {
-            //Sync history data on bg thread
-            FStructuredChatHistory ChatHistory;
-            FString ContextHistory;
-            GetStructuredChatHistory(ChatHistory);
-            RawContextHistory(ContextHistory);
-            int32 UsedContext = UsedContextLength();
+            ModelState.ContextUsed = UsedContext;
+            ModelState.LastPromptProcessingSpeed = SpeedTps;
+        });
 
-            Async(EAsyncExecution::TaskGraphMainThread, [this, TokensProcessed, RoleProcessed, SpeedTps, ChatHistory, ContextHistory, UsedContext]
+        //Separate enqueue to ensure it happens after modelstate update
+        EnqueueGTTask([this, TokensProcessed, RoleProcessed, SpeedTps]
+        {
+            if (OnPromptProcessed)
             {
-                ModelState.ContextUsed = UsedContext;
-                ModelState.ChatHistory = ChatHistory;
-                ModelState.ContextHistory = ContextHistory;
-                ModelState.LastPromptProcessingSpeed = SpeedTps;
-
-                if (ModelState.ChatHistory.History.Num() > 0)
-                {
-                    ModelState.LastRole = ModelState.ChatHistory.History.Last().Role;
-                }
-
-                if (OnPromptProcessed)
-                {
-                    OnPromptProcessed(TokensProcessed, RoleProcessed, SpeedTps);
-                }
-            });
-        }
+                OnPromptProcessed(TokensProcessed, RoleProcessed, SpeedTps);
+            }
+        });
     };
 }
 
@@ -138,18 +120,52 @@ FLlamaNative::~FLlamaNative()
     delete Internal;
 }
 
-void FLlamaNative::SyncModelStateToInternal()
+void FLlamaNative::SyncModelStateToInternal(TFunction<void()> AdditionalGTStateUpdates)
 {
-    GetStructuredChatHistory(ModelState.ChatHistory);
-    RawContextHistory(ModelState.ContextHistory);
-    if (ModelState.ChatHistory.History.Num() > 0)
+    TFunction<void(int64)> BGSyncAction = [this, AdditionalGTStateUpdates](int64 TaskId)
     {
-        ModelState.LastRole = ModelState.ChatHistory.History.Last().Role;
-    }
-    if (OnModelStateChanged)
+        //Copy states internal states, emit to 
+        FStructuredChatHistory ChatHistory;
+        FString ContextHistory;
+        GetStructuredChatHistory(ChatHistory);
+        RawContextHistory(ContextHistory);
+
+        EnqueueGTTask([this, ChatHistory, ContextHistory, AdditionalGTStateUpdates]
+        {
+            //Update state on gamethread
+            ModelState.ChatHistory = ChatHistory;
+            ModelState.ContextHistory = ContextHistory;
+
+            //derived state update
+            if (ModelState.ChatHistory.History.Num() > 0)
+            {
+                ModelState.LastRole = ModelState.ChatHistory.History.Last().Role;
+            }
+
+            //Run the updates before model state changes happen
+            if (AdditionalGTStateUpdates)
+            {
+                AdditionalGTStateUpdates();
+            }
+
+            //Emit model state update to GT listeners
+            if (OnModelStateChanged)
+            {
+                OnModelStateChanged(ModelState);
+            }
+        }, TaskId);
+    };
+
+    if (IsInGameThread())
     {
-        OnModelStateChanged(ModelState);
+        EnqueueBGTask(BGSyncAction);
     }
+    else
+    {
+        //Call directly
+        BGSyncAction(GetNextTaskId());
+    }
+    
 }
 
 void FLlamaNative::StartLLMThread()
@@ -182,9 +198,8 @@ void FLlamaNative::StartLLMThread()
 
 int64 FLlamaNative::GetNextTaskId()
 {
-    TaskIdCounter++;
-
-    return TaskIdCounter;
+    //technically returns an int32
+    return TaskIdCounter.Increment();
 }
 
 void FLlamaNative::EnqueueBGTask(TFunction<void(int64)> TaskFunction)
@@ -304,6 +319,7 @@ void FLlamaNative::InsertTemplatedPrompt(const FLlamaChatPrompt& Prompt, TFuncti
         return;
     }
 
+    //Copy so we can deal with it on different threads
     FLlamaChatPrompt ThreadSafePrompt = Prompt;
 
     //run prompt insert on a background thread
@@ -315,6 +331,7 @@ void FLlamaNative::InsertTemplatedPrompt(const FLlamaChatPrompt& Prompt, TFuncti
         {
             FString Response = FLlamaString::ToUE(Internal->InsertTemplatedPrompt(UserStdString, ThreadSafePrompt.Role, ThreadSafePrompt.bAddAssistantBOS, true));
 
+            //NB: OnResponseGenerated will also be called separately from this
             EnqueueGTTask([this, Response, OnResponseFinished]()
             {
                 if (OnResponseFinished)
@@ -325,13 +342,13 @@ void FLlamaNative::InsertTemplatedPrompt(const FLlamaChatPrompt& Prompt, TFuncti
         }
         else
         {
-            //importantly turn off generation (last param)
+            //We don't want to generate a reply, just append a prompt. (last param = false turns it off)
             Internal->InsertTemplatedPrompt(UserStdString, ThreadSafePrompt.Role, ThreadSafePrompt.bAddAssistantBOS, false);
         }
     });
 }
 
-void FLlamaNative::InsertRawPrompt(const FString& Prompt, TFunction<void(const FString& Response)>OnResponseFinished)
+void FLlamaNative::InsertRawPrompt(const FString& Prompt, bool bGenerateReply, TFunction<void(const FString& Response)>OnResponseFinished)
 {
     if (!IsModelLoaded())
     {
@@ -341,9 +358,9 @@ void FLlamaNative::InsertRawPrompt(const FString& Prompt, TFunction<void(const F
 
     const std::string PromptStdString = FLlamaString::ToStd(Prompt);
 
-    EnqueueBGTask([this, PromptStdString, OnResponseFinished](int64 TaskId)
+    EnqueueBGTask([this, PromptStdString, OnResponseFinished, bGenerateReply](int64 TaskId)
     {
-        FString Response = FLlamaString::ToUE(Internal->InsertRawPrompt(PromptStdString));
+        FString Response = FLlamaString::ToUE(Internal->InsertRawPrompt(PromptStdString, bGenerateReply));
         EnqueueGTTask([this, Response, OnResponseFinished]
         {
             if (OnResponseFinished)
@@ -356,19 +373,24 @@ void FLlamaNative::InsertRawPrompt(const FString& Prompt, TFunction<void(const F
 
 void FLlamaNative::RemoveLastNMessages(int32 MessageCount)
 {
-    Internal->RollbackContextHistoryByMessages(MessageCount);
+    EnqueueBGTask([this, MessageCount](int64 TaskId)
+    {
+        Internal->RollbackContextHistoryByMessages(MessageCount);
 
-    //Sync state
-    SyncModelStateToInternal();
+        //Sync state
+        SyncModelStateToInternal();
+    });
 }
 
 bool FLlamaNative::IsGenerating()
 {
+    //this is threadsafe
     return Internal->IsGenerating();
 }
 
 void FLlamaNative::StopGeneration()
 {
+    //this is threadsafe
     Internal->StopGeneration();
 }
 
@@ -380,10 +402,20 @@ void FLlamaNative::ResumeGeneration()
         return;
     }
 
-    Async(EAsyncExecution::ThreadPool, [this]
+    EnqueueBGTask([this](int64 TaskId)
     {
         Internal->ResumeGeneration();
     });
+}
+
+void FLlamaNative::ClearPendingTasks(bool bClearGameThreadCallbacks)
+{
+    BackgroundTasks.Empty();
+
+    if (bClearGameThreadCallbacks)
+    {
+        GameThreadTasks.Empty();
+    }
 }
 
 void FLlamaNative::OnTick(float DeltaTime)
@@ -407,15 +439,18 @@ void FLlamaNative::OnTick(float DeltaTime)
 
 void FLlamaNative::ResetContextHistory(bool bKeepSystemPrompt)
 {
-    Internal->ResetContextHistory(bKeepSystemPrompt);
-
-    SyncModelStateToInternal();
-
-    //Lazy keep version, just re-insert. TODO: implement optimized reset
-    /*if (bKeepSystemPrompt)
+    EnqueueBGTask([this, bKeepSystemPrompt](int64 TaskId)
     {
-        InsertTemplatedPrompt(ModelParams.SystemPrompt, EChatTemplateRole::System, false, false);
-    }*/
+        Internal->ResetContextHistory(bKeepSystemPrompt);
+
+        //Lazy keep version, just re-insert. TODO: implement optimized reset
+        /*if (bKeepSystemPrompt)
+        {
+            Internal->InsertTemplatedPrompt(ModelParams.SystemPrompt, EChatTemplateRole::System, false, false);
+        }*/
+
+        SyncModelStateToInternal();
+    });
 }
 
 void FLlamaNative::RemoveLastUserInput()

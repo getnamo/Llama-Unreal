@@ -18,7 +18,7 @@ public:
 	//Callbacks
 	TFunction<void(const FString& Token)> OnTokenGenerated;
 	TFunction<void(const FString& Partial)> OnPartialGenerated;		//usually considered sentences, good for TTS.
-	//TFunction<void(const FString& Response)> OnResponseGenerated;	//per round
+	TFunction<void(const FString& Response)> OnResponseGenerated;	//per round
 	TFunction<void(int32 TokensProcessed, EChatTemplateRole ForRole, float Speed)> OnPromptProcessed;	//when an inserted prompt has finished processing (non-generation prompt)
 	TFunction<void()> OnGenerationStarted;
 	TFunction<void(const FLlamaRunTimings& Timings)> OnGenerationFinished;
@@ -36,10 +36,14 @@ public:
 	//Prompt input
 	void InsertTemplatedPrompt(const FLlamaChatPrompt& Prompt, 
 		TFunction<void(const FString& Response)>OnResponseFinished = nullptr);
-	void InsertRawPrompt(const FString& Prompt, TFunction<void(const FString& Response)>OnResponseFinished = nullptr);
+	void InsertRawPrompt(const FString& Prompt, bool bGenerateReply = true, 
+		TFunction<void(const FString& Response)>OnResponseFinished = nullptr);
 	bool IsGenerating();
 	void StopGeneration();
 	void ResumeGeneration();
+
+	//if you've queued up a lot of BG tasks, you can clear the queue with this call
+	void ClearPendingTasks(bool bClearGameThreadCallbacks = false);
 
 	//tick forward for safely consuming game thread messages without hanging
 	void OnTick(float DeltaTime);
@@ -54,10 +58,7 @@ public:
 	void RemoveLastNMessages(int32 MessageCount);	//rollback
 
 	//Pure query of current context - not threadsafe, be careful when these get called - TBD: make it safe
-	int32 RawContextHistory(FString& OutContextString);
-	void GetStructuredChatHistory(FStructuredChatHistory& OutChatHistory);
 	void SyncPassedModelStateToNative(FLLMModelState& StateToSync);
-	int32 UsedContextLength();
 
 	FString WrapPromptForRole(const FString& Text, EChatTemplateRole Role, const FString& OverrideTemplate, bool bAddAssistantBoS = false);
 
@@ -68,11 +69,19 @@ public:
 
 protected:
 
-	void SyncModelStateToInternal();
+	//can be safely called on game thread or the bg thread, handles either logic
+	void SyncModelStateToInternal(TFunction<void()>AdditionalGTStateUpdates = nullptr);
 
-	//State
+	//utility functions, only safe to call on bg thread
+	int32 RawContextHistory(FString& OutContextString);
+	void GetStructuredChatHistory(FStructuredChatHistory& OutChatHistory);
+	int32 UsedContextLength();
+
+	//GT State - safely accesible on game thread
 	FLLMModelParams ModelParams;
 	FLLMModelState ModelState;
+
+	//BG State
 	FString CombinedPieceText;	//accumulates tokens into full string during per-token inference.
 
 	//Threading
@@ -81,7 +90,7 @@ protected:
 	TQueue<FLLMThreadTask> GameThreadTasks;
 	FThreadSafeBool bThreadIsActive = false;
 	FThreadSafeBool bThreadShouldRun = false;
-	int64 TaskIdCounter = 0;
+	FThreadSafeCounter TaskIdCounter = 0;
 	int64 GetNextTaskId();
 
 	void EnqueueBGTask(TFunction<void(int64)> Task);
