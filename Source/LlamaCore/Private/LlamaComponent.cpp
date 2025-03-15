@@ -67,9 +67,14 @@ void ULlamaComponent::TickComponent(float DeltaTime,
     LlamaNative->OnTick(DeltaTime);
 }
 
-void ULlamaComponent::InsertTemplatedPrompt(const FString& Prompt, EChatTemplateRole Role, bool bAddAssistantBOS, bool bGenerateReply)
+void ULlamaComponent::InsertTemplatedPrompt(const FString& Text, EChatTemplateRole Role, bool bAddAssistantBOS, bool bGenerateReply)
 {
-    InsertTemplatedPromptStruct(Prompt);
+    FLlamaChatPrompt ChatPrompt;
+    ChatPrompt.Prompt = Text;
+    ChatPrompt.Role = Role;
+    ChatPrompt.bAddAssistantBOS = bAddAssistantBOS;
+    ChatPrompt.bGenerateReply = bGenerateReply;
+    InsertTemplatedPromptStruct(ChatPrompt);
 }
 
 void ULlamaComponent::InsertTemplatedPromptStruct(const FLlamaChatPrompt& ChatPrompt)

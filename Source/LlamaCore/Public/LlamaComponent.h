@@ -94,7 +94,7 @@ public:
     void InsertTemplatedPrompt(UPARAM(meta=(MultiLine=true)) const FString& Text, EChatTemplateRole Role = EChatTemplateRole::User, bool bAddAssistantBOS = false, bool bGenerateReply = true);
 
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
-    void InsertTemplatedPromptStruct(const FLlamaChatPrompt& Prompt);
+    void InsertTemplatedPromptStruct(const FLlamaChatPrompt& ChatPrompt);
 
     //does not apply formatting before running inference
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
