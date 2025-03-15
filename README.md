@@ -25,7 +25,7 @@ Everything is wrapped inside a [`ULlamaComponent`](https://github.com/getnamo/Ll
 
 3) Call `LoadModel`
 
-2) Call [`InsertPromptTemplated`](https://github.com/getnamo/Llama-Unreal/blob/5b149eabccd2832fb630bb08f0d9f0c14325ed82/Source/LlamaCore/Public/LlamaComponent.h#L307) (or [`InsertPrompt`](https://github.com/getnamo/Llama-Unreal/blob/5b149eabccd2832fb630bb08f0d9f0c14325ed82/Source/LlamaCore/Public/LlamaComponent.h#L290) if you're doing raw input style without formatting.
+2) Call [`InsertPromptTemplated`](https://github.com/getnamo/Llama-Unreal/blob/5b149eabccd2832fb630bb08f0d9f0c14325ed82/Source/LlamaCore/Public/LlamaComponent.h#L307) (or [`InsertRawPrompt`](https://github.com/getnamo/Llama-Unreal/blob/5b149eabccd2832fb630bb08f0d9f0c14325ed82/Source/LlamaCore/Public/LlamaComponent.h#L290) if you're doing raw input style without formatting.
 
 3) You should receive replies via [`OnNewTokenGenerated`](https://github.com/getnamo/Llama-Unreal/blob/5b149eabccd2832fb630bb08f0d9f0c14325ed82/Source/LlamaCore/Public/LlamaComponent.h#L252) callback
 
