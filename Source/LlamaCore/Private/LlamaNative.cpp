@@ -204,6 +204,12 @@ int64 FLlamaNative::GetNextTaskId()
 
 void FLlamaNative::EnqueueBGTask(TFunction<void(int64)> TaskFunction)
 {
+    //Lazy start the thread on first enqueue
+    if (!bThreadIsActive)
+    {
+        StartLLMThread();
+    }
+
     FLLMThreadTask Task;
     Task.TaskId = GetNextTaskId();
     Task.TaskFunction = TaskFunction;
@@ -242,7 +248,7 @@ void FLlamaNative::LoadModel(TFunction<void(const FString&, int32 StatusCode)> M
     EnqueueBGTask([this, ModelLoadedCallback](int64 TaskId)
     {
         //Unload first if any is loaded
-        UnloadModel();
+        Internal->UnloadModel();
 
         //Now load it
         bool bSuccess = Internal->LoadModelFromParams(ModelParams);
