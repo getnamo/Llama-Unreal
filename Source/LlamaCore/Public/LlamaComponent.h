@@ -80,6 +80,9 @@ public:
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
     void UnloadModel();
 
+    UFUNCTION(BlueprintPure, Category = "LLM Model Component")
+    bool IsModelLoaded();
+
 
     //Clears the prompt, allowing a new context - optionally keeping the initial system prompt
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")

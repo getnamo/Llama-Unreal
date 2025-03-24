@@ -131,6 +131,11 @@ void ULlamaComponent::UnloadModel()
     });
 }
 
+bool ULlamaComponent::IsModelLoaded()
+{
+    return ModelState.bModelIsLoaded;
+}
+
 void ULlamaComponent::ResetContextHistory(bool bKeepSystemPrompt)
 {
     LlamaNative->ResetContextHistory(bKeepSystemPrompt);

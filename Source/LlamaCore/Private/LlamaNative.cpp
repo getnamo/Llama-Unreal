@@ -282,6 +282,7 @@ void FLlamaNative::LoadModel(TFunction<void(const FString&, int32 StatusCode)> M
                 ChatTemplate.Jinja = TemplateString;
 
                 ModelState.ChatTemplateInUse = ChatTemplate;
+                ModelState.bModelIsLoaded = true;
 
                 if (OnModelStateChanged)
                 {
@@ -320,6 +321,13 @@ void FLlamaNative::UnloadModel(TFunction<void(int32 StatusCode)> ModelUnloadedCa
         //Reply with code
         EnqueueGTTask([this, ModelUnloadedCallback]
         {
+            ModelState.bModelIsLoaded = false;
+
+            if (OnModelStateChanged)
+            {
+                OnModelStateChanged(ModelState);
+            }
+
             if (ModelUnloadedCallback)
             {
                 ModelUnloadedCallback(0);

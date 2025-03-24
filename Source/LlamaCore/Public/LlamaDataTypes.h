@@ -257,6 +257,9 @@ struct FLLMModelState
 {
     GENERATED_USTRUCT_BODY();
 
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model State")
+    bool bModelIsLoaded = false;
+
     //The raw context history with formatting applied
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model State")
     FString ContextHistory;

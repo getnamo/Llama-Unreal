@@ -53,63 +53,66 @@ public:
     FOnErrorSignature OnError;
 
     //Modify these before loading model to apply settings
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Component")
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Subsystem")
     FLLMModelParams ModelParams;
 
     //This state gets updated typically after every response
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Component")
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Subsystem")
     FLLMModelState ModelState;
 
     //Settings
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Component")
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Subsystem")
     bool bDebugLogModelOutput = false;
 
     //toggle to pay copy cost or not, default true
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Component")
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Subsystem")
     bool bSyncPromptHistory = true;
 
     //loads model from ModelParams
-    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Subsystem")
     void LoadModel();
 
-    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Subsystem")
     void UnloadModel();
 
+    UFUNCTION(BlueprintPure, Category = "LLM Model Subsystem")
+    bool IsModelLoaded();
+
     //Clears the prompt, allowing a new context - optionally keeping the initial system prompt
-    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Subsystem")
     void ResetContextHistory(bool bKeepSystemPrompt = false);
 
     //removes what the LLM replied
-    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Subsystem")
     void RemoveLastAssistantReply();
 
     //removes what you said and what the LLM replied
-    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Subsystem")
     void RemoveLastUserInput();
 
     //Main input function
-    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Subsystem")
     void InsertTemplatedPrompt(UPARAM(meta=(MultiLine=true)) const FString& Text, EChatTemplateRole Role = EChatTemplateRole::User, bool bAddAssistantBOS = false, bool bGenerateReply = true);
 
-    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Subsystem")
     void InsertTemplatedPromptStruct(const FLlamaChatPrompt& ChatPrompt);
 
     //does not apply formatting before running inference
-    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Subsystem")
     void InsertRawPrompt(UPARAM(meta = (MultiLine = true)) const FString& Text, bool bGenerateReply = true);
 
     //Force stop generating new tokens
-    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Subsystem")
     void StopGeneration();
 
-    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Subsystem")
     void ResumeGeneration();
 
     //Obtain the currently formatted context
-    UFUNCTION(BlueprintPure, Category = "LLM Model Component")
+    UFUNCTION(BlueprintPure, Category = "LLM Model Subsystem")
     FString RawContextHistory();
 
-    UFUNCTION(BlueprintPure, Category = "LLM Model Component")
+    UFUNCTION(BlueprintPure, Category = "LLM Model Subsystem")
     FStructuredChatHistory GetStructuredChatHistory();
 
 private:
