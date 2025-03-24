@@ -23,7 +23,7 @@ Everything is wrapped inside a [`ULlamaComponent`](https://github.com/getnamo/Ll
   - `PathToModel` - where you .gguf is placed. If path begins with a . it's considered relative to Saved/Models path, otherwise it's an absolute path.
   - `SystemPrompt` - this will be autoinserted on load by default
   - `MaxContextLength` - this should match your model, default is 4096
-  - `GPULayers` - how many layers to offload to GPU. Specifying more layers than the model needs, works fine, e.g. use 99 if you want all of them to be offloaded for various practical model sizes. NB: Typically an 8B model will have about 33 layers.
+  - `GPULayers` - how many layers to offload to GPU. Specifying more layers than the model needs works fine, e.g. use 99 if you want all of them to be offloaded for various practical model sizes. NB: Typically an 8B model will have about 33 layers. Loading more layers will eat up more VRAM, fitting the entire model inside of your target GPU will greatly increase generation speed.
 
 3) Call [`LoadModel`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaComponent.h#L78). Consider listening to the [`OnModelLoaded`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaComponent.h#L54) callback to deal with post loading operations.
 
@@ -33,6 +33,10 @@ Everything is wrapped inside a [`ULlamaComponent`](https://github.com/getnamo/Ll
 
 Explore [LlamaComponent.h](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaComponent.h) for detailed API. Also if you need to modify sampling properties you find them in [`FLLMModelAdvancedParams`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaDataTypes.h#L49).
 
+
+# Note on speed
+
+If you're running the inference in a high spec game fully loaded into the same GPU that renders the game, expect about ~1/3-1/2 of the performance due to resource contention; e.g. an 8B model running at ~90TPS might have ~40TPS speed in game. You may want to use a smaller model or apply pressure easing strategies to manage perfectly stable framerates.
 
 # Llama.cpp Build Instructions
 
