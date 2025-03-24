@@ -17,19 +17,21 @@ Fork is modern re-write from [upstream](https://github.com/mika314/UELlama) to s
 
 # How to use - Basics
 
-NB: Early days of API, unstable.
+Everything is wrapped inside a [`ULlamaComponent`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaComponent.h#L17) or [`ULlamaSubsystem`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaSubsystem.h#L16) which interfaces in a threadsafe manner to llama.cpp code internally via [`FLlamaNative`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaNative.h#L14). All core functionality is available both in C++ and in blueprint.
 
-Everything is wrapped inside a [`ULlamaComponent`](https://github.com/getnamo/Llama-Unreal/blob/5b149eabccd2832fb630bb08f0d9f0c14325ed82/Source/LlamaCore/Public/LlamaComponent.h#L237) which interfaces internally via [`FLlama`](https://github.com/getnamo/Llama-Unreal/blob/5b149eabccd2832fb630bb08f0d9f0c14325ed82/Source/LlamaCore/Private/LlamaComponent.cpp#L87).
+1) In your component or subsystem, adjust your [`ModelParams`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaComponent.h#L62) of type [`FLLMModelParams`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaDataTypes.h#L208). The most important settings are:
+  - `PathToModel` - where you .gguf is placed. If path begins with a . it's considered relative to Saved/Models path, otherwise it's an absolute path.
+  - `SystemPrompt` - this will be autoinserted on load by default
+  - `MaxContextLength` - this should match your model, default is 4096
+  - `GPULayers` - how many layers to offload to GPU. Specifying more layers than the model needs, works fine, e.g. use 99 if you want all of them to be offloaded for various practical model sizes. NB: Typically an 8B model will have about 33 layers.
 
-1) Setup your [`ModelParams`](https://github.com/getnamo/Llama-Unreal/blob/5b149eabccd2832fb630bb08f0d9f0c14325ed82/Source/LlamaCore/Public/LlamaComponent.h#L273) of type [`FLLMModelParams`](https://github.com/getnamo/Llama-Unreal/blob/5b149eabccd2832fb630bb08f0d9f0c14325ed82/Source/LlamaCore/Public/LlamaComponent.h#L165) 
+3) Call [`LoadModel`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaComponent.h#L78). Consider listening to the [`OnModelLoaded`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaComponent.h#L54) callback to deal with post loading operations.
 
-3) Call `LoadModel`
+2) Call [`InsertTemplatedPrompt`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaComponent.h#L101) with your message and role (typically User) along with whether you want your prompt to generate a response or not. Optionally use [`InsertRawPrompt`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaComponent.h#L108) if you're doing raw input style without chat formatting. Note that you can safely chain requests and they will queue up one after another, responses will return in order.
 
-2) Call [`InsertPromptTemplated`](https://github.com/getnamo/Llama-Unreal/blob/5b149eabccd2832fb630bb08f0d9f0c14325ed82/Source/LlamaCore/Public/LlamaComponent.h#L307) (or [`InsertRawPrompt`](https://github.com/getnamo/Llama-Unreal/blob/5b149eabccd2832fb630bb08f0d9f0c14325ed82/Source/LlamaCore/Public/LlamaComponent.h#L290) if you're doing raw input style without formatting.
+3) You should receive replies via [`OnResponseGenerated`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaComponent.h#L36) when full response has been generated. If you need streaming information, listen to [`OnNewTokenGenerated`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaComponent.h#L32) and optionally [`OnPartialGenerated`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaComponent.h#L40) which will provide token and sentance level streams respectively.
 
-3) You should receive replies via [`OnNewTokenGenerated`](https://github.com/getnamo/Llama-Unreal/blob/5b149eabccd2832fb630bb08f0d9f0c14325ed82/Source/LlamaCore/Public/LlamaComponent.h#L252) callback
-
-Explore [LlamaComponent.h](https://github.com/getnamo/Llama-Unreal/blob/main/Source/LlamaCore/Public/LlamaComponent.h) for detailed API.
+Explore [LlamaComponent.h](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaComponent.h) for detailed API. Also if you need to modify sampling properties you find them in [`FLLMModelAdvancedParams`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaDataTypes.h#L49).
 
 
 # Llama.cpp Build Instructions
