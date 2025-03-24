@@ -5,6 +5,7 @@
 #include "Internal/LlamaInternal.h"
 #include "Async/TaskGraphInterfaces.h"
 #include "Async/Async.h"
+#include "Tickable.h"
 
 FLlamaNative::FLlamaNative()
 {
@@ -111,6 +112,9 @@ FLlamaNative::~FLlamaNative()
 {
     StopGeneration();
     bThreadShouldRun = false;
+    
+    //Remove ticker if active
+    RemoveTicker();
 
     //Wait for the thread to stop
     while (bThreadIsActive) 
@@ -424,7 +428,7 @@ void FLlamaNative::ClearPendingTasks(bool bClearGameThreadCallbacks)
     }
 }
 
-void FLlamaNative::OnTick(float DeltaTime)
+void FLlamaNative::OnGameThreadTick(float DeltaTime)
 {
     //Handle all the game thread callbacks
     if (!GameThreadTasks.IsEmpty())
@@ -441,6 +445,29 @@ void FLlamaNative::OnTick(float DeltaTime)
             }
         }
     }
+}
+
+void FLlamaNative::AddTicker()
+{
+    TickDelegateHandle = FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda([this](float DeltaTime)
+    {
+        OnGameThreadTick(DeltaTime);
+        return true;
+    }));
+}
+
+void FLlamaNative::RemoveTicker()
+{
+    if (IsNativeTickerActive())
+    {
+        FTSTicker::GetCoreTicker().RemoveTicker(TickDelegateHandle);
+        TickDelegateHandle = nullptr;
+    }
+}
+
+bool FLlamaNative::IsNativeTickerActive()
+{
+    return TickDelegateHandle.IsValid();
 }
 
 void FLlamaNative::ResetContextHistory(bool bKeepSystemPrompt)

@@ -46,7 +46,10 @@ public:
 	void ClearPendingTasks(bool bClearGameThreadCallbacks = false);
 
 	//tick forward for safely consuming game thread messages without hanging
-	void OnTick(float DeltaTime);
+	void OnGameThreadTick(float DeltaTime);
+	void AddTicker();	 //optional if you don't forward ticks from e.g. component tick
+	void RemoveTicker(); //if you use AddTicker, use remove ticker to balance on exit. Will happen on destruction of native component.
+	bool IsNativeTickerActive();
 
 	//Context change - not yet implemented
 	void ResetContextHistory(bool bKeepSystemPrompt = false);	//full reset
@@ -54,10 +57,10 @@ public:
 	void RemoveLastReply();		//chat rollback to undo last assistant input.
 	void RegenerateLastReply(); //removes last reply and regenerates (changing seed?)
 
-	//Todo: Use this api + state checks to use RemoveLastInput and RemoveLastReply wrappers.
+	//Base api to do message rollback
 	void RemoveLastNMessages(int32 MessageCount);	//rollback
 
-	//Pure query of current context - not threadsafe, be careful when these get called - TBD: make it safe
+	//Pure query of current game thread context
 	void SyncPassedModelStateToNative(FLLMModelState& StateToSync);
 
 	FString WrapPromptForRole(const FString& Text, EChatTemplateRole Role, const FString& OverrideTemplate, bool bAddAssistantBoS = false);
@@ -65,7 +68,7 @@ public:
 	FLlamaNative();
 	~FLlamaNative();
 
-	float ThreadIdleSleepDuration = 0.005f; //5ms sleep timer for BG thread
+	float ThreadIdleSleepDuration = 0.005f;        //5ms sleep timer for BG thread'
 
 protected:
 
@@ -97,4 +100,5 @@ protected:
 	void EnqueueGTTask(TFunction<void()> Task, int64 LinkedTaskId = -1);
 
 	class FLlamaInternal* Internal = nullptr;
+	FTSTicker::FDelegateHandle TickDelegateHandle = nullptr; //optional tick handle - used in subsystem example where tick isn't natively supported
 };
