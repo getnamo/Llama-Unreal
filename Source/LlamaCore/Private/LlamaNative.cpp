@@ -106,6 +106,18 @@ FLlamaNative::FLlamaNative()
             }
         });
     };
+
+    Internal->OnError = [this](const FString& ErrorMessage)
+    {
+        const FString ErrorMessageGTSafe = ErrorMessage;
+        EnqueueGTTask([this, ErrorMessageGTSafe]
+        {
+            if (OnError)
+            {
+                OnError(ErrorMessageGTSafe);
+            }
+        });
+    };
 }
 
 FLlamaNative::~FLlamaNative()

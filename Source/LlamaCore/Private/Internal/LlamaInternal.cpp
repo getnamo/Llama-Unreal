@@ -509,8 +509,13 @@ std::string FLlamaInternal::Generate(const std::string& Prompt, bool bAppendToMe
 
         if (NContextUsed + NDecoded > NContext)
         {
-            UE_LOG(LlamaLog, Error, TEXT("context size %d exceeded\n"), NContext);
+            FString ErrorMessage = FString::Printf(TEXT("context size %d exceeded\n"), NContext);
+            UE_LOG(LlamaLog, Error, TEXT("%s"), *ErrorMessage);
             bGenerationActive = false;
+            if (OnError)
+            {
+                OnError(ErrorMessage);
+            }
             return "";
         }
 

@@ -27,6 +27,10 @@ ULlamaComponent::ULlamaComponent(const FObjectInitializer &ObjectInitializer)
     {
         OnPromptProcessed.Broadcast(TokensProcessed, Role, Speed);
     };
+    LlamaNative->OnError = [this](const FString& ErrorMessage)
+    {
+        OnError.Broadcast(ErrorMessage);
+    };
 
     PrimaryComponentTick.bCanEverTick = true;
     PrimaryComponentTick.bStartWithTickEnabled = true;

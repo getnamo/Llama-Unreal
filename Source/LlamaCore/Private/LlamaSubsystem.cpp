@@ -29,6 +29,10 @@ void ULlamaSubsystem::Initialize(FSubsystemCollectionBase& Collection)
     {
         OnPromptProcessed.Broadcast(TokensProcessed, Role, Speed);
     };
+    LlamaNative->OnError = [this](const FString& ErrorMessage)
+    {
+        OnError.Broadcast(ErrorMessage);
+    };
 
     //All sentence ending formatting.
     ModelParams.Advanced.PartialsSeparators.Add(TEXT("."));

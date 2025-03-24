@@ -21,6 +21,7 @@ public:
     TFunction<void(const std::string& TokenPiece)>OnTokenGenerated = nullptr;
     TFunction<void(int32 TokensProcessed, EChatTemplateRole ForRole, float Speed)>OnPromptProcessed = nullptr;   //useful for waiting for system prompt ready
     TFunction<void(const std::string& Response, float Time, int32 Tokens, float Speed)>OnGenerationComplete = nullptr;
+    TFunction<void(const FString& ErrorMessage)> OnError = nullptr;     //doesn't use std::string due to expected consumer
 
     //Messaging state
     std::vector<llama_chat_message> Messages;
