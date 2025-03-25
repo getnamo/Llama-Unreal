@@ -53,7 +53,11 @@ ULlamaComponent::~ULlamaComponent()
 void ULlamaComponent::Activate(bool bReset)
 {
     Super::Activate(bReset);
-    LoadModel();
+
+    if (ModelParams.bAutoLoadModelOnStartup)
+    {
+        LoadModel(true);
+    }
 }
 
 void ULlamaComponent::Deactivate()
@@ -105,10 +109,10 @@ void ULlamaComponent::InsertRawPrompt(const FString& Text, bool bGenerateReply)
     });
 }
 
-void ULlamaComponent::LoadModel()
+void ULlamaComponent::LoadModel(bool bForceReload)
 {
     LlamaNative->SetModelParams(ModelParams);
-    LlamaNative->LoadModel([this](const FString& ModelPath, int32 StatusCode)
+    LlamaNative->LoadModel(bForceReload, [this](const FString& ModelPath, int32 StatusCode)
     {
         //We errored, the emit will happen before we reach here so just exit
         if (StatusCode !=0)

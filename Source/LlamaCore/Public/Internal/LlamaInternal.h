@@ -35,6 +35,9 @@ public:
     std::string Template;
     std::string TemplateSource;
 
+    //Pacing
+    FLLMModelParams LastLoadedParams;
+
     //Model loading
     bool LoadModelFromParams(const FLLMModelParams& InModelParams);
     void UnloadModel();
@@ -81,7 +84,7 @@ protected:
 
     const char* RoleForEnum(EChatTemplateRole Role);
 
-    bool bIsModelLoaded = false;
+    FThreadSafeBool bIsModelLoaded = false;
     int32 FilledContextCharLength = 0;
     FThreadSafeBool bGenerationActive = false;
 };

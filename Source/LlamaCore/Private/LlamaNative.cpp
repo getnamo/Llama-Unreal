@@ -259,15 +259,24 @@ void FLlamaNative::SetModelParams(const FLLMModelParams& Params)
 	ModelParams = Params;
 }
 
-void FLlamaNative::LoadModel(TFunction<void(const FString&, int32 StatusCode)> ModelLoadedCallback)
+void FLlamaNative::LoadModel(bool bForceReload, TFunction<void(const FString&, int32 StatusCode)> ModelLoadedCallback)
 {
-    EnqueueBGTask([this, ModelLoadedCallback](int64 TaskId)
+    if (IsModelLoaded() && !bForceReload)
+    {
+        //already loaded, we're done
+        return ModelLoadedCallback(ModelParams.PathToModel, 0);
+    }
+
+    //Copy so these dont get modified during enqueue op
+    const FLLMModelParams ParamsAtLoad = ModelParams;
+
+    EnqueueBGTask([this, ParamsAtLoad, ModelLoadedCallback](int64 TaskId)
     {
         //Unload first if any is loaded
         Internal->UnloadModel();
 
         //Now load it
-        bool bSuccess = Internal->LoadModelFromParams(ModelParams);
+        bool bSuccess = Internal->LoadModelFromParams(ParamsAtLoad);
 
         //Sync model state
         if (bSuccess)

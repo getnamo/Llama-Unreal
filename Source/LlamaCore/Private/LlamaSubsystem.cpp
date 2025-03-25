@@ -85,7 +85,7 @@ void ULlamaSubsystem::InsertRawPrompt(const FString& Text, bool bGenerateReply)
     });
 }
 
-void ULlamaSubsystem::LoadModel()
+void ULlamaSubsystem::LoadModel(bool bForceReload)
 {
     //Sync gt params
     LlamaNative->SetModelParams(ModelParams);
@@ -96,7 +96,7 @@ void ULlamaSubsystem::LoadModel()
         LlamaNative->AddTicker();
     }
 
-    LlamaNative->LoadModel([this](const FString& ModelPath, int32 StatusCode)
+    LlamaNative->LoadModel(bForceReload, [this](const FString& ModelPath, int32 StatusCode)
     {
         //We errored, the emit will happen before we reach here so just exit
         if (StatusCode != 0)

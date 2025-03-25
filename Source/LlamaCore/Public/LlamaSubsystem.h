@@ -70,7 +70,7 @@ public:
 
     //loads model from ModelParams
     UFUNCTION(BlueprintCallable, Category = "LLM Model Subsystem")
-    void LoadModel();
+    void LoadModel(bool bForceReload = true);
 
     UFUNCTION(BlueprintCallable, Category = "LLM Model Subsystem")
     void UnloadModel();

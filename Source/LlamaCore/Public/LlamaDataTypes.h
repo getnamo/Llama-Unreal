@@ -119,6 +119,14 @@ struct FLLMModelAdvancedParams
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
     bool bUseCommonSampler = true;
 
+    //if set above 0.f it will sleep between generation passes to ease gpu pressure
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
+    float TokenGenerationPacingSleep = 0.f;
+
+    //if set above 0.f it will sleep between prompt passes (chunking) to ease gpu pressure
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
+    float PromptProcessingPacingSleep = 0.f;
+
     //usually . ? !
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
     TArray<FString> PartialsSeparators;
@@ -219,6 +227,10 @@ struct FLLMModelParams
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
     bool bAutoInsertSystemPromptOnLoad = true;
+
+    //applies to component API
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
+    bool bAutoLoadModelOnStartup = true;
 
     //If not different than default empty, no template will be applied
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")

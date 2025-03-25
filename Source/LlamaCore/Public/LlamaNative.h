@@ -28,7 +28,7 @@ public:
 	void SetModelParams(const FLLMModelParams& Params);
 
 	//Loads the model found at ModelParams.PathToModel, use SetModelParams to specify params before loading
-	void LoadModel(TFunction<void(const FString&, int32 StatusCode)> ModelLoadedCallback = nullptr);
+	void LoadModel(bool bForceReload = false, TFunction<void(const FString&, int32 StatusCode)> ModelLoadedCallback = nullptr);
 	void UnloadModel(TFunction<void(int32 StatusCode)> ModelUnloadedCallback = nullptr);
 	bool IsModelLoaded();
 

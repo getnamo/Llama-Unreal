@@ -73,9 +73,9 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Component")
     bool bSyncPromptHistory = true;
 
-    //loads model from ModelParams
+    //loads model from ModelParams. If bForceReload it will force the model to reload even if already loaded.
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
-    void LoadModel();
+    void LoadModel(bool bForceReload = true);
 
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
     void UnloadModel();
