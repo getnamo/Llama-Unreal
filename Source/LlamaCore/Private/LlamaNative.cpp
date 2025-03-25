@@ -107,14 +107,14 @@ FLlamaNative::FLlamaNative()
         });
     };
 
-    Internal->OnError = [this](const FString& ErrorMessage)
+    Internal->OnError = [this](const FString& ErrorMessage, int32 ErrorCode)
     {
         const FString ErrorMessageGTSafe = ErrorMessage;
-        EnqueueGTTask([this, ErrorMessageGTSafe]
+        EnqueueGTTask([this, ErrorMessageGTSafe, ErrorCode]
         {
             if (OnError)
             {
-                OnError(ErrorMessageGTSafe);
+                OnError(ErrorMessageGTSafe, ErrorCode);
             }
         });
     };
@@ -299,11 +299,8 @@ void FLlamaNative::LoadModel(TFunction<void(const FString&, int32 StatusCode)> M
         {
             EnqueueGTTask([this, ModelLoadedCallback]
             {
-                if (OnError)
-                {
-                    OnError("Failed loading model see logs.");
-                }
-                ModelLoadedCallback(ModelParams.PathToModel, -1);
+                //On error will be triggered earlier in the chain, but forward our model loading error status here
+                ModelLoadedCallback(ModelParams.PathToModel, 15);
             }, TaskId);
         }
     });

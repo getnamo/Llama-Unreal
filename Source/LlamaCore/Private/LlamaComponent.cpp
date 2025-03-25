@@ -27,9 +27,9 @@ ULlamaComponent::ULlamaComponent(const FObjectInitializer &ObjectInitializer)
     {
         OnPromptProcessed.Broadcast(TokensProcessed, Role, Speed);
     };
-    LlamaNative->OnError = [this](const FString& ErrorMessage)
+    LlamaNative->OnError = [this](const FString& ErrorMessage, int32 ErrorCode)
     {
-        OnError.Broadcast(ErrorMessage);
+        OnError.Broadcast(ErrorMessage, ErrorCode);
     };
 
     PrimaryComponentTick.bCanEverTick = true;
@@ -110,12 +110,17 @@ void ULlamaComponent::LoadModel()
     LlamaNative->SetModelParams(ModelParams);
     LlamaNative->LoadModel([this](const FString& ModelPath, int32 StatusCode)
     {
+        //We errored, the emit will happen before we reach here so just exit
+        if (StatusCode !=0)
+        {
+            return;
+        }
+
         if (ModelParams.bAutoInsertSystemPromptOnLoad)
         {
             InsertTemplatedPrompt(ModelParams.SystemPrompt, EChatTemplateRole::System, false, false);
         }
 
-        //Todo: we need model name from path...
         OnModelLoaded.Broadcast(ModelPath);
     });
 }
@@ -124,9 +129,12 @@ void ULlamaComponent::UnloadModel()
 {
     LlamaNative->UnloadModel([this](int32 StatusCode)
     {
+        //this pretty much should never get called, just in case: emit.
         if (StatusCode != 0)
         {
-            UE_LOG(LlamaLog, Warning, TEXT("UnloadModel return error code: %d"), StatusCode);
+            FString ErrorMessage = FString::Printf(TEXT("UnloadModel returned error code: %d"), StatusCode);
+            UE_LOG(LlamaLog, Warning, TEXT("%s"), *ErrorMessage);
+            OnError.Broadcast(ErrorMessage, StatusCode);
         }
     });
 }

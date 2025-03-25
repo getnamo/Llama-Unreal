@@ -21,7 +21,9 @@ public:
     TFunction<void(const std::string& TokenPiece)>OnTokenGenerated = nullptr;
     TFunction<void(int32 TokensProcessed, EChatTemplateRole ForRole, float Speed)>OnPromptProcessed = nullptr;   //useful for waiting for system prompt ready
     TFunction<void(const std::string& Response, float Time, int32 Tokens, float Speed)>OnGenerationComplete = nullptr;
-    TFunction<void(const FString& ErrorMessage)> OnError = nullptr;     //doesn't use std::string due to expected consumer
+
+    //NB basic error codes: 1x == Load Error, 2x == Process Prompt error, 3x == Generate error. 1xx == Misc errors
+    TFunction<void(const FString& ErrorMessage, int32 ErrorCode)> OnError = nullptr;     //doesn't use std::string due to expected consumer
 
     //Messaging state
     std::vector<llama_chat_message> Messages;
@@ -69,6 +71,8 @@ protected:
     //Wrapper for user<->assistant templated conversation
     int32 ProcessPrompt(const std::string& Prompt, EChatTemplateRole Role = EChatTemplateRole::Unknown);
     std::string Generate(const std::string& Prompt = "", bool bAppendToMessageHistory = true);
+
+    void EmitErrorMessage(const FString& ErrorMessage, int32 ErrorCode = -1, const FString& FunctionName = TEXT("unknown"));
 
     int32 ApplyTemplateToContextHistory(bool bAddAssistantBOS = false);
     int32 ApplyTemplateFromMessagesToBuffer(const std::string& Template, std::vector<llama_chat_message>& FromMessages, std::vector<char>& ToBuffer, bool bAddAssistantBoS = false);

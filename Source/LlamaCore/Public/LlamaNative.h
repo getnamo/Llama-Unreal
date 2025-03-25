@@ -22,7 +22,7 @@ public:
 	TFunction<void(int32 TokensProcessed, EChatTemplateRole ForRole, float Speed)> OnPromptProcessed;	//when an inserted prompt has finished processing (non-generation prompt)
 	TFunction<void()> OnGenerationStarted;
 	TFunction<void(const FLlamaRunTimings& Timings)> OnGenerationFinished;
-	TFunction<void(const FString& ErrorMessage)> OnError;
+	TFunction<void(const FString& ErrorMessage, int32 ErrorCode)> OnError;
 	TFunction<void(const FLLMModelState& UpdatedModelState)> OnModelStateChanged;
 
 	//Expected to be set before load model

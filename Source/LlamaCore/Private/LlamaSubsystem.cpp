@@ -29,9 +29,9 @@ void ULlamaSubsystem::Initialize(FSubsystemCollectionBase& Collection)
     {
         OnPromptProcessed.Broadcast(TokensProcessed, Role, Speed);
     };
-    LlamaNative->OnError = [this](const FString& ErrorMessage)
+    LlamaNative->OnError = [this](const FString& ErrorMessage, int32 ErrorCode)
     {
-        OnError.Broadcast(ErrorMessage);
+        OnError.Broadcast(ErrorMessage, ErrorCode);
     };
 
     //All sentence ending formatting.
@@ -90,7 +90,7 @@ void ULlamaSubsystem::LoadModel()
     //Sync gt params
     LlamaNative->SetModelParams(ModelParams);
 
-    //If ticker isn't active right now, start it. This will stay active until
+    //If ticker isn't active right now, start it. This will stay active until subsystem gets destroyed.
     if (!LlamaNative->IsNativeTickerActive())
     {
         LlamaNative->AddTicker();
@@ -98,6 +98,12 @@ void ULlamaSubsystem::LoadModel()
 
     LlamaNative->LoadModel([this](const FString& ModelPath, int32 StatusCode)
     {
+        //We errored, the emit will happen before we reach here so just exit
+        if (StatusCode != 0)
+        {
+            return;
+        }
+
         if (ModelParams.bAutoInsertSystemPromptOnLoad)
         {
             InsertTemplatedPrompt(ModelParams.SystemPrompt, EChatTemplateRole::System, false, false);
@@ -105,8 +111,6 @@ void ULlamaSubsystem::LoadModel()
 
         OnModelLoaded.Broadcast(ModelPath);
     });
-
-
 }
 
 void ULlamaSubsystem::UnloadModel()
@@ -115,7 +119,9 @@ void ULlamaSubsystem::UnloadModel()
     {
         if (StatusCode != 0)
         {
-            UE_LOG(LlamaLog, Warning, TEXT("UnloadModel return error code: %d"), StatusCode);
+            FString ErrorMessage = FString::Printf(TEXT("UnloadModel return error code: %d"), StatusCode);
+            UE_LOG(LlamaLog, Warning, TEXT("%s"), *ErrorMessage);
+            OnError.Broadcast(ErrorMessage, StatusCode);
         }
     });
 }

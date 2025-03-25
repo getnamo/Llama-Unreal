@@ -32,7 +32,8 @@ bool FLlamaInternal::LoadModelFromParams(const FLLMModelParams& InModelParams)
     LlamaModel = llama_model_load_from_file(Path.c_str(), LlamaModelParams);
     if (!LlamaModel)
     {
-        UE_LOG(LlamaLog, Error, TEXT("%hs: error: unable to load model\n"), __func__);
+        FString ErrorMessage = FString::Printf(TEXT("Unable to load model at <%hs>"), Path.c_str());
+        EmitErrorMessage(ErrorMessage, 10, __func__);
         return false;
     }
 
@@ -45,7 +46,8 @@ bool FLlamaInternal::LoadModelFromParams(const FLLMModelParams& InModelParams)
     Context = llama_init_from_model(LlamaModel, ContextParams);
     if (!Context)
     {
-        UE_LOG(LlamaLog, Error, TEXT("%hs: error: failed to create the llama_context\n"), __func__);
+        FString ErrorMessage = FString::Printf(TEXT("Unable to initialize model with given context params."));
+        EmitErrorMessage(ErrorMessage, 11, __func__);
         return false;
     }
 
@@ -431,17 +433,31 @@ int32 FLlamaInternal::ProcessPrompt(const std::string& Prompt, EChatTemplateRole
     std::vector<llama_token> PromptTokens(NPromptTokens);
     if (llama_tokenize(Vocab, Prompt.c_str(), Prompt.size(), PromptTokens.data(), PromptTokens.size(), IsFirst, true) < 0)
     {
-        bGenerationActive = false;
-        GGML_ABORT("failed to tokenize the prompt\n");
+        EmitErrorMessage(TEXT("failed to tokenize the prompt"), 21, __func__);
+        return NPromptTokens;
     }
 
     // prepare a batch for the prompt
     llama_batch Batch = llama_batch_get_one(PromptTokens.data(), PromptTokens.size());
 
+    //check sizing before running prompt decode
+    int NContext = llama_n_ctx(Context);
+    int NContextUsed = llama_get_kv_cache_used_cells(Context);
+
+    if (NContextUsed + NPromptTokens > NContext)
+    {
+        EmitErrorMessage(FString::Printf(
+            TEXT("Failed to insert, tried to insert %d tokens to currently used %d tokens which is more than the max %d context size. Try increasing the context size and re-run prompt."),
+            NPromptTokens, NContextUsed, NContext
+            ), 22, __func__);
+        return 0;
+    }
+
     // run it through the decode (input)
     if (llama_decode(Context, Batch))
     {
-        GGML_ABORT("failed to decode\n");
+        EmitErrorMessage(TEXT("Failed to decode, could not find a KV slot for the batch (try reducing the size of the batch or increase the context)."), 23, __func__);
+        return NPromptTokens;
     }
 
     const auto StopTime = ggml_time_us();
@@ -509,14 +525,10 @@ std::string FLlamaInternal::Generate(const std::string& Prompt, bool bAppendToMe
 
         if (NContextUsed + NDecoded > NContext)
         {
-            FString ErrorMessage = FString::Printf(TEXT("context size %d exceeded\n"), NContext);
-            UE_LOG(LlamaLog, Error, TEXT("%s"), *ErrorMessage);
-            bGenerationActive = false;
-            if (OnError)
-            {
-                OnError(ErrorMessage);
-            }
-            return "";
+            FString ErrorMessage = FString::Printf(TEXT("Context size %d exceeded on generation. Try increasing the context size and re-run prompt"), NContext);
+
+            EmitErrorMessage(ErrorMessage, 31, __func__);
+            return Response;
         }
 
         if (OnTokenGenerated)
@@ -529,7 +541,11 @@ std::string FLlamaInternal::Generate(const std::string& Prompt, bool bAppendToMe
 
         if (llama_decode(Context, Batch))
         {
-            GGML_ABORT("failed to decode\n");
+            bGenerationActive = false;
+            FString ErrorMessage = TEXT("Failed to decode. Could not find a KV slot for the batch (try reducing the size of the batch or increase the context)");
+            EmitErrorMessage(ErrorMessage, 32, __func__);
+            //Return partial response
+            return Response;
         }
     }
 
@@ -555,6 +571,15 @@ std::string FLlamaInternal::Generate(const std::string& Prompt, bool bAppendToMe
     return Response;
 }
 
+void FLlamaInternal::EmitErrorMessage(const FString& ErrorMessage, int32 ErrorCode, const FString& FunctionName)
+{
+    UE_LOG(LlamaLog, Error, TEXT("[%s error %d]: %s"), *FunctionName, ErrorCode,  *ErrorMessage);
+    if (OnError)
+    {
+        OnError(ErrorMessage, ErrorCode);
+    }
+}
+
 //NB: this function will apply out of range errors in log, this is normal behavior due to how templates are applied
 int32 FLlamaInternal::ApplyTemplateToContextHistory(bool bAddAssistantBOS)
 {
@@ -575,7 +600,7 @@ int32 FLlamaInternal::ApplyTemplateFromMessagesToBuffer(const std::string& InTem
     }
     if (NewLen < 0)
     {
-        UE_LOG(LlamaLog, Warning, TEXT("failed to apply the chat template ApplyTemplateFromMessagesToBuffer."));
+        EmitErrorMessage(TEXT("Failed to apply the chat template ApplyTemplateFromMessagesToBuffer."), 101, __func__);
     }
     return NewLen;
 }
