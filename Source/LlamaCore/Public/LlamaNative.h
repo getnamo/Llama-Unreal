@@ -4,7 +4,6 @@
 
 #include "LlamaDataTypes.h"
 #include "CoreMinimal.h"
-//#include "LlamaNative.generated.h"
 
 
 /** 
@@ -45,10 +44,10 @@ public:
 	//if you've queued up a lot of BG tasks, you can clear the queue with this call
 	void ClearPendingTasks(bool bClearGameThreadCallbacks = false);
 
-	//tick forward for safely consuming game thread messages without hanging
+	//tick forward for safely consuming game thread messages
 	void OnGameThreadTick(float DeltaTime);
-	void AddTicker();	 //optional if you don't forward ticks from e.g. component tick
-	void RemoveTicker(); //if you use AddTicker, use remove ticker to balance on exit. Will happen on destruction of native component.
+	void AddTicker();	 //optional call this once if you don't forward ticks from e.g. component/actor tick
+	void RemoveTicker(); //if you use AddTicker, use remove ticker to balance on exit. Will happen on destruction of FLlamaNative if not called earlier.
 	bool IsNativeTickerActive();
 
 	//Context change - not yet implemented
@@ -68,11 +67,11 @@ public:
 	FLlamaNative();
 	~FLlamaNative();
 
-	float ThreadIdleSleepDuration = 0.005f;        //5ms sleep timer for BG thread'
+	float ThreadIdleSleepDuration = 0.005f;        //default sleep timer for BG thread in sec.
 
 protected:
 
-	//can be safely called on game thread or the bg thread, handles either logic
+	//can be safely called on game thread or the bg thread
 	void SyncModelStateToInternal(TFunction<void()>AdditionalGTStateUpdates = nullptr);
 
 	//utility functions, only safe to call on bg thread
@@ -84,7 +83,7 @@ protected:
 	FLLMModelParams ModelParams;
 	FLLMModelState ModelState;
 
-	//BG State
+	//BG State - do not read/write on GT
 	FString CombinedPieceText;	//accumulates tokens into full string during per-token inference.
 
 	//Threading

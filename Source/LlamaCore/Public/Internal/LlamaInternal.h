@@ -52,7 +52,7 @@ public:
     //continue generating from last stop
     std::string ResumeGeneration();
 
-    //delete the last message and tries again
+    //Feature todo: delete the last message and try again
     //std::string RerollLastGeneration();
 
     std::string WrapPromptForRole(const std::string& Text, EChatTemplateRole Role, const std::string& OverrideTemplate, bool bAddAssistantBoS = false);

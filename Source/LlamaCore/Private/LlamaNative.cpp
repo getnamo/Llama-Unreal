@@ -16,7 +16,7 @@ FLlamaNative::FLlamaNative()
     {
         const FString Token = FLlamaString::ToUE(TokenPiece);
 
-        //Accumalate
+        //Accumulate
         CombinedPieceText += Token;
 
         FString Partial;
