@@ -94,6 +94,8 @@ public class LlamaCore : ModuleRules
 
 		if (Target.Platform == UnrealTargetPlatform.Linux)
 		{
+			//NB: Currently not working for b4879
+
 			PublicAdditionalLibraries.Add(Path.Combine(LlamaCppLibPath, "Linux", "libllama.so"));
 		} 
 		else if (Target.Platform == UnrealTargetPlatform.Win64)
@@ -186,6 +188,8 @@ public class LlamaCore : ModuleRules
 		}
 		else if (Target.Platform == UnrealTargetPlatform.Mac)
 		{
+			//NB: Currently not working for b4879
+
 			PublicAdditionalLibraries.Add(Path.Combine(PluginDirectory, "Libraries", "Mac", "libggml_static.a"));
 			
 			//Dylibs act as both, so include them, add as lib and add as runtime dep
@@ -194,6 +198,8 @@ public class LlamaCore : ModuleRules
 		}
 		else if (Target.Platform == UnrealTargetPlatform.Android)
 		{
+			//NB: Currently not working for b4879
+
 			//Built against NDK 25.1.8937393, API 26
 			PublicAdditionalLibraries.Add(Path.Combine(PluginDirectory, "Libraries", "Android", "libggml_static.a"));
 			PublicAdditionalLibraries.Add(Path.Combine(PluginDirectory, "Libraries", "Android", "libllama.a"));
