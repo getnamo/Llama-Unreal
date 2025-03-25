@@ -1,3 +1,5 @@
+// Copyright 2025-current Getnamo.
+
 #include "Internal/LlamaInternal.h"
 #include "common/common.h"
 #include "common/sampling.h"

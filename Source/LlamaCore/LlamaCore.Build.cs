@@ -1,4 +1,4 @@
-// Copyright (c) 2022 Mika Pi
+// Copyright 2025-current Getnamo, 2022-23 Mika Pi.
 
 using System;
 using System.IO;

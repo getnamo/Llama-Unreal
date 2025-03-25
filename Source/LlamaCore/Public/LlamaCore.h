@@ -1,4 +1,4 @@
-// Copyright 2023 Mika Pi, Modifications 2025-current Getnamo
+// Copyright 2025-current Getnamo.
 
 #pragma once
 

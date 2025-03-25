@@ -1,4 +1,7 @@
+// Copyright 2025-current Getnamo.
+
 #pragma once
+
 #include "CoreMinimal.h"
 
 DECLARE_LOG_CATEGORY_EXTERN(LlamaLog, Log, All);

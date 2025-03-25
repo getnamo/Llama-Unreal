@@ -1,3 +1,5 @@
+// Copyright 2025-current Getnamo.
+
 #include "LlamaUtility.h"
 #include "Misc/Paths.h"
 
