@@ -1,7 +1,7 @@
 {
 	"FileVersion": 3,
 	"Version": 1,
-	"VersionName": "0.8.6",
+	"VersionName": "0.8.7",
 	"FriendlyName": "Llama",
 	"Description": "Integration plugin for Llama.cpp. Getnamo Fork.",
 	"Category": "LLM",

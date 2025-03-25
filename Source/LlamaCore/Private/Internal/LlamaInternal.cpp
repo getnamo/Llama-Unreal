@@ -206,6 +206,7 @@ void FLlamaInternal::UnloadModel()
     if (CommonSampler)
     {
         common_sampler_free(CommonSampler);
+        CommonSampler = nullptr;
     }
     
     ContextHistory.clear();
@@ -283,6 +284,11 @@ bool FLlamaInternal::IsModelLoaded()
 
 void FLlamaInternal::ResetContextHistory(bool bKeepSystemsPrompt)
 {
+    if (!bIsModelLoaded)
+    {
+        return;
+    }
+
     if (IsGenerating())
     {
         StopGeneration();
@@ -322,6 +328,12 @@ void FLlamaInternal::RollbackContextHistoryByTokens(int32 NTokensToErase)
 
 void FLlamaInternal::RollbackContextHistoryByMessages(int32 NMessagesToErase)
 {
+    //cannot do rollback if model isn't loaded, ignore.
+    if (!bIsModelLoaded)
+    {
+        return;
+    }
+
     if (IsGenerating())
     {
         StopGeneration();
@@ -383,7 +395,7 @@ std::string FLlamaInternal::InsertTemplatedPrompt(const std::string& Prompt, ECh
     if (!bIsModelLoaded)
     {
         UE_LOG(LlamaLog, Warning, TEXT("Model isn't loaded"));
-        return 0;
+        return std::string();
     }
 
     int32 NewLen = FilledContextCharLength;
