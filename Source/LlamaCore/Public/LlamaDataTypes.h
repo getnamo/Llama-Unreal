@@ -127,6 +127,10 @@ struct FLLMModelAdvancedParams
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
     float PromptProcessingPacingSleep = 0.f;
 
+    //this part is only active if PromptProcessingPacingSleep > 0.f. Splits prompts into n chunks with sleep
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
+    int32 PromptProcessingPacingSplitN = 4;
+
     //usually . ? !
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
     TArray<FString> PartialsSeparators;

@@ -35,7 +35,7 @@ public:
     std::string Template;
     std::string TemplateSource;
 
-    //Pacing
+    //Cached params, should be accessed on BT
     FLLMModelParams LastLoadedParams;
 
     //Model loading

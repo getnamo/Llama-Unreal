@@ -14,6 +14,8 @@ bool FLlamaInternal::LoadModelFromParams(const FLLMModelParams& InModelParams)
 
     UE_LOG(LogTemp, Log, TEXT("Device Found: %s %s"), *GPU, *RHI);
 
+    LastLoadedParams = InModelParams;
+
     // only print errors
     llama_log_set([](enum ggml_log_level level, const char* text, void* /* user_data */) {
         if (level >= GGML_LOG_LEVEL_ERROR) {
@@ -451,27 +453,80 @@ int32 FLlamaInternal::ProcessPrompt(const std::string& Prompt, EChatTemplateRole
         return NPromptTokens;
     }
 
-    // prepare a batch for the prompt
-    llama_batch Batch = llama_batch_get_one(PromptTokens.data(), PromptTokens.size());
-
-    //check sizing before running prompt decode
-    int NContext = llama_n_ctx(Context);
-    int NContextUsed = llama_get_kv_cache_used_cells(Context);
-
-    if (NContextUsed + NPromptTokens > NContext)
+    //All in one batch
+    if (LastLoadedParams.Advanced.PromptProcessingPacingSleep == 0.f)
     {
-        EmitErrorMessage(FString::Printf(
-            TEXT("Failed to insert, tried to insert %d tokens to currently used %d tokens which is more than the max %d context size. Try increasing the context size and re-run prompt."),
-            NPromptTokens, NContextUsed, NContext
+        // prepare a batch for the prompt
+        llama_batch Batch = llama_batch_get_one(PromptTokens.data(), PromptTokens.size());
+
+        //check sizing before running prompt decode
+        int NContext = llama_n_ctx(Context);
+        int NContextUsed = llama_get_kv_cache_used_cells(Context);
+
+        if (NContextUsed + NPromptTokens > NContext)
+        {
+            EmitErrorMessage(FString::Printf(
+                TEXT("Failed to insert, tried to insert %d tokens to currently used %d tokens which is more than the max %d context size. Try increasing the context size and re-run prompt."),
+                NPromptTokens, NContextUsed, NContext
             ), 22, __func__);
-        return 0;
-    }
+            return 0;
+        }
 
-    // run it through the decode (input)
-    if (llama_decode(Context, Batch))
+        // run it through the decode (input)
+        if (llama_decode(Context, Batch))
+        {
+            EmitErrorMessage(TEXT("Failed to decode, could not find a KV slot for the batch (try reducing the size of the batch or increase the context)."), 23, __func__);
+            return NPromptTokens;
+        }
+    }
+    //Split it and sleep between batches for pacing purposes
+    else
     {
-        EmitErrorMessage(TEXT("Failed to decode, could not find a KV slot for the batch (try reducing the size of the batch or increase the context)."), 23, __func__);
-        return NPromptTokens;
+        int32 BatchCount = LastLoadedParams.Advanced.PromptProcessingPacingSplitN;
+
+        int32 TotalTokens = PromptTokens.size();
+        int32 TokensPerBatch = TotalTokens / BatchCount;
+        int32 Remainder = TotalTokens % BatchCount;
+
+        int32 StartIndex = 0;
+
+        for (int32 i = 0; i < BatchCount; i++)
+        {
+            // Calculate how many tokens to put in this batch
+            int32 CurrentBatchSize = TokensPerBatch + (i < Remainder ? 1 : 0);
+
+            // Slice the relevant tokens for this batch
+            std::vector<llama_token> BatchTokens(
+                PromptTokens.begin() + StartIndex,
+                PromptTokens.begin() + StartIndex + CurrentBatchSize
+            );
+
+            // Prepare the batch
+            llama_batch Batch = llama_batch_get_one(BatchTokens.data(), BatchTokens.size());
+
+            // Check context before running decode
+            int NContext = llama_n_ctx(Context);
+            int NContextUsed = llama_get_kv_cache_used_cells(Context);
+
+            if (NContextUsed + BatchTokens.size() > NContext)
+            {
+                EmitErrorMessage(FString::Printf(
+                    TEXT("Failed to insert, tried to insert %d tokens to currently used %d tokens which is more than the max %d context size. Try increasing the context size and re-run prompt."),
+                    BatchTokens.size(), NContextUsed, NContext
+                ), 22, __func__);
+                return 0;
+            }
+
+            // Decode this batch
+            if (llama_decode(Context, Batch))
+            {
+                EmitErrorMessage(TEXT("Failed to decode, could not find a KV slot for the batch (try reducing the size of the batch or increase the context)."), 23, __func__);
+                return BatchTokens.size();
+            }
+
+            StartIndex += CurrentBatchSize;
+            FPlatformProcess::Sleep(LastLoadedParams.Advanced.PromptProcessingPacingSleep);
+        }
     }
 
     const auto StopTime = ggml_time_us();
@@ -560,6 +615,12 @@ std::string FLlamaInternal::Generate(const std::string& Prompt, bool bAppendToMe
             EmitErrorMessage(ErrorMessage, 32, __func__);
             //Return partial response
             return Response;
+        }
+
+        //sleep pacing
+        if (LastLoadedParams.Advanced.TokenGenerationPacingSleep > 0.f)
+        {
+            FPlatformProcess::Sleep(LastLoadedParams.Advanced.TokenGenerationPacingSleep);
         }
     }
 
