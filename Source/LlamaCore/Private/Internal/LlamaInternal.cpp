@@ -320,7 +320,7 @@ void FLlamaInternal::ResetContextHistory(bool bKeepSystemsPrompt)
 void FLlamaInternal::RollbackContextHistoryByTokens(int32 NTokensToErase)
 {
     // clear the last n_regen tokens from the KV cache and update n_past
-    int32 TokensUsed = llama_get_kv_cache_used_cells(Context); //FilledContextCharLength
+    int32 TokensUsed = llama_kv_self_used_cells(Context); //FilledContextCharLength
 
     llama_kv_self_seq_rm(Context, 0, TokensUsed - NTokensToErase, -1);
 
