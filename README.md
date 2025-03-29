@@ -81,7 +81,7 @@ NB: use `-DGGML_NATIVE=OFF` to ensure wider portability.
 
 
 ### Windows build
-With the following build commands for windows (cpu build only, CUDA ignored, see upstream for GPU version):
+With the following build commands for windows.
 
 #### CPU Only
 
@@ -106,12 +106,9 @@ cmake --build . --config Release -j --verbose
 
 #### CUDA
 
-ATM built for CUDA 12.4 runtime
+ATM CUDA 12.4 runtime is recommended.
 
-- Use `cuda` branch if you want cuda enabled.
-- We build statically due to dll runtime load bug so you need to copy `cudart.lib` `cublas.lib` and `cuda.lib` into your libraries/win64 path. These are ignored atm.
-- Ensure `bTryToUseCuda = true;` is set in LlamaCore.build.cs to add CUDA libs to build.
-- NB help wanted: Ideally this needs a variant that build with `-DBUILD_SHARED_LIBS=ON`
+- Ensure `bTryToUseCuda = true;` is set in LlamaCore.build.cs to add CUDA libs to build (untested in v0.9 update)
 
 ```
 mkdir build
