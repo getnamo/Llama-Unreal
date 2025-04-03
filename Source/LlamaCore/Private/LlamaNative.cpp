@@ -491,12 +491,17 @@ void FLlamaNative::ImpersonateTemplatedToken(const FString& Token, EChatTemplate
 
         ModelState.ChatHistory.History.Add(Message);
 
+        ThenTimeStamp = FPlatformTime::Seconds();
+        ImpersonationTokenCount = 1;
+
+
         CurrentReplyText += Token;
     }
     else
     {
         FStructuredChatMessage& Message = ModelState.ChatHistory.History.Last();
         Message.Content += Token;
+        ImpersonationTokenCount++;
 
         CurrentReplyText += Message.Content;
     }
@@ -537,6 +542,14 @@ void FLlamaNative::ImpersonateTemplatedToken(const FString& Token, EChatTemplate
     //full response reply on finish
     if (bEoS)
     {
+        double Duration = FPlatformTime::Seconds() - ThenTimeStamp;
+        double TotalTokens = ImpersonationTokenCount;
+        ImpersonationTokenCount = 0;
+
+        ModelState.LastPromptProcessingSpeed = 0;   //this can't be measured without more imput
+        ModelState.LastTokenGenerationSpeed = TotalTokens / Duration;
+        ModelState.LastRole = EChatTemplateRole::Assistant;
+
         if (OnModelStateChanged)
         {
             OnModelStateChanged(ModelState);

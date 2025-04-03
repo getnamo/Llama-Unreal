@@ -86,6 +86,10 @@ protected:
 	FLLMModelState ModelState;
 	bool bModelLoadInitiated = false; //tracking model load attempts
 
+	//Temp states
+	double ThenTimeStamp = 0.f;
+	int32 ImpersonationTokenCount = 0;
+
 	//BG State - do not read/write on GT
 	FString CombinedPieceText;	//accumulates tokens into full string during per-token inference.
 
