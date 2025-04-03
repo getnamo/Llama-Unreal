@@ -19,6 +19,12 @@ ULlamaComponent::ULlamaComponent(const FObjectInitializer &ObjectInitializer)
         OnTokenGenerated.Broadcast(Token);
     };
 
+    LlamaNative->OnResponseGenerated = [this](const FString& Response)
+    {
+        OnResponseGenerated.Broadcast(Response);
+        OnEndOfStream.Broadcast(true, ModelState.LastTokenGenerationSpeed);
+    };
+
     LlamaNative->OnPartialGenerated = [this](const FString& Partial)
     {
         OnPartialGenerated.Broadcast(Partial);
@@ -87,26 +93,26 @@ void ULlamaComponent::InsertTemplatedPrompt(const FString& Text, EChatTemplateRo
 
 void ULlamaComponent::InsertTemplatedPromptStruct(const FLlamaChatPrompt& ChatPrompt)
 {
-    LlamaNative->InsertTemplatedPrompt(ChatPrompt, [this, ChatPrompt](const FString& Response)
-    {
+    LlamaNative->InsertTemplatedPrompt(ChatPrompt);/*, [this, ChatPrompt](const FString& Response));
+     {
         if (ChatPrompt.bGenerateReply)
         {
             OnResponseGenerated.Broadcast(Response);
             OnEndOfStream.Broadcast(true, ModelState.LastTokenGenerationSpeed);
         }
-    });
+    });*/
 }
 
 void ULlamaComponent::InsertRawPrompt(const FString& Text, bool bGenerateReply)
 {
-    LlamaNative->InsertRawPrompt(Text, bGenerateReply, [this, bGenerateReply](const FString& Response)
+    LlamaNative->InsertRawPrompt(Text, bGenerateReply); /*, [this, bGenerateReply](const FString& Response)
     {
         if (bGenerateReply)
         {
             OnResponseGenerated.Broadcast(Response);
             OnEndOfStream.Broadcast(true, ModelState.LastTokenGenerationSpeed);
         }
-    });
+    });*/
 }
 
 void ULlamaComponent::LoadModel(bool bForceReload)
@@ -118,11 +124,6 @@ void ULlamaComponent::LoadModel(bool bForceReload)
         if (StatusCode !=0)
         {
             return;
-        }
-
-        if (ModelParams.bAutoInsertSystemPromptOnLoad)
-        {
-            InsertTemplatedPrompt(ModelParams.SystemPrompt, EChatTemplateRole::System, false, false);
         }
 
         OnModelLoaded.Broadcast(ModelPath);
@@ -161,6 +162,19 @@ void ULlamaComponent::RemoveLastAssistantReply()
 void ULlamaComponent::RemoveLastUserInput()
 {
     LlamaNative->RemoveLastUserInput();
+}
+
+
+void ULlamaComponent::ImpersonateTemplatedPrompt(const FLlamaChatPrompt& ChatPrompt)
+{
+    LlamaNative->SetModelParams(ModelParams);
+
+    LlamaNative->ImpersonateTemplatedPrompt(ChatPrompt);
+}
+
+void ULlamaComponent::ImpersonateTemplatedToken(const FString& Token, EChatTemplateRole Role, bool bEoS)
+{
+    LlamaNative->ImpersonateTemplatedToken(Token, Role, bEoS);
 }
 
 FString ULlamaComponent::WrapPromptForRole(const FString& Text, EChatTemplateRole Role, const FString& Template)

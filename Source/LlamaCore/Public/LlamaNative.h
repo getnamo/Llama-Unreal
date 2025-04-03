@@ -37,6 +37,8 @@ public:
 		TFunction<void(const FString& Response)>OnResponseFinished = nullptr);
 	void InsertRawPrompt(const FString& Prompt, bool bGenerateReply = true, 
 		TFunction<void(const FString& Response)>OnResponseFinished = nullptr);
+	void ImpersonateTemplatedPrompt(const FLlamaChatPrompt& Prompt);
+	void ImpersonateTemplatedToken(const FString& Token, EChatTemplateRole Role = EChatTemplateRole::Assistant, bool bEoS = false);
 	bool IsGenerating();
 	void StopGeneration();
 	void ResumeGeneration();
@@ -82,6 +84,7 @@ protected:
 	//GT State - safely accesible on game thread
 	FLLMModelParams ModelParams;
 	FLLMModelState ModelState;
+	bool bModelLoadInitiated = false; //tracking model load attempts
 
 	//BG State - do not read/write on GT
 	FString CombinedPieceText;	//accumulates tokens into full string during per-token inference.
