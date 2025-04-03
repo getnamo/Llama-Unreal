@@ -29,6 +29,11 @@ void ULlamaSubsystem::Initialize(FSubsystemCollectionBase& Collection)
     {
         OnPromptProcessed.Broadcast(TokensProcessed, Role, Speed);
     };
+    LlamaNative->OnResponseGenerated = [this](const FString& Response)
+    {
+        OnResponseGenerated.Broadcast(Response);
+        OnEndOfStream.Broadcast(true, ModelState.LastTokenGenerationSpeed);
+    };
     LlamaNative->OnError = [this](const FString& ErrorMessage, int32 ErrorCode)
     {
         OnError.Broadcast(ErrorMessage, ErrorCode);
@@ -63,26 +68,26 @@ void ULlamaSubsystem::InsertTemplatedPrompt(const FString& Text, EChatTemplateRo
 
 void ULlamaSubsystem::InsertTemplatedPromptStruct(const FLlamaChatPrompt& ChatPrompt)
 {
-    LlamaNative->InsertTemplatedPrompt(ChatPrompt, [this, ChatPrompt](const FString& Response)
+    LlamaNative->InsertTemplatedPrompt(ChatPrompt);/*, [this, ChatPrompt](const FString& Response)
     {
         if (ChatPrompt.bGenerateReply)
         {
             OnResponseGenerated.Broadcast(Response);
             OnEndOfStream.Broadcast(true, ModelState.LastTokenGenerationSpeed);
         }
-    });
+    });*/
 }
 
 void ULlamaSubsystem::InsertRawPrompt(const FString& Text, bool bGenerateReply)
 {
-    LlamaNative->InsertRawPrompt(Text, bGenerateReply, [this, bGenerateReply](const FString& Response)
+    LlamaNative->InsertRawPrompt(Text, bGenerateReply);/*, [this, bGenerateReply](const FString& Response)
     {
         if (bGenerateReply)
         {
             OnResponseGenerated.Broadcast(Response);
             OnEndOfStream.Broadcast(true, ModelState.LastTokenGenerationSpeed);
         }
-    });
+    })*/;
 }
 
 void ULlamaSubsystem::LoadModel(bool bForceReload)
@@ -102,11 +107,6 @@ void ULlamaSubsystem::LoadModel(bool bForceReload)
         if (StatusCode != 0)
         {
             return;
-        }
-
-        if (ModelParams.bAutoInsertSystemPromptOnLoad)
-        {
-            InsertTemplatedPrompt(ModelParams.SystemPrompt, EChatTemplateRole::System, false, false);
         }
 
         OnModelLoaded.Broadcast(ModelPath);

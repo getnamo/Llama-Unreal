@@ -107,6 +107,14 @@ public:
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
     void InsertRawPrompt(UPARAM(meta = (MultiLine = true)) const FString& Text, bool bGenerateReply = true);
 
+    //Typically as user, this pretends the input was generated in history and all downstream functions should trigger. KV-cache won't be updated if no models are loaded.
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Component - Impersonation via External API")
+    void ImpersonateTemplatedPrompt(const FLlamaChatPrompt& ChatPrompt);
+
+    //Use this to feed external model inference through our loop (e.g. as assistant tokens are generated), it will pretend the output was generated locally downstream.
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Component - Impersonation via External API")
+    void ImpersonateTemplatedToken(const FString& Token, EChatTemplateRole Role = EChatTemplateRole::Assistant, bool bIsEndOfStream = false);
+
     //if you want to manually wrap prompt, if template is empty string, default model template is applied. NB: this function should be thread safe, but this has not be thoroughly tested.
     UFUNCTION(BlueprintPure, Category = "LLM Model Component")
     FString WrapPromptForRole(const FString& Text, EChatTemplateRole Role, const FString& OverrideTemplate);

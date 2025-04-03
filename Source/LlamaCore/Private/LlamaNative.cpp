@@ -60,7 +60,7 @@ FLlamaNative::FLlamaNative()
     {
         if (ModelParams.Advanced.bLogGenerationStats)
         {
-            UE_LOG(LlamaLog, Log, TEXT("Generated %d tokens in %1.2fs (%1.2ftps)"), TokensGenerated, Duration, SpeedTps);
+            UE_LOG(LlamaLog, Log, TEXT("TGS - Generated %d tokens in %1.2fs (%1.2ftps)"), TokensGenerated, Duration, SpeedTps);
         }
 
         int32 UsedContext = UsedContextLength();
@@ -88,6 +88,11 @@ FLlamaNative::FLlamaNative()
 
     Internal->OnPromptProcessed = [this](int32 TokensProcessed, EChatTemplateRole RoleProcessed, float SpeedTps)
     {
+        if (ModelParams.Advanced.bLogGenerationStats)
+        {
+            UE_LOG(LlamaLog, Log, TEXT("PPS - Processed %d tokens at %1.2ftps"), TokensProcessed, SpeedTps);
+        }
+
         int32 UsedContext = UsedContextLength();
 
         //Sync history data with additional state updates
@@ -266,6 +271,7 @@ void FLlamaNative::LoadModel(bool bForceReload, TFunction<void(const FString&, i
         //already loaded, we're done
         return ModelLoadedCallback(ModelParams.PathToModel, 0);
     }
+    bModelLoadInitiated = true;
 
     //Copy so these dont get modified during enqueue op
     const FLLMModelParams ParamsAtLoad = ModelParams;
@@ -284,6 +290,14 @@ void FLlamaNative::LoadModel(bool bForceReload, TFunction<void(const FString&, i
             const FString TemplateString = FLlamaString::ToUE(Internal->Template);
             const FString TemplateSource = FLlamaString::ToUE(Internal->TemplateSource);
 
+            //Before we release the BG thread, ensure we enqueue the system prompt
+            //If we do it later, other queued calls will frontrun it. This enables startup chaining correctly
+            if (ParamsAtLoad.bAutoInsertSystemPromptOnLoad)
+            {
+                Internal->InsertTemplatedPrompt(FLlamaString::ToStd(ParamsAtLoad.SystemPrompt), EChatTemplateRole::System, false, false);
+            }
+
+            //Callback on game thread for data sync
             EnqueueGTTask([this, TemplateString, TemplateSource, ModelLoadedCallback]
             {
                 FJinjaChatTemplate ChatTemplate;
@@ -292,6 +306,8 @@ void FLlamaNative::LoadModel(bool bForceReload, TFunction<void(const FString&, i
 
                 ModelState.ChatTemplateInUse = ChatTemplate;
                 ModelState.bModelIsLoaded = true;
+
+                bModelLoadInitiated = false;
 
                 if (OnModelStateChanged)
                 {
@@ -308,8 +324,13 @@ void FLlamaNative::LoadModel(bool bForceReload, TFunction<void(const FString&, i
         {
             EnqueueGTTask([this, ModelLoadedCallback]
             {
+                bModelLoadInitiated = false;
+
                 //On error will be triggered earlier in the chain, but forward our model loading error status here
-                ModelLoadedCallback(ModelParams.PathToModel, 15);
+                if (ModelLoadedCallback)
+                {
+                    ModelLoadedCallback(ModelParams.PathToModel, 15);
+                }
             }, TaskId);
         }
     });
@@ -317,6 +338,8 @@ void FLlamaNative::LoadModel(bool bForceReload, TFunction<void(const FString&, i
 
 void FLlamaNative::UnloadModel(TFunction<void(int32 StatusCode)> ModelUnloadedCallback)
 {
+    bModelLoadInitiated = false;
+
     EnqueueBGTask([this, ModelUnloadedCallback](int64 TaskId)
     {
         if (IsModelLoaded())
@@ -349,7 +372,7 @@ bool FLlamaNative::IsModelLoaded()
 
 void FLlamaNative::InsertTemplatedPrompt(const FLlamaChatPrompt& Prompt, TFunction<void(const FString& Response)> OnResponseFinished)
 {
-    if (!IsModelLoaded())
+    if (!IsModelLoaded() && !bModelLoadInitiated)
     {
         UE_LOG(LlamaLog, Warning, TEXT("Model isn't loaded, can't run prompt."));
         return;
@@ -386,7 +409,7 @@ void FLlamaNative::InsertTemplatedPrompt(const FLlamaChatPrompt& Prompt, TFuncti
 
 void FLlamaNative::InsertRawPrompt(const FString& Prompt, bool bGenerateReply, TFunction<void(const FString& Response)>OnResponseFinished)
 {
-    if (!IsModelLoaded())
+    if (!IsModelLoaded() && !bModelLoadInitiated)
     {
         UE_LOG(LlamaLog, Warning, TEXT("Model isn't loaded, can't run prompt."));
         return;
@@ -405,6 +428,124 @@ void FLlamaNative::InsertRawPrompt(const FString& Prompt, bool bGenerateReply, T
             }
         });
     });
+}
+
+void FLlamaNative::ImpersonateTemplatedPrompt(const FLlamaChatPrompt& Prompt)
+{
+    //modify model state
+    if (IsModelLoaded())
+    {
+        //insert it but make sure we don't do any token generation
+        FLlamaChatPrompt ModifiedPrompt = Prompt;
+        ModifiedPrompt.bGenerateReply = false;
+
+        InsertTemplatedPrompt(ModifiedPrompt);
+    }
+    else
+    {
+        //no model, so just run this in sync mode
+        FStructuredChatMessage Message;
+        Message.Role = Prompt.Role;
+        Message.Content = Prompt.Prompt;
+
+        //modify our chat history state
+        ModelState.ChatHistory.History.Add(Message);
+
+        if (OnModelStateChanged)
+        {
+            OnModelStateChanged(ModelState);
+        }
+        //was this an assistant message? emit response generated callback
+        if (Message.Role == EChatTemplateRole::Assistant)
+        {
+            if (OnResponseGenerated)
+            {
+                OnResponseGenerated(Prompt.Prompt);
+            }
+        }
+    }
+}
+
+void FLlamaNative::ImpersonateTemplatedToken(const FString& Token, EChatTemplateRole Role, bool bEoS)
+{
+    //Should be called on game thread.
+    
+    //NB: we don't support updating model internal state atm
+
+    //Check if we need to add a message before modifying it
+    bool bLastRoleWasMatchingRole = false;
+
+    if (ModelState.ChatHistory.History.Num() != 0)
+    {
+        FStructuredChatMessage& Message = ModelState.ChatHistory.History.Last();
+        bLastRoleWasMatchingRole = Message.Role == Role;
+    }
+
+    FString CurrentReplyText;
+    
+    if (!bLastRoleWasMatchingRole)
+    {
+        FStructuredChatMessage Message;
+        Message.Role = Role;
+        Message.Content = Token;
+
+        ModelState.ChatHistory.History.Add(Message);
+
+        CurrentReplyText += Token;
+    }
+    else
+    {
+        FStructuredChatMessage& Message = ModelState.ChatHistory.History.Last();
+        Message.Content += Token;
+
+        CurrentReplyText += Message.Content;
+    }
+
+    FStructuredChatMessage& Message = ModelState.ChatHistory.History.Last();
+
+    FString Partial;
+
+    //Compute Partials
+    if (ModelParams.Advanced.bEmitPartials)
+    {
+        bool bSplitFound = false;
+        //Check new token for separators
+        for (const FString& Separator : ModelParams.Advanced.PartialsSeparators)
+        {
+            if (Token.Contains(Separator))
+            {
+                bSplitFound = true;
+            }
+        }
+        if (bSplitFound)
+        {
+            Partial = FLlamaString::GetLastSentence(CurrentReplyText);
+        }
+    }
+
+    //Emit token to game thread
+    if (OnTokenGenerated)
+    {
+        OnTokenGenerated(Token);
+
+        if (OnPartialGenerated && !Partial.IsEmpty())
+        {
+            OnPartialGenerated(Partial);
+        }
+    }
+
+    //full response reply on finish
+    if (bEoS)
+    {
+        if (OnModelStateChanged)
+        {
+            OnModelStateChanged(ModelState);
+        }
+        if (OnResponseGenerated)
+        {
+            OnResponseGenerated(CurrentReplyText);
+        }
+    }
 }
 
 void FLlamaNative::RemoveLastNMessages(int32 MessageCount)
