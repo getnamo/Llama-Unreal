@@ -104,11 +104,11 @@ public class LlamaCore : ModuleRules
 			string CudaPath;
 
 			//We default to vulkan build, turn this off if you want to build with CUDA/cpu only
-			bool bTryToUseVulkan = true;
+			bool bTryToUseVulkan = false;
 			bool bVulkanGGMLFound = false;
 
 			//Toggle this off if you don't want to include the cuda backend	
-			bool bTryToUseCuda = false;
+			bool bTryToUseCuda = true;
 			bool bCudaGGMLFound = false;
 			bool bCudaFound = false;
 
@@ -179,9 +179,6 @@ public class LlamaCore : ModuleRules
 			{
 				PublicAdditionalLibraries.Add(Path.Combine(Win64LibPath, "ggml-cuda.lib"));
 				RuntimeDependencies.Add("$(BinaryOutputDir)/ggml-cuda.dll", Path.Combine(LlamaDllPath, "ggml-cuda.dll"));
-				RuntimeDependencies.Add("$(BinaryOutputDir)/cublas64_12.dll", Path.Combine(LlamaDllPath, "cublas64_12.dll"));
-				RuntimeDependencies.Add("$(BinaryOutputDir)/cublasLt64_12.dll", Path.Combine(LlamaDllPath, "cublasLt64_12.dll"));
-				RuntimeDependencies.Add("$(BinaryOutputDir)/cudart64_12.dll", Path.Combine(LlamaDllPath, "cudart64_12.dll"));
 				//PublicDelayLoadDLLs.Add("ggml-cuda.dll");
 				System.Console.WriteLine("Llama-Unreal building using ggml-cuda.lib at path " + Win64LibPath);
 			}
