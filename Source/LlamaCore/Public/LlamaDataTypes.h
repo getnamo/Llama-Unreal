@@ -236,6 +236,10 @@ struct FLLMModelParams
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
     bool bAutoLoadModelOnStartup = true;
 
+    //If true, all prompt inserts/rollbacks only modify modelstate and do not forward to llama component (see impersonation)
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
+    bool bRemoteMode = false;
+
     //If not different than default empty, no template will be applied
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
     FJinjaChatTemplate CustomChatTemplate = "";

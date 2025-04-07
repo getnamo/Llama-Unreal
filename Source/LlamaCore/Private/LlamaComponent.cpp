@@ -156,12 +156,37 @@ void ULlamaComponent::ResetContextHistory(bool bKeepSystemPrompt)
 
 void ULlamaComponent::RemoveLastAssistantReply()
 {
-    LlamaNative->RemoveLastReply();
+    if (ModelParams.bRemoteMode)
+    {
+        //modify state only
+        int32 Count = ModelState.ChatHistory.History.Num();
+        if (Count >0)
+        {
+            ModelState.ChatHistory.History.RemoveAt(Count - 1);
+        }
+    }
+    else
+    {
+        LlamaNative->RemoveLastReply();
+    }
 }
 
 void ULlamaComponent::RemoveLastUserInput()
 {
-    LlamaNative->RemoveLastUserInput();
+    if (ModelParams.bRemoteMode)
+    {
+        //modify state only
+        int32 Count = ModelState.ChatHistory.History.Num();
+        if (Count > 1)
+        {
+            ModelState.ChatHistory.History.RemoveAt(Count - 1);
+            ModelState.ChatHistory.History.RemoveAt(Count - 2);
+        }
+    }
+    else
+    {
+        LlamaNative->RemoveLastUserInput();
+    }
 }
 
 
