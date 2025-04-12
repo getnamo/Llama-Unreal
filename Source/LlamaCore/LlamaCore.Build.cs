@@ -27,6 +27,11 @@ public class LlamaCore : ModuleRules
 		get { return Path.GetFullPath(Path.Combine(ModuleDirectory, "../../ThirdParty/LlamaCpp/Include")); }
 	}
 
+	private string HnswLibIncludePath
+	{
+		get { return Path.GetFullPath(Path.Combine(ModuleDirectory, "../../ThirdParty/HnswLib/Include")); }
+	}
+
 	private void LinkDyLib(string DyLib)
 	{
 		string MacPlatform = "Mac";
@@ -91,6 +96,7 @@ public class LlamaCore : ModuleRules
 
 		//Includes
 		PublicIncludePaths.Add(LlamaCppIncludePath);
+		PublicIncludePaths.Add(HnswLibIncludePath);
 
 		if (Target.Platform == UnrealTargetPlatform.Linux)
 		{
