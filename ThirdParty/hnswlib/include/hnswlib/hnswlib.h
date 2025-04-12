@@ -119,9 +119,83 @@ static bool AVX512Capable() {
 #include <queue>
 #include <vector>
 #include <iostream>
+#include <utility>
 #include <string.h>
 
+#if defined(__EXCEPTIONS)
+#define HNSWLIB_THROW_RUNTIME_ERROR(message) throw std::runtime_error(message)
+#else 
+#define HNSWLIB_THROW_RUNTIME_ERROR(message) do { \
+    fprintf(stderr, \
+        "FATAL: hnswlib compiled without exception support. " \
+        "Use ...NoExceptions functions. " \
+        "Exception message: %s", \
+        (message)); \
+    exit(1); \
+} while (false)
+#endif
+
 namespace hnswlib {
+
+// A lightweight Status class inspired by Abseil's Status class.
+class [[nodiscard]] Status {
+public:
+    Status() : message_(nullptr) {}
+
+    // Constructor with an error message (can't be nullptr).
+    Status(const char* message) : message_(message) {}
+
+    // Returns true if the status is OK
+    bool ok() const { return message_ == nullptr; }
+
+    // Returns the error message, or nullptr if OK
+    const char* message() const { return message_; }
+
+private:
+    // Null if OK, a message otherwise.
+    const char* message_;
+};
+
+Status OkStatus() { return Status(); }
+
+template <typename T>
+class StatusOr {
+public:
+    // Default constructor
+    StatusOr() : status_(), value_() {}
+
+    // Constructor with a value
+    StatusOr(T value) : status_(), value_(value) {}
+
+    // Constructor with an error status
+    StatusOr(const char* error) : status_(error), value_() {}
+    StatusOr(Status status) : status_(status), value_() {}
+
+    // Returns true if the status is ok
+    bool ok() const { return status_.ok(); }
+
+    // Returns the value if the status is ok
+    T&& value() {
+        return std::move(value_);
+    }
+
+    const T& value() const {
+        return value_;
+    }
+
+    // Returns the value using the dereference operator
+    T operator*() const {
+        return value();
+    } 
+
+    // Returns the error status if not ok
+    Status status() const { return status_; }
+
+private:
+    Status status_;
+    T value_;
+};
+
 typedef size_t labeltype;
 
 // This can be extended to store state for filtering (e.g. from a std::set)
@@ -186,39 +260,83 @@ class SpaceInterface {
 template<typename dist_t>
 class AlgorithmInterface {
  public:
-    virtual void addPoint(const void *datapoint, labeltype label, bool replace_deleted = false) = 0;
+    virtual Status addPointNoExceptions(
+        const void *datapoint, labeltype label, bool replace_deleted = false) = 0;
 
-    virtual std::priority_queue<std::pair<dist_t, labeltype>>
-        searchKnn(const void*, size_t, BaseFilterFunctor* isIdAllowed = nullptr) const = 0;
+    virtual void addPoint(
+        const void *datapoint, labeltype label, bool replace_deleted = false) {
+        auto status = addPointNoExceptions(datapoint, label, replace_deleted);
+        if (!status.ok()) {
+            HNSWLIB_THROW_RUNTIME_ERROR(status.message());
+        }
+    }
 
-    // Return k nearest neighbor in the order of closer fist
-    virtual std::vector<std::pair<dist_t, labeltype>>
-        searchKnnCloserFirst(const void* query_data, size_t k, BaseFilterFunctor* isIdAllowed = nullptr) const;
+    using DistanceLabelPair = std::pair<dist_t, labeltype>;
+
+    // A priority queue of (distance, label) pairs. The largest element at the
+    // top corresponds to the element furthest from the query.
+    using DistanceLabelPriorityQueue = std::priority_queue<DistanceLabelPair>;
+
+    // A vector of (distance, label) pairs.
+    using DistanceLabelVector = std::vector<DistanceLabelPair>;
+
+    virtual DistanceLabelPriorityQueue searchKnn(
+            const void* query_data,
+            size_t k, 
+            BaseFilterFunctor* isIdAllowed = nullptr) const {
+        auto result = searchKnnNoExceptions(query_data, k, isIdAllowed);
+        if (!result.ok()) {
+            HNSWLIB_THROW_RUNTIME_ERROR(result.status().message());
+        }
+        return std::move(result.value());
+    }
+
+    virtual StatusOr<DistanceLabelPriorityQueue> searchKnnNoExceptions(
+        const void* query_data,
+        size_t k, 
+        BaseFilterFunctor* isIdAllowed = nullptr) const = 0;
+
+    // Return k nearest neighbor in the order of closest neighbor first.
+    virtual DistanceLabelVector searchKnnCloserFirst(
+            const void* query_data,
+            size_t k,
+            BaseFilterFunctor* isIdAllowed = nullptr) {
+        auto result = 
+            searchKnnCloserFirstNoExceptions(query_data, k, isIdAllowed);
+        if (!result.ok()) {
+            HNSWLIB_THROW_RUNTIME_ERROR(result.status().message());
+        }
+        return std::move(result.value());
+    }
+
+    virtual StatusOr<DistanceLabelVector> searchKnnCloserFirstNoExceptions(
+            const void* query_data,
+            size_t k,
+            BaseFilterFunctor* isIdAllowed = nullptr) const {
+
+        // Here searchKnn returns the result in the order of further first.
+        auto status_or_result = searchKnnNoExceptions(query_data, k, isIdAllowed);
+        if (status_or_result.ok()) {
+            return status_or_result.status();
+        }
+        auto ret = std::move(status_or_result.value());
+    
+        DistanceLabelVector final_vector;
+        size_t sz = ret.size();
+        final_vector.resize(sz);
+        while (!ret.empty()) {
+            final_vector[--sz] = ret.top();
+            ret.pop();
+        }
+    
+        return final_vector;
+    }
 
     virtual void saveIndex(const std::string &location) = 0;
     virtual ~AlgorithmInterface(){
     }
 };
 
-template<typename dist_t>
-std::vector<std::pair<dist_t, labeltype>>
-AlgorithmInterface<dist_t>::searchKnnCloserFirst(const void* query_data, size_t k,
-                                                 BaseFilterFunctor* isIdAllowed) const {
-    std::vector<std::pair<dist_t, labeltype>> result;
-
-    // here searchKnn returns the result in the order of further first
-    auto ret = searchKnn(query_data, k, isIdAllowed);
-    {
-        size_t sz = ret.size();
-        result.resize(sz);
-        while (!ret.empty()) {
-            result[--sz] = ret.top();
-            ret.pop();
-        }
-    }
-
-    return result;
-}
 }  // namespace hnswlib
 
 #include "space_l2.h"
