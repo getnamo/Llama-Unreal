@@ -1,6 +1,8 @@
 #pragma once
 
 #pragma warning(disable: 4668)
+#pragma warning(disable: 4834)
+#pragma warning(disable: 4457)
 
 // https://github.com/nmslib/hnswlib/pull/508
 // This allows others to provide their own error stream (e.g. RcppHNSW)
