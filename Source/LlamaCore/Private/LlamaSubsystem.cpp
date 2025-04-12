@@ -4,7 +4,7 @@
 #include "HAL/PlatformTime.h"
 #include "Tickable.h"
 #include "LlamaNative.h"
-#include "Embedding/VectorSearch.h"
+#include "Embedding/VectorDatabase.h"
 
 void ULlamaSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
@@ -159,7 +159,7 @@ void ULlamaSubsystem::ResumeGeneration()
 
 void ULlamaSubsystem::TestVectorSearch()
 {
-    FVectorSearch* VectorDb = new FVectorSearch();;
+    FVectorDatabase* VectorDb = new FVectorDatabase();;
 
     UE_LOG(LogTemp, Log, TEXT("VectorDB Pre"));
     VectorDb->BasicsTest();

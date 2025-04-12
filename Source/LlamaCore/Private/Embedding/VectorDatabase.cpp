@@ -1,11 +1,11 @@
 // Copyright 2025-current Getnamo.
 
-#include "Embedding/VectorSearch.h"
+#include "Embedding/VectorDatabase.h"
 #include "Misc/Paths.h"
 #include "LlamaUtility.h"
 #include "hnswlib/hnswlib.h"
 
-void FVectorSearch::BasicsTest()
+void FVectorDatabase::BasicsTest()
 {
     //Try: https://github.com/nmslib/hnswlib/blob/master/examples/cpp/EXAMPLES.md
     int dim = 16;               // Dimension of the elements
@@ -78,12 +78,12 @@ void FVectorSearch::BasicsTest()
     delete alg_hnsw;
 }
 
-FVectorSearch::FVectorSearch()
+FVectorDatabase::FVectorDatabase()
 {
     
 }
 
-FVectorSearch::~FVectorSearch()
+FVectorDatabase::~FVectorDatabase()
 {
 
 }

@@ -5,13 +5,13 @@
 /** 
 * Unreal style native wrapper for HNSW nearest neighbor search for high dimensional vectors
 */
-class FVectorSearch
+class FVectorDatabase
 {
 public:
 
     //Simple test to see if the basics run
     void BasicsTest();
 
-    FVectorSearch();
-    ~FVectorSearch();
+    FVectorDatabase();
+    ~FVectorDatabase();
 };
