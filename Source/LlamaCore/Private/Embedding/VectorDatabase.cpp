@@ -80,7 +80,15 @@ void FVectorDatabase::BasicsTest()
 
 FVectorDatabase::FVectorDatabase()
 {
-    
+    //TODO: see https://github.com/ggml-org/llama.cpp/blob/master/examples/embedding/embedding.cpp
+
+    //llamainternal
+    //1. Load model
+    //2. Tokenize input
+    //3. llama_model_n_embd & embeddings for input allocation
+    //4. batch_decode
+    //5. store embeddings in index.
+    //6. potentially save index
 }
 
 FVectorDatabase::~FVectorDatabase()
