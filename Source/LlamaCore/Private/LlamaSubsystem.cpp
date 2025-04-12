@@ -4,6 +4,7 @@
 #include "HAL/PlatformTime.h"
 #include "Tickable.h"
 #include "LlamaNative.h"
+#include "Embedding/VectorSearch.h"
 
 void ULlamaSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
@@ -154,6 +155,15 @@ void ULlamaSubsystem::StopGeneration()
 void ULlamaSubsystem::ResumeGeneration()
 {
     LlamaNative->ResumeGeneration();
+}
+
+void ULlamaSubsystem::TestVectorSearch()
+{
+    FVectorSearch VectorDb;
+
+    UE_LOG(LogTemp, Log, TEXT("VectorDB Pre"));
+    VectorDb.BasicsTest();
+    UE_LOG(LogTemp, Log, TEXT("VectorDB Post"));
 }
 
 FString ULlamaSubsystem::RawContextHistory()
