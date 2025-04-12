@@ -718,6 +718,8 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
 
 
     void loadIndex(const std::string &location, SpaceInterface<dist_t> *s, size_t max_elements_i = 0) {
+        //temp: ignore status
+        loadIndexNoExceptions(location, s, max_elements_i);
     }
 
     Status loadIndexNoExceptions(const std::string &location, SpaceInterface<dist_t> *s, size_t max_elements_i = 0) {

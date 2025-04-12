@@ -1,6 +1,8 @@
 // Copyright 2025-current Getnamo.
 
 #include "Embedding/VectorSearch.h"
+#include "Misc/Paths.h"
+#include "LlamaUtility.h"
 #include "hnswlib/hnswlib.h"
 
 void FVectorSearch::BasicsTest()
@@ -21,41 +23,57 @@ void FVectorSearch::BasicsTest()
     rng.seed(47);
     std::uniform_real_distribution<> distrib_real;
     float* data = new float[dim * max_elements];
-    for (int i = 0; i < dim * max_elements; i++) {
+    for (int i = 0; i < dim * max_elements; i++) 
+    {
         data[i] = distrib_real(rng);
     }
 
     // Add data to index
-    for (int i = 0; i < max_elements; i++) {
+    for (int i = 0; i < max_elements; i++)
+    {
         alg_hnsw->addPoint(data + i * dim, i);
     }
 
     // Query the elements for themselves and measure recall
     float correct = 0;
-    for (int i = 0; i < max_elements; i++) {
+    for (int i = 0; i < max_elements; i++) 
+    {
         std::priority_queue<std::pair<float, hnswlib::labeltype>> result = alg_hnsw->searchKnn(data + i * dim, 1);
         hnswlib::labeltype label = result.top().second;
         if (label == i) correct++;
     }
     float recall = correct / max_elements;
-    std::cout << "Recall: " << recall << "\n";
+
+    UE_LOG(LogTemp, Log, TEXT("Recall: %1.3f"), recall);
 
     // Serialize index
-    std::string hnsw_path = "hnsw.bin";
+    FString SavePath = FPaths::ProjectSavedDir() / TEXT("hnsw.bin");
+    std::string hnsw_path = FLlamaString::ToStd(SavePath);
     alg_hnsw->saveIndex(hnsw_path);
     delete alg_hnsw;
 
     // Deserialize index and check recall
-    alg_hnsw = new hnswlib::HierarchicalNSW<float>(&space, hnsw_path);
-    correct = 0;
-    for (int i = 0; i < max_elements; i++) {
-        std::priority_queue<std::pair<float, hnswlib::labeltype>> result = alg_hnsw->searchKnn(data + i * dim, 1);
-        hnswlib::labeltype label = result.top().second;
-        if (label == i) correct++;
-    }
-    recall = (float)correct / max_elements;
-    std::cout << "Recall of deserialized index: " << recall << "\n";
+    // This test appears to fail in unreal context (loading index)
+    alg_hnsw = new hnswlib::HierarchicalNSW<float>(&space, hnsw_path, false, max_elements);
+    //alg_hnsw = new hnswlib::HierarchicalNSW<float>(&space, max_elements, M, ef_construction);
+    //alg_hnsw->loadIndex(hnsw_path, &space);
 
+    if (alg_hnsw->getMaxElements() > 0)
+    {
+        correct = 0;
+        for (int i = 0; i < alg_hnsw->getMaxElements(); i++)
+        {
+            std::priority_queue<std::pair<float, hnswlib::labeltype>> result = alg_hnsw->searchKnn(data + i * dim, 1);
+            hnswlib::labeltype label = result.top().second;
+            if (label == i) correct++;
+        }
+        recall = (float)correct / max_elements;
+        UE_LOG(LogTemp, Log, TEXT("Recall of deserialized index: %1.3f"), recall);
+    }
+    else
+    {
+        UE_LOG(LogTemp, Log, TEXT("Failed to load index from file correctly"));
+    }
     delete[] data;
     delete alg_hnsw;
 }

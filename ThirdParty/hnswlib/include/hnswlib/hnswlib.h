@@ -127,16 +127,12 @@ static bool AVX512Capable() {
 #include <string.h>
 
 #if defined(__EXCEPTIONS)
-#define HNSWLIB_THROW_RUNTIME_ERROR(message) throw std::runtime_error(message)
-#else 
 #define HNSWLIB_THROW_RUNTIME_ERROR(message) do { \
-    fprintf(stderr, \
-        "FATAL: hnswlib compiled without exception support. " \
-        "Use ...NoExceptions functions. " \
-        "Exception message: %s", \
-        (message)); \
-    exit(1); \
+    UE_LOG(LogTemp, Error, TEXT("%s"), message); \
+    throw std::runtime_error(message) \
 } while (false)
+#else 
+#define HNSWLIB_THROW_RUNTIME_ERROR(message) UE_LOG(LogTemp, Error, TEXT("%hs"), message)
 #endif
 
 namespace hnswlib {

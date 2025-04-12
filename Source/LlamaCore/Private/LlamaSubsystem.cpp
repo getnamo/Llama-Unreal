@@ -159,11 +159,14 @@ void ULlamaSubsystem::ResumeGeneration()
 
 void ULlamaSubsystem::TestVectorSearch()
 {
-    FVectorSearch VectorDb;
+    FVectorSearch* VectorDb = new FVectorSearch();;
 
     UE_LOG(LogTemp, Log, TEXT("VectorDB Pre"));
-    VectorDb.BasicsTest();
+    VectorDb->BasicsTest();
     UE_LOG(LogTemp, Log, TEXT("VectorDB Post"));
+
+    delete VectorDb;
+    VectorDb = nullptr;
 }
 
 FString ULlamaSubsystem::RawContextHistory()
