@@ -53,7 +53,7 @@ bool FLlamaInternal::LoadModelFromParams(const FLLMModelParams& InModelParams)
         {
             if (llama_model_has_encoder(LlamaModel) && llama_model_has_decoder(LlamaModel))
             {
-                EmitErrorMessage(TEXT("computing embeddings in encoder-decoder models is not supported"), 10, __func__);
+                EmitErrorMessage(TEXT("computing embeddings in encoder-decoder models is not supported"), 41, __func__);
                 return false;
             }
 
@@ -63,7 +63,7 @@ bool FLlamaInternal::LoadModelFromParams(const FLLMModelParams& InModelParams)
             if (n_ctx > n_ctx_train) 
             {
                 FString ErrorMessage = FString::Printf(TEXT("warning: model was trained on only % d context tokens(% d specified)"), n_ctx_train, n_ctx);
-                EmitErrorMessage(ErrorMessage, 10, __func__);
+                EmitErrorMessage(ErrorMessage, 42, __func__);
                 return false;
             }
         }
@@ -217,14 +217,23 @@ bool FLlamaInternal::LoadModelFromParams(const FLLMModelParams& InModelParams)
         }
     }
 
-    if(Template.empty())
+    if (InModelParams.Advanced.bEmbeddingMode)
     {
-        const char* TemplatePtr = llama_model_chat_template(LlamaModel, nullptr);
+        Template = std::string("");
+        TemplateSource = std::string("embedding mode, templates not used");
+    }
+    else
+    {
 
-        if (TemplatePtr != nullptr)
+        if (Template.empty())
         {
-            Template = std::string(TemplatePtr);
-            TemplateSource = std::string("tokenizer.chat_template");
+            const char* TemplatePtr = llama_model_chat_template(LlamaModel, nullptr);
+
+            if (TemplatePtr != nullptr)
+            {
+                Template = std::string(TemplatePtr);
+                TemplateSource = std::string("tokenizer.chat_template");
+            }
         }
     }
     
@@ -484,6 +493,12 @@ std::string FLlamaInternal::ResumeGeneration()
 void FLlamaInternal::EmbedPrompt(const std::string& Text, std::vector<float>& Embeddings)
 {
     //apply https://github.com/ggml-org/llama.cpp/blob/master/examples/embedding/embedding.cpp wrapping logic
+
+    if (!Context)
+    {
+        EmitErrorMessage(TEXT("Context invalid, did you load the model?"), 43, __func__);
+        return;
+    }
 
     //Tokenize prompt
     std::vector<llama_token> Input = common_tokenize(Context, Text, true, true);
