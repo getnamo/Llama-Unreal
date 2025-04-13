@@ -66,6 +66,11 @@ public:
 
 	FString WrapPromptForRole(const FString& Text, EChatTemplateRole Role, const FString& OverrideTemplate, bool bAddAssistantBoS = false);
 
+	//Embedding mode
+
+	//Embed a prompt and return the embeddings
+	void EmbedPrompt(const FString& Text, TFunction<void(const TArray<float>& Embeddings)>OnEmbeddings = nullptr);
+
 	FLlamaNative();
 	~FLlamaNative();
 

@@ -772,3 +772,25 @@ FString FLlamaNative::WrapPromptForRole(const FString& Text, EChatTemplateRole R
 {
     return FLlamaString::ToUE( Internal->WrapPromptForRole(FLlamaString::ToStd(Text), Role, FLlamaString::ToStd(OverrideTemplate), bAddAssistantBoS) );
 }
+
+
+void FLlamaNative::EmbedPrompt(const FString& Text, TFunction<void(const TArray<float>& Embeddings)> OnEmbeddings)
+{
+    std::string TextStd = FLlamaString::ToStd(Text);
+    EnqueueBGTask([this, TextStd, OnEmbeddings](int64 TaskId)
+    {
+        std::vector<float> EmbeddingVector;
+        Internal->EmbedPrompt(TextStd, EmbeddingVector);
+
+        TArray<float> Embeddings;
+        Embeddings.Append(EmbeddingVector.data(), EmbeddingVector.size());
+
+        EnqueueGTTask([this, OnEmbeddings, Embeddings]
+        {
+            if (OnEmbeddings)
+            {
+                OnEmbeddings(Embeddings);
+            }
+        });
+    });
+}
