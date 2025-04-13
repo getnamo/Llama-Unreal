@@ -43,6 +43,10 @@ public:
     UPROPERTY(BlueprintAssignable)
     FOnPromptProcessedSignature OnPromptProcessed;
 
+    //Requires embedding mode, results are suitable for RAG type ops
+    UPROPERTY(BlueprintAssignable)
+    FOnEmbeddingsSignature OnEmbeddings;
+
     //Whenever the model stops generating
     UPROPERTY(BlueprintAssignable)
     FOnEndOfStreamSignature OnEndOfStream;
@@ -132,6 +136,10 @@ public:
 
     UFUNCTION(BlueprintPure, Category = "LLM Model Component")
     FStructuredChatHistory GetStructuredChatHistory();
+
+    //This function requires embedding mode or it will not run
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Embedding Mode")
+    void GeneratePromptEmbeddingsForText(const FString& Text);
 
 private:
     class FLlamaNative* LlamaNative;

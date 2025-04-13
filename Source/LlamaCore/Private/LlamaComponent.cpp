@@ -226,3 +226,17 @@ FStructuredChatHistory ULlamaComponent::GetStructuredChatHistory()
 {
     return ModelState.ChatHistory;
 }
+
+void ULlamaComponent::GeneratePromptEmbeddingsForText(const FString& Text)
+{
+    if (!ModelParams.Advanced.bEmbeddingMode)
+    {
+        UE_LOG(LlamaLog, Warning, TEXT("Model is not in embedding mode, cannot generate embeddings."));
+        return;
+    }
+
+    LlamaNative->EmbedPrompt(Text, [this](const TArray<float>& Embeddings)
+    {
+        OnEmbeddings.Broadcast(Embeddings);
+    });
+}
