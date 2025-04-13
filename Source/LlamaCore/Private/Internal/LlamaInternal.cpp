@@ -436,6 +436,11 @@ std::string FLlamaInternal::ResumeGeneration()
     return Generate();
 }
 
+void FLlamaInternal::EmbedPrompt(const std::string& Text, std::vector<float>& Embeddings)
+{
+    //apply https://github.com/ggml-org/llama.cpp/blob/master/examples/embedding/embedding.cpp wrapping logic
+}
+
 int32 FLlamaInternal::ProcessPrompt(const std::string& Prompt, EChatTemplateRole Role)
 {
     const auto StartTime = ggml_time_us();
@@ -696,6 +701,57 @@ const char* FLlamaInternal::RoleForEnum(EChatTemplateRole Role)
     }
     else {
         return "unknown";
+    }
+}
+
+//from https://github.com/ggml-org/llama.cpp/blob/master/examples/embedding/embedding.cpp
+void FLlamaInternal::BatchDecodeEmbedding(llama_context* ctx, llama_batch& batch, float* output, int n_seq, int n_embd, int embd_norm)
+{
+    const enum llama_pooling_type pooling_type = llama_pooling_type(ctx);
+    const struct llama_model* model = llama_get_model(ctx);
+
+    // clear previous kv_cache values (irrelevant for embeddings)
+    llama_kv_self_clear(ctx);
+
+    // run model
+    UE_LOG(LlamaLog, Log, TEXT("%hs: n_tokens = %d, n_seq = %d"), __func__, batch.n_tokens, n_seq);
+
+    if (llama_model_has_encoder(model) && !llama_model_has_decoder(model)) {
+        // encoder-only model
+        if (llama_encode(ctx, batch) < 0) {
+            UE_LOG(LlamaLog, Error, TEXT("%hs : failed to encode"), __func__);
+        }
+    }
+    else if (!llama_model_has_encoder(model) && llama_model_has_decoder(model)) {
+        // decoder-only model
+        if (llama_decode(ctx, batch) < 0) {
+            UE_LOG(LlamaLog, Log, TEXT("%hs : failed to decode"), __func__);
+        }
+    }
+
+    for (int i = 0; i < batch.n_tokens; i++) {
+        if (!batch.logits[i]) {
+            continue;
+        }
+
+        const float* embd = nullptr;
+        int embd_pos = 0;
+
+        if (pooling_type == LLAMA_POOLING_TYPE_NONE) {
+            // try to get token embeddings
+            embd = llama_get_embeddings_ith(ctx, i);
+            embd_pos = i;
+            GGML_ASSERT(embd != NULL && "failed to get token embeddings");
+        }
+        else {
+            // try to get sequence embeddings - supported only when pooling_type is not NONE
+            embd = llama_get_embeddings_seq(ctx, batch.seq_id[i][0]);
+            embd_pos = batch.seq_id[i][0];
+            GGML_ASSERT(embd != NULL && "failed to get sequence embeddings");
+        }
+
+        float* out = output + embd_pos * n_embd;
+        common_embd_normalize(embd, out, n_embd, embd_norm);
     }
 }
 

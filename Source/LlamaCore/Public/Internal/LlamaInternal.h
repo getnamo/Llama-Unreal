@@ -62,6 +62,7 @@ public:
 
     std::string WrapPromptForRole(const std::string& Text, EChatTemplateRole Role, const std::string& OverrideTemplate, bool bAddAssistantBoS = false);
 
+
     //flips bGenerationActive which will stop generation on next token. Threadsafe call.
     void StopGeneration();
     bool IsGenerating();
@@ -71,6 +72,12 @@ public:
 
     FLlamaInternal();
     ~FLlamaInternal();
+
+
+    //for embedding models
+
+    //take a prompt and return an array of floats signifying the embeddings
+    void EmbedPrompt(const std::string& Text, std::vector<float>& Embeddings);
 
 protected:
     //Wrapper for user<->assistant templated conversation
@@ -87,4 +94,8 @@ protected:
     FThreadSafeBool bIsModelLoaded = false;
     int32 FilledContextCharLength = 0;
     FThreadSafeBool bGenerationActive = false;
+
+    //batch decoding embedding model
+
+    void BatchDecodeEmbedding(llama_context* ctx, llama_batch& batch, float* output, int n_seq, int n_embd, int embd_norm);
 };
