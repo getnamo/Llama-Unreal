@@ -119,6 +119,13 @@ struct FLLMModelAdvancedParams
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
     bool bUseCommonSampler = true;
 
+    //use common_init instead of normal, will be true for bEmbedding mode = true
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
+    bool bUseCommonParams = false;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
+    bool bEmbeddingMode = false;
+
     //if set above 0.f it will sleep between generation passes to ease gpu pressure
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
     float TokenGenerationPacingSleep = 0.f;

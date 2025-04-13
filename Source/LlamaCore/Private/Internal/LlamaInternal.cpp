@@ -17,37 +17,82 @@ bool FLlamaInternal::LoadModelFromParams(const FLLMModelParams& InModelParams)
     LastLoadedParams = InModelParams;
 
     // only print errors
-    llama_log_set([](enum ggml_log_level level, const char* text, void* /* user_data */) {
+    llama_log_set([](enum ggml_log_level level, const char* text, void* /* user_data */) 
+    {
         if (level >= GGML_LOG_LEVEL_ERROR) {
             fprintf(stderr, "%s", text);
         }
-        }, nullptr);
+    }, nullptr);
 
     // load dynamic backends
     ggml_backend_load_all();
 
-    // initialize the model
-    llama_model_params LlamaModelParams = llama_model_default_params();
-    LlamaModelParams.n_gpu_layers = InModelParams.GPULayers;
+    std::string ModelPath = TCHAR_TO_UTF8(*FLlamaPaths::ParsePathIntoFullPath(InModelParams.PathToModel));
 
-    //FPlatform
 
-    std::string Path = TCHAR_TO_UTF8(*FLlamaPaths::ParsePathIntoFullPath(InModelParams.PathToModel));
-    LlamaModel = llama_model_load_from_file(Path.c_str(), LlamaModelParams);
-    if (!LlamaModel)
+    if (InModelParams.Advanced.bUseCommonParams || InModelParams.Advanced.bEmbeddingMode)
     {
-        FString ErrorMessage = FString::Printf(TEXT("Unable to load model at <%hs>"), Path.c_str());
-        EmitErrorMessage(ErrorMessage, 10, __func__);
-        return false;
+        //use common init
+        common_init();
+
+        common_params CommonParams;
+        CommonParams.n_ctx = InModelParams.MaxContextLength;
+        CommonParams.n_batch = InModelParams.MaxBatchLength;
+        CommonParams.cpuparams.n_threads = InModelParams.Threads;
+        CommonParams.embedding = InModelParams.Advanced.bEmbeddingMode;  //true
+        CommonParams.n_gpu_layers = InModelParams.GPULayers;
+        CommonParams.model.path = ModelPath;
+
+        common_init_result LlamaInit = common_init_from_params(CommonParams);
+
+        LlamaModel = LlamaInit.model.get();
+        Context = LlamaInit.context.get();
+
+        //Sanity check the model settings for embedding
+        if (CommonParams.embedding)
+        {
+            if (llama_model_has_encoder(LlamaModel) && llama_model_has_decoder(LlamaModel))
+            {
+                EmitErrorMessage(TEXT("computing embeddings in encoder-decoder models is not supported"), 10, __func__);
+                return false;
+            }
+
+            const int n_ctx_train = llama_model_n_ctx_train(LlamaModel);
+            const int n_ctx = llama_n_ctx(Context);
+
+            if (n_ctx > n_ctx_train) 
+            {
+                FString ErrorMessage = FString::Printf(TEXT("warning: model was trained on only % d context tokens(% d specified)"), n_ctx_train, n_ctx);
+                EmitErrorMessage(ErrorMessage, 10, __func__);
+                return false;
+            }
+        }
     }
+    else
+    {
+        //Regular init
+        // initialize the model
+        llama_model_params LlamaModelParams = llama_model_default_params();
+        LlamaModelParams.n_gpu_layers = InModelParams.GPULayers;
 
-    llama_context_params ContextParams = llama_context_default_params();
-    ContextParams.n_ctx = InModelParams.MaxContextLength;
-    ContextParams.n_batch = InModelParams.MaxBatchLength;
-    ContextParams.n_threads = InModelParams.Threads;
-    ContextParams.n_threads_batch = InModelParams.Threads;
+        LlamaModel = llama_model_load_from_file(ModelPath.c_str(), LlamaModelParams);
+        if (!LlamaModel)
+        {
+            FString ErrorMessage = FString::Printf(TEXT("Unable to load model at <%hs>"), ModelPath.c_str());
+            EmitErrorMessage(ErrorMessage, 10, __func__);
+            return false;
+        }
+        
+        llama_context_params ContextParams = llama_context_default_params();
+        ContextParams.n_ctx = InModelParams.MaxContextLength;
+        ContextParams.n_batch = InModelParams.MaxBatchLength;
+        ContextParams.n_threads = InModelParams.Threads;
+        ContextParams.n_threads_batch = InModelParams.Threads;
+        //ContextParams.embeddings = InModelParams.bEmbeddingMode;  //to be tested for A/B comparison if it works
 
-    Context = llama_init_from_model(LlamaModel, ContextParams);
+        Context = llama_init_from_model(LlamaModel, ContextParams);
+    }
+    
     if (!Context)
     {
         FString ErrorMessage = FString::Printf(TEXT("Unable to initialize model with given context params."));
@@ -439,6 +484,36 @@ std::string FLlamaInternal::ResumeGeneration()
 void FLlamaInternal::EmbedPrompt(const std::string& Text, std::vector<float>& Embeddings)
 {
     //apply https://github.com/ggml-org/llama.cpp/blob/master/examples/embedding/embedding.cpp wrapping logic
+
+    //Tokenize prompt
+    std::vector<llama_token> Input = common_tokenize(Context, Text, true, true);
+
+    //int32 PromptCount = 1;
+    llama_batch Batch = llama_batch_get_one(Input.data(), Input.size());
+
+    enum llama_pooling_type PoolingType = llama_pooling_type(Context);
+
+    //Count number of embeddings
+    int32 EmbeddingCount = 0;
+    
+    if (PoolingType == llama_pooling_type::LLAMA_POOLING_TYPE_NONE)
+    {
+        EmbeddingCount = Input.size();
+    }
+    else
+    {
+        EmbeddingCount = 1;
+    }
+    
+    int32 NEmbd = llama_model_n_embd(LlamaModel);
+
+    //allocate
+    Embeddings = std::vector<float>(EmbeddingCount * NEmbd, 0);
+
+    float* EmbeddingsPtr = Embeddings.data();
+
+    //decode
+    BatchDecodeEmbedding(Context, Batch, EmbeddingsPtr, 0, NEmbd, true);
 }
 
 int32 FLlamaInternal::ProcessPrompt(const std::string& Prompt, EChatTemplateRole Role)
@@ -705,53 +780,53 @@ const char* FLlamaInternal::RoleForEnum(EChatTemplateRole Role)
 }
 
 //from https://github.com/ggml-org/llama.cpp/blob/master/examples/embedding/embedding.cpp
-void FLlamaInternal::BatchDecodeEmbedding(llama_context* ctx, llama_batch& batch, float* output, int n_seq, int n_embd, int embd_norm)
+void FLlamaInternal::BatchDecodeEmbedding(llama_context* InContext, llama_batch& Batch, float* Output, int NSeq, int NEmbd, int EmbdNorm)
 {
-    const enum llama_pooling_type pooling_type = llama_pooling_type(ctx);
-    const struct llama_model* model = llama_get_model(ctx);
+    const enum llama_pooling_type pooling_type = llama_pooling_type(InContext);
+    const struct llama_model* model = llama_get_model(InContext);
 
     // clear previous kv_cache values (irrelevant for embeddings)
-    llama_kv_self_clear(ctx);
+    llama_kv_self_clear(InContext);
 
     // run model
-    UE_LOG(LlamaLog, Log, TEXT("%hs: n_tokens = %d, n_seq = %d"), __func__, batch.n_tokens, n_seq);
+    UE_LOG(LlamaLog, Log, TEXT("%hs: n_tokens = %d, n_seq = %d"), __func__, Batch.n_tokens, NSeq);
 
     if (llama_model_has_encoder(model) && !llama_model_has_decoder(model)) {
         // encoder-only model
-        if (llama_encode(ctx, batch) < 0) {
+        if (llama_encode(InContext, Batch) < 0) {
             UE_LOG(LlamaLog, Error, TEXT("%hs : failed to encode"), __func__);
         }
     }
     else if (!llama_model_has_encoder(model) && llama_model_has_decoder(model)) {
         // decoder-only model
-        if (llama_decode(ctx, batch) < 0) {
+        if (llama_decode(InContext, Batch) < 0) {
             UE_LOG(LlamaLog, Log, TEXT("%hs : failed to decode"), __func__);
         }
     }
 
-    for (int i = 0; i < batch.n_tokens; i++) {
-        if (!batch.logits[i]) {
+    for (int i = 0; i < Batch.n_tokens; i++) {
+        if (!Batch.logits[i]) {
             continue;
         }
 
-        const float* embd = nullptr;
-        int embd_pos = 0;
+        const float* Embd = nullptr;
+        int EmbdPos = 0;
 
         if (pooling_type == LLAMA_POOLING_TYPE_NONE) {
             // try to get token embeddings
-            embd = llama_get_embeddings_ith(ctx, i);
-            embd_pos = i;
-            GGML_ASSERT(embd != NULL && "failed to get token embeddings");
+            Embd = llama_get_embeddings_ith(InContext, i);
+            EmbdPos = i;
+            GGML_ASSERT(Embd != NULL && "failed to get token embeddings");
         }
         else {
             // try to get sequence embeddings - supported only when pooling_type is not NONE
-            embd = llama_get_embeddings_seq(ctx, batch.seq_id[i][0]);
-            embd_pos = batch.seq_id[i][0];
-            GGML_ASSERT(embd != NULL && "failed to get sequence embeddings");
+            Embd = llama_get_embeddings_seq(InContext, Batch.seq_id[i][0]);
+            EmbdPos = Batch.seq_id[i][0];
+            GGML_ASSERT(Embd != NULL && "failed to get sequence embeddings");
         }
 
-        float* out = output + embd_pos * n_embd;
-        common_embd_normalize(embd, out, n_embd, embd_norm);
+        float* Out = Output + EmbdPos * NEmbd;
+        common_embd_normalize(Embd, Out, NEmbd, EmbdNorm);
     }
 }
 
