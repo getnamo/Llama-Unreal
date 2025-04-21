@@ -828,7 +828,9 @@ void FLlamaInternal::BatchDecodeEmbedding(llama_context* InContext, llama_batch&
     llama_kv_self_clear(InContext);
 
     // run model
-    UE_LOG(LlamaLog, Log, TEXT("%hs: n_tokens = %d, n_seq = %d"), __func__, Batch.n_tokens, NSeq);
+    
+    //Debug info
+    //UE_LOG(LlamaLog, Log, TEXT("%hs: n_tokens = %d, n_seq = %d"), __func__, Batch.n_tokens, NSeq);
 
     if (llama_model_has_encoder(model) && !llama_model_has_decoder(model))
     {
