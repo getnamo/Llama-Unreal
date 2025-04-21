@@ -22,7 +22,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPromptHistorySignature, FString, 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnEndOfStreamSignature, bool, bStopSequenceTriggered, float, TokensPerSecond);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnPromptProcessedSignature, int32, TokensProcessed, EChatTemplateRole, Role, float, TokensPerSecond);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FVoidEventSignature);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnEmbeddingsSignature, const TArray<float>&, Embeddings);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnEmbeddingsSignature, const TArray<float>&, Embeddings, const FString&, SourceText);
 
 USTRUCT(BlueprintType)
 struct FLlamaRunTimings

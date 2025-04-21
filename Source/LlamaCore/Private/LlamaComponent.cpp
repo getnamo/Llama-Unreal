@@ -235,8 +235,8 @@ void ULlamaComponent::GeneratePromptEmbeddingsForText(const FString& Text)
         return;
     }
 
-    LlamaNative->EmbedPrompt(Text, [this](const TArray<float>& Embeddings)
+    LlamaNative->EmbedPrompt(Text, [this](const TArray<float>& Embeddings, const FString& SourceText)
     {
-        OnEmbeddings.Broadcast(Embeddings);
+        OnEmbeddings.Broadcast(Embeddings, SourceText);
     });
 }

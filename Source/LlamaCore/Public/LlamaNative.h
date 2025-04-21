@@ -69,7 +69,7 @@ public:
 	//Embedding mode
 
 	//Embed a prompt and return the embeddings
-	void EmbedPrompt(const FString& Text, TFunction<void(const TArray<float>& Embeddings)>OnEmbeddings = nullptr);
+	void EmbedPrompt(const FString& Text, TFunction<void(const TArray<float>& Embeddings, const FString& SourceText)>OnEmbeddings = nullptr);
 
 	FLlamaNative();
 	~FLlamaNative();
