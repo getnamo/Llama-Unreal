@@ -95,8 +95,7 @@ protected:
     int32 FilledContextCharLength = 0;
     FThreadSafeBool bGenerationActive = false;
 
-    //batch decoding embedding model
-
+    //Embedding Decoding utilities
     void BatchDecodeEmbedding(llama_context* ctx, llama_batch& batch, float* output, int n_seq, int n_embd, int embd_norm);
     void BatchAddSeq(llama_batch& batch, const std::vector<int32_t>& tokens, llama_seq_id seq_id);
 };
