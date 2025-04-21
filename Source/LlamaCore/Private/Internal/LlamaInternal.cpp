@@ -30,7 +30,9 @@ bool FLlamaInternal::LoadModelFromParams(const FLLMModelParams& InModelParams)
     std::string ModelPath = TCHAR_TO_UTF8(*FLlamaPaths::ParsePathIntoFullPath(InModelParams.PathToModel));
 
 
-    if (InModelParams.Advanced.bUseCommonParams || InModelParams.Advanced.bEmbeddingMode)
+    //CommonParams Init (false)//
+    if (false)
+    //if (InModelParams.Advanced.bUseCommonParams || InModelParams.Advanced.bEmbeddingMode)
     {
         //use common init
         common_init();
@@ -88,7 +90,12 @@ bool FLlamaInternal::LoadModelFromParams(const FLLMModelParams& InModelParams)
         ContextParams.n_batch = InModelParams.MaxBatchLength;
         ContextParams.n_threads = InModelParams.Threads;
         ContextParams.n_threads_batch = InModelParams.Threads;
-        //ContextParams.embeddings = InModelParams.bEmbeddingMode;  //to be tested for A/B comparison if it works
+        
+        //only set if true
+        if (InModelParams.Advanced.bEmbeddingMode)
+        {
+            ContextParams.embeddings = InModelParams.Advanced.bEmbeddingMode;  //to be tested for A/B comparison if it works
+        }
 
         Context = llama_init_from_model(LlamaModel, ContextParams);
     }
@@ -100,96 +107,99 @@ bool FLlamaInternal::LoadModelFromParams(const FLLMModelParams& InModelParams)
         return false;
     }
 
-    //common sampler strategy
-
-    if (InModelParams.Advanced.bUseCommonSampler)
+    //Only standard mode uses sampling
+    if (!InModelParams.Advanced.bEmbeddingMode)
     {
-        common_params_sampling SamplingParams;
-        
+        //common sampler strategy
+        if (InModelParams.Advanced.bUseCommonSampler)
+        {
+            common_params_sampling SamplingParams;
+
+            if (InModelParams.Advanced.MinP != -1.f)
+            {
+                SamplingParams.min_p = InModelParams.Advanced.MinP;
+            }
+            if (InModelParams.Advanced.TopK != -1.f)
+            {
+                SamplingParams.top_k = InModelParams.Advanced.TopK;
+            }
+            if (InModelParams.Advanced.TopP != -1.f)
+            {
+                SamplingParams.top_p = InModelParams.Advanced.TopP;
+            }
+            if (InModelParams.Advanced.TypicalP != -1.f)
+            {
+                SamplingParams.typ_p = InModelParams.Advanced.TypicalP;
+            }
+            if (InModelParams.Advanced.Mirostat != -1)
+            {
+                SamplingParams.mirostat = InModelParams.Advanced.Mirostat;
+                SamplingParams.mirostat_eta = InModelParams.Advanced.MirostatEta;
+                SamplingParams.mirostat_tau = InModelParams.Advanced.MirostatTau;
+            }
+
+            //Seed is either default or the one specifically passed in for deterministic results
+            if (InModelParams.Seed != -1)
+            {
+                SamplingParams.seed = InModelParams.Seed;
+            }
+
+            CommonSampler = common_sampler_init(LlamaModel, SamplingParams);
+        }
+
+        Sampler = llama_sampler_chain_init(llama_sampler_chain_default_params());
+
+        //Temperature is always applied
+        llama_sampler_chain_add(Sampler, llama_sampler_init_temp(InModelParams.Advanced.Temp));
+
+        //If any of the repeat penalties are set, apply penalties to sampler
+        if (InModelParams.Advanced.PenaltyLastN != 0 ||
+            InModelParams.Advanced.PenaltyRepeat != 1.f ||
+            InModelParams.Advanced.PenaltyFrequency != 0.f ||
+            InModelParams.Advanced.PenaltyPresence != 0.f)
+        {
+            llama_sampler_chain_add(Sampler, llama_sampler_init_penalties(
+                InModelParams.Advanced.PenaltyLastN, InModelParams.Advanced.PenaltyRepeat,
+                InModelParams.Advanced.PenaltyFrequency, InModelParams.Advanced.PenaltyPresence));
+        }
+
+        //Optional sampling strategies - MinP should be applied by default of 0.05f
         if (InModelParams.Advanced.MinP != -1.f)
         {
-            SamplingParams.min_p = InModelParams.Advanced.MinP;
+            llama_sampler_chain_add(Sampler, llama_sampler_init_min_p(InModelParams.Advanced.MinP, 1));
         }
         if (InModelParams.Advanced.TopK != -1.f)
         {
-            SamplingParams.top_k = InModelParams.Advanced.TopK;
+            llama_sampler_chain_add(Sampler, llama_sampler_init_top_k(InModelParams.Advanced.TopK));
         }
         if (InModelParams.Advanced.TopP != -1.f)
         {
-            SamplingParams.top_p = InModelParams.Advanced.TopP;
+            llama_sampler_chain_add(Sampler, llama_sampler_init_top_p(InModelParams.Advanced.TopP, 1));
         }
         if (InModelParams.Advanced.TypicalP != -1.f)
         {
-            SamplingParams.typ_p = InModelParams.Advanced.TypicalP;
+            llama_sampler_chain_add(Sampler, llama_sampler_init_typical(InModelParams.Advanced.TypicalP, 1));
         }
         if (InModelParams.Advanced.Mirostat != -1)
         {
-            SamplingParams.mirostat = InModelParams.Advanced.Mirostat;
-            SamplingParams.mirostat_eta = InModelParams.Advanced.MirostatEta;
-            SamplingParams.mirostat_tau = InModelParams.Advanced.MirostatTau;
+            llama_sampler_chain_add(Sampler, llama_sampler_init_mirostat_v2(
+                InModelParams.Advanced.Mirostat, InModelParams.Advanced.MirostatTau, InModelParams.Advanced.MirostatEta));
         }
 
         //Seed is either default or the one specifically passed in for deterministic results
-        if (InModelParams.Seed != -1)
+        if (InModelParams.Seed == -1)
         {
-            SamplingParams.seed = InModelParams.Seed;
+            llama_sampler_chain_add(Sampler, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
+        }
+        else
+        {
+            llama_sampler_chain_add(Sampler, llama_sampler_init_dist(InModelParams.Seed));
         }
 
-        CommonSampler = common_sampler_init(LlamaModel, SamplingParams);
-    }
+        //NB: this is just a starting heuristic, 
+        ContextHistory.reserve(1024);
 
-
-    Sampler = llama_sampler_chain_init(llama_sampler_chain_default_params());
-
-    //Temperature is always applied
-    llama_sampler_chain_add(Sampler, llama_sampler_init_temp(InModelParams.Advanced.Temp));
-
-    //If any of the repeat penalties are set, apply penalties to sampler
-    if (InModelParams.Advanced.PenaltyLastN != 0 || 
-        InModelParams.Advanced.PenaltyRepeat != 1.f ||
-        InModelParams.Advanced.PenaltyFrequency != 0.f ||
-        InModelParams.Advanced.PenaltyPresence != 0.f)
-    {
-        llama_sampler_chain_add(Sampler, llama_sampler_init_penalties(
-            InModelParams.Advanced.PenaltyLastN, InModelParams.Advanced.PenaltyRepeat,
-            InModelParams.Advanced.PenaltyFrequency, InModelParams.Advanced.PenaltyPresence));
-    }
-    
-    //Optional sampling strategies - MinP should be applied by default of 0.05f
-    if (InModelParams.Advanced.MinP != -1.f)
-    {
-        llama_sampler_chain_add(Sampler, llama_sampler_init_min_p(InModelParams.Advanced.MinP, 1));
-    }
-    if (InModelParams.Advanced.TopK != -1.f)
-    {
-        llama_sampler_chain_add(Sampler, llama_sampler_init_top_k(InModelParams.Advanced.TopK));
-    }
-    if (InModelParams.Advanced.TopP != -1.f)
-    {
-        llama_sampler_chain_add(Sampler, llama_sampler_init_top_p(InModelParams.Advanced.TopP, 1));
-    }
-    if (InModelParams.Advanced.TypicalP != -1.f)
-    {
-        llama_sampler_chain_add(Sampler, llama_sampler_init_typical(InModelParams.Advanced.TypicalP, 1));
-    }
-    if (InModelParams.Advanced.Mirostat != -1)
-    {
-        llama_sampler_chain_add(Sampler, llama_sampler_init_mirostat_v2(
-            InModelParams.Advanced.Mirostat, InModelParams.Advanced.MirostatTau, InModelParams.Advanced.MirostatEta));
-    }
-
-    //Seed is either default or the one specifically passed in for deterministic results
-    if (InModelParams.Seed == -1)
-    {
-        llama_sampler_chain_add(Sampler, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
-    }
-    else
-    {
-        llama_sampler_chain_add(Sampler, llama_sampler_init_dist(InModelParams.Seed));
-    }
-    
-    //NB: this is just a starting heuristic, 
-    ContextHistory.reserve(1024);
+    }//End non-embedding mode
 
     //empty by default
     Template = std::string();
@@ -500,11 +510,23 @@ void FLlamaInternal::EmbedPrompt(const std::string& Text, std::vector<float>& Em
         return;
     }
 
-    //Tokenize prompt
-    std::vector<llama_token> Input = common_tokenize(Context, Text, true, true);
+    //Tokenize prompt - we're crashing out here... 
+    //Check if our sampling/etc params are wrong or vocab is wrong.
+    //Try tokenizing using normal method?
+    //CONTINUE HERE:
 
-    //int32 PromptCount = 1;
-    llama_batch Batch = llama_batch_get_one(Input.data(), Input.size());
+    UE_LOG(LogTemp, Log, TEXT("Trying to sample <%hs>"), Text.c_str());
+
+    auto Input = common_tokenize(Context, Text, true, true);
+
+    //int32 NBatch = llama_n_ctx(Context);    //todo: get this from our params
+    int32 NBatch = Input.size();    //todo: get this from our params
+
+    llama_batch Batch = llama_batch_init(NBatch, 0, 1);
+    //llama_batch Batch = llama_batch_get_one(Input.data(), Input.size());
+
+    //add single batch
+    BatchAddSeq(Batch, Input, 0);
 
     enum llama_pooling_type PoolingType = llama_pooling_type(Context);
 
@@ -529,6 +551,8 @@ void FLlamaInternal::EmbedPrompt(const std::string& Text, std::vector<float>& Em
 
     //decode
     BatchDecodeEmbedding(Context, Batch, EmbeddingsPtr, 0, NEmbd, true);
+
+    UE_LOG(LogTemp, Log, TEXT("Embeddings count: %d"), Embeddings.size());
 }
 
 int32 FLlamaInternal::ProcessPrompt(const std::string& Prompt, EChatTemplateRole Role)
@@ -806,42 +830,64 @@ void FLlamaInternal::BatchDecodeEmbedding(llama_context* InContext, llama_batch&
     // run model
     UE_LOG(LlamaLog, Log, TEXT("%hs: n_tokens = %d, n_seq = %d"), __func__, Batch.n_tokens, NSeq);
 
-    if (llama_model_has_encoder(model) && !llama_model_has_decoder(model)) {
+    if (llama_model_has_encoder(model) && !llama_model_has_decoder(model))
+    {
         // encoder-only model
-        if (llama_encode(InContext, Batch) < 0) {
+        if (llama_encode(InContext, Batch) < 0) 
+        {
             UE_LOG(LlamaLog, Error, TEXT("%hs : failed to encode"), __func__);
         }
     }
-    else if (!llama_model_has_encoder(model) && llama_model_has_decoder(model)) {
+    else if (!llama_model_has_encoder(model) && llama_model_has_decoder(model)) 
+    {
         // decoder-only model
-        if (llama_decode(InContext, Batch) < 0) {
+        if (llama_decode(InContext, Batch) < 0) 
+        {
             UE_LOG(LlamaLog, Log, TEXT("%hs : failed to decode"), __func__);
         }
     }
 
-    for (int i = 0; i < Batch.n_tokens; i++) {
-        if (!Batch.logits[i]) {
+    for (int i = 0; i < Batch.n_tokens; i++) 
+    {
+        if (Batch.logits && !Batch.logits[i]) 
+        {
             continue;
         }
 
         const float* Embd = nullptr;
         int EmbdPos = 0;
-
-        if (pooling_type == LLAMA_POOLING_TYPE_NONE) {
+        
+        if (pooling_type == LLAMA_POOLING_TYPE_NONE) 
+        {
             // try to get token embeddings
             Embd = llama_get_embeddings_ith(InContext, i);
             EmbdPos = i;
             GGML_ASSERT(Embd != NULL && "failed to get token embeddings");
         }
-        else {
+        else if (Batch.seq_id)
+        {
             // try to get sequence embeddings - supported only when pooling_type is not NONE
             Embd = llama_get_embeddings_seq(InContext, Batch.seq_id[i][0]);
             EmbdPos = Batch.seq_id[i][0];
             GGML_ASSERT(Embd != NULL && "failed to get sequence embeddings");
         }
+        else
+        {
+            //NB: this generally won't work, we should crash here.
+            Embd = llama_get_embeddings(InContext);
+        }
 
         float* Out = Output + EmbdPos * NEmbd;
         common_embd_normalize(Embd, Out, NEmbd, EmbdNorm);
+    }
+}
+
+void FLlamaInternal::BatchAddSeq(llama_batch& batch, const std::vector<int32_t>& tokens, llama_seq_id seq_id)
+{
+    size_t n_tokens = tokens.size();
+    for (size_t i = 0; i < n_tokens; i++) 
+    {
+        common_batch_add(batch, tokens[i], i, { seq_id }, true);
     }
 }
 
