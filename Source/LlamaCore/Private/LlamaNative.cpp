@@ -774,7 +774,7 @@ FString FLlamaNative::WrapPromptForRole(const FString& Text, EChatTemplateRole R
 }
 
 
-void FLlamaNative::EmbedPrompt(const FString& Text, TFunction<void(const TArray<float>& Embeddings, const FString& SourceText)> OnEmbeddings)
+void FLlamaNative::GetPromptEmbeddings(const FString& Text, TFunction<void(const TArray<float>& Embeddings, const FString& SourceText)> OnEmbeddings)
 {
     const FString SourceText = Text;    //copy to safely traverse threads
 
@@ -782,7 +782,7 @@ void FLlamaNative::EmbedPrompt(const FString& Text, TFunction<void(const TArray<
     {
         std::string TextStd = FLlamaString::ToStd(SourceText);
         std::vector<float> EmbeddingVector;
-        Internal->EmbedPrompt(TextStd, EmbeddingVector);
+        Internal->GetPromptEmbeddings(TextStd, EmbeddingVector);
 
         TArray<float> Embeddings;
         Embeddings.Append(EmbeddingVector.data(), EmbeddingVector.size());

@@ -500,7 +500,7 @@ std::string FLlamaInternal::ResumeGeneration()
     return Generate();
 }
 
-void FLlamaInternal::EmbedPrompt(const std::string& Text, std::vector<float>& Embeddings)
+void FLlamaInternal::GetPromptEmbeddings(const std::string& Text, std::vector<float>& Embeddings)
 {
     //apply https://github.com/ggml-org/llama.cpp/blob/master/examples/embedding/embedding.cpp wrapping logic
 
@@ -550,7 +550,7 @@ void FLlamaInternal::EmbedPrompt(const std::string& Text, std::vector<float>& Em
     float* EmbeddingsPtr = Embeddings.data();
 
     //decode
-    BatchDecodeEmbedding(Context, Batch, EmbeddingsPtr, 0, NEmbd, true);
+    BatchDecodeEmbedding(Context, Batch, EmbeddingsPtr, 0, NEmbd, 2);
 
     UE_LOG(LogTemp, Log, TEXT("Embeddings count: %d"), Embeddings.size());
 }

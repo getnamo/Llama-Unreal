@@ -77,7 +77,7 @@ public:
     //for embedding models
 
     //take a prompt and return an array of floats signifying the embeddings
-    void EmbedPrompt(const std::string& Text, std::vector<float>& Embeddings);
+    void GetPromptEmbeddings(const std::string& Text, std::vector<float>& Embeddings);
 
 protected:
     //Wrapper for user<->assistant templated conversation
