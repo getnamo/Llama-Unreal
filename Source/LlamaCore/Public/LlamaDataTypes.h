@@ -120,10 +120,11 @@ struct FLLMModelAdvancedParams
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
     bool bUseCommonSampler = true;
 
-    //use common_init instead of normal, will be true for bEmbedding mode = true
+    //use common_init instead of normal - may break functionality, use with care
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
     bool bUseCommonParams = false;
 
+    //set to true if you want to use GeneratePromptEmbeddingsForText
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
     bool bEmbeddingMode = false;
 
