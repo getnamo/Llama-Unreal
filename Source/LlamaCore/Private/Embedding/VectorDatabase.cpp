@@ -2,7 +2,27 @@
 
 #include "Embedding/VectorDatabase.h"
 #include "Misc/Paths.h"
+#include "hnswlib/hnswlib.h"
 #include "LlamaUtility.h"
+
+class FHNSWPrivate
+{
+public:
+    hnswlib::HierarchicalNSW<float>* HNSW = nullptr;
+
+    void ReleaseHNSWIfAllocated()
+    {
+        if (HNSW)
+        {
+            delete HNSW;
+            HNSW = nullptr;
+        }
+    }
+    ~FHNSWPrivate()
+    {
+        ReleaseHNSWIfAllocated();
+    }
+};
 
 void FVectorDatabase::BasicsTest()
 {
@@ -23,14 +43,14 @@ void FVectorDatabase::BasicsTest()
     // Add data to index
     for (int i = 0; i < Params.MaxElements; i++)
     {
-        HNSW->addPoint(data + i * Params.Dimensions, i);
+        Private->HNSW->addPoint(data + i * Params.Dimensions, i);
     }
 
     // Query the elements for themselves and measure recall
     float correct = 0;
     for (int i = 0; i < Params.MaxElements; i++)
     {
-        std::priority_queue<std::pair<float, hnswlib::labeltype>> result = HNSW->searchKnn(data + i * Params.Dimensions, 1);
+        std::priority_queue<std::pair<float, hnswlib::labeltype>> result = Private->HNSW->searchKnn(data + i * Params.Dimensions, 1);
         hnswlib::labeltype label = result.top().second;
         if (label == i) correct++;
     }
@@ -41,22 +61,22 @@ void FVectorDatabase::BasicsTest()
     // Serialize index
     FString SavePath = FPaths::ProjectSavedDir() / TEXT("hnsw.bin");
     std::string HNSWPath = FLlamaString::ToStd(SavePath);
-    HNSW->saveIndex(HNSWPath);
-    delete HNSW;
+    Private->HNSW->saveIndex(HNSWPath);
+    delete Private->HNSW;
 
     // Deserialize index and check recall
     // This test appears to fail in unreal context (loading index)
     hnswlib::L2Space Space(Params.Dimensions);
-    HNSW = new hnswlib::HierarchicalNSW<float>(&Space, HNSWPath, false, Params.MaxElements);
+    Private->HNSW = new hnswlib::HierarchicalNSW<float>(&Space, HNSWPath, false, Params.MaxElements);
     //HNSW = new hnswlib::HierarchicalNSW<float>(&space, max_elements, M, ef_construction);
     //HNSW->loadIndex(HNSWPath, &space);
 
-    if (HNSW->getMaxElements() > 0)
+    if (Private->HNSW->getMaxElements() > 0)
     {
         correct = 0;
-        for (int i = 0; i < HNSW->getMaxElements(); i++)
+        for (int i = 0; i < Private->HNSW->getMaxElements(); i++)
         {
-            std::priority_queue<std::pair<float, hnswlib::labeltype>> result = HNSW->searchKnn(data + i * Params.Dimensions, 1);
+            std::priority_queue<std::pair<float, hnswlib::labeltype>> result = Private->HNSW->searchKnn(data + i * Params.Dimensions, 1);
             hnswlib::labeltype label = result.top().second;
             if (label == i) correct++;
         }
@@ -74,19 +94,15 @@ void FVectorDatabase::BasicsTest()
 void FVectorDatabase::InitializeDB()
 {
     //Delete and re-initialize as needed
-    if (HNSW)
-    {
-        delete HNSW;
-        HNSW = nullptr;
-    }
+    Private->ReleaseHNSWIfAllocated();
 
     hnswlib::L2Space Space(Params.Dimensions);
-    HNSW = new hnswlib::HierarchicalNSW<float>(&Space, Params.MaxElements, Params.M, Params.EFConstruction);
+    Private->HNSW = new hnswlib::HierarchicalNSW<float>(&Space, Params.MaxElements, Params.M, Params.EFConstruction);
 }
 
 FVectorDatabase::FVectorDatabase()
 {
-
+    Private = new FHNSWPrivate();
 
     //llamainternal
     //1. Load model
@@ -105,6 +121,6 @@ FVectorDatabase::FVectorDatabase()
 
 FVectorDatabase::~FVectorDatabase()
 {
-    delete HNSW;
-    HNSW = nullptr;
+    delete Private;
+    Private = nullptr;
 }

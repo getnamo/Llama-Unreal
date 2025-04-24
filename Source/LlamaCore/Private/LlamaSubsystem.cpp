@@ -4,6 +4,7 @@
 #include "HAL/PlatformTime.h"
 #include "Tickable.h"
 #include "LlamaNative.h"
+#include "LlamaUtility.h"
 #include "Embedding/VectorDatabase.h"
 
 void ULlamaSubsystem::Initialize(FSubsystemCollectionBase& Collection)

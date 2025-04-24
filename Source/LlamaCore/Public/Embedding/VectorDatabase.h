@@ -2,7 +2,6 @@
 
 #pragma once
 
-#include "hnswlib/hnswlib.h"
 #include "VectorDatabase.generated.h"
 
 USTRUCT(BlueprintType)
@@ -31,10 +30,13 @@ struct FVectorDBParams
 
 /** 
 * Unreal style native wrapper for HNSW nearest neighbor search for high dimensional vectors
+* !! v0.9.8 note NB: this class is a work in progress, currently not working yet !!
 */
 class FVectorDatabase
 {
 public:
+
+
 
     FVectorDBParams Params;
 
@@ -48,5 +50,5 @@ public:
     ~FVectorDatabase();
 
 private:
-    hnswlib::HierarchicalNSW<float>* HNSW;
+    class FHNSWPrivate* Private = nullptr;
 };

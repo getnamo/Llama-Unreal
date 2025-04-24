@@ -1,6 +1,7 @@
 // Copyright 2025-current Getnamo.
 
 #include "LlamaComponent.h"
+#include "LlamaUtility.h"
 #include "LlamaNative.h"
 
 ULlamaComponent::ULlamaComponent(const FObjectInitializer &ObjectInitializer)
