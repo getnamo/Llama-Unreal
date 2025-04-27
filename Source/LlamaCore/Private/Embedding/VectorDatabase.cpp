@@ -10,6 +10,14 @@ class FHNSWPrivate
 public:
     hnswlib::HierarchicalNSW<float>* HNSW = nullptr;
 
+    void InitializeHNSW(const FVectorDBParams& Params)
+    {
+        ReleaseHNSWIfAllocated();
+
+        hnswlib::L2Space Space(Params.Dimensions);
+        HNSW = new hnswlib::HierarchicalNSW<float>(&Space, Params.MaxElements, Params.M, Params.EFConstruction);
+    }
+
     void ReleaseHNSWIfAllocated()
     {
         if (HNSW)
@@ -94,10 +102,44 @@ void FVectorDatabase::BasicsTest()
 void FVectorDatabase::InitializeDB()
 {
     //Delete and re-initialize as needed
-    Private->ReleaseHNSWIfAllocated();
+    Private->InitializeHNSW(Params);
+}
 
-    hnswlib::L2Space Space(Params.Dimensions);
-    Private->HNSW = new hnswlib::HierarchicalNSW<float>(&Space, Params.MaxElements, Params.M, Params.EFConstruction);
+void FVectorDatabase::AddVectorEmbeddingIdPair(const TArray<float>& Embedding, int64 UniqueId)
+{
+    Private->HNSW->addPoint(&Embedding, UniqueId);
+}
+
+void FVectorDatabase::AddVectorEmbeddingStringPair(const TArray<float>& Embedding, const FString& Text)
+{
+    TextDatabaseMaxId++;
+    int64 UniqueId = TextDatabaseMaxId;
+    TextDatabase.Add(UniqueId, Text);
+
+    AddVectorEmbeddingIdPair(Embedding, UniqueId);
+}
+
+int64 FVectorDatabase::FindNearest(const TArray<float>& ForEmbedding)
+{
+    std::priority_queue<std::pair<float, hnswlib::labeltype>> result = Private->HNSW->searchKnn(&ForEmbedding, 1);
+    hnswlib::labeltype label = result.top().second;
+
+    return (int64)label;
+}
+
+FString FVectorDatabase::FindNearestString(const TArray<float>& ForEmbedding)
+{
+    int64 UniqueId = FindNearest(ForEmbedding);
+    FString* MaybeResult = TextDatabase.Find(UniqueId);
+
+    if (MaybeResult)
+    {
+        return *MaybeResult;
+    }
+    else
+    {
+        return TEXT("");
+    }
 }
 
 FVectorDatabase::FVectorDatabase()
@@ -121,6 +163,7 @@ FVectorDatabase::FVectorDatabase()
 
 FVectorDatabase::~FVectorDatabase()
 {
+    TextDatabase.Empty();
     delete Private;
     Private = nullptr;
 }

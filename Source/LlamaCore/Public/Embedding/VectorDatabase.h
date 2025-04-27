@@ -46,9 +46,28 @@ public:
     //Initializes from current Params
     void InitializeDB();
 
+    //Adding Vectors
+    //Add a high dimensional vector pair with a unique db id
+    void AddVectorEmbeddingIdPair(const TArray<float>& Embedding, int64 UniqueId);
+
+    //Add a high dimensional vector pair with it's text source
+    //this will internally create a DB entry
+    void AddVectorEmbeddingStringPair(const TArray<float>& Embedding, const FString& Text);
+
+    //Lookup single top entry
+    int64 FindNearest(const TArray<float>& ForEmbedding);
+
+    FString FindNearestString(const TArray<float>& ForEmbedding);
+
+    //todo: add version that returns n nearest
+
     FVectorDatabase();
     ~FVectorDatabase();
 
 private:
     class FHNSWPrivate* Private = nullptr;
+
+    //Stores the embedded text database. Use UniqueDBId (aka primary key) to lookup the text snippet
+    TMap<int64, FString> TextDatabase;
+    int64 TextDatabaseMaxId = 0;
 };
