@@ -55,7 +55,7 @@ public:
     void AddVectorEmbeddingStringPair(const TArray<float>& Embedding, const FString& Text);
 
     //Lookup single top entry
-    int64 FindNearest(const TArray<float>& ForEmbedding);
+    int64 FindNearestId(const TArray<float>& ForEmbedding);
     FString FindNearestString(const TArray<float>& ForEmbedding);
 
     //Lookup group entries

@@ -119,7 +119,7 @@ void FVectorDatabase::AddVectorEmbeddingStringPair(const TArray<float>& Embeddin
     AddVectorEmbeddingIdPair(Embedding, UniqueId);
 }
 
-int64 FVectorDatabase::FindNearest(const TArray<float>& ForEmbedding)
+int64 FVectorDatabase::FindNearestId(const TArray<float>& ForEmbedding)
 {
     TArray<int64> Ids;
     FindNearestNIds(Ids, ForEmbedding, 1);
