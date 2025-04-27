@@ -11,7 +11,7 @@ struct FVectorDBParams
 
     // Dimension of the elements, typically 1024
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VectorDB Params")
-    int32 Dimensions = 16;               
+    int32 Dimensions = 1024;
 
     // Maximum number of elements, should be known beforehand
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VectorDB Params")
@@ -19,7 +19,7 @@ struct FVectorDBParams
 
     // Tightly connected with internal dimensionality of the data
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VectorDB Params")
-    int32 M = 16;                 
+    int32 M = 1024;                 
 
     // Controls index search speed/build speed tradeoff, strongly affects the memory consumption
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VectorDB Params")
@@ -52,7 +52,7 @@ public:
 
     //Add a high dimensional vector pair with it's text source
     //this will internally create a DB entry
-    void AddVectorEmbeddingStringPair(const TArray<float>& Embedding, const FString& Text);
+    int64 AddVectorEmbeddingStringPair(const TArray<float>& Embedding, const FString& Text);
 
     //Lookup single top entry
     int64 FindNearestId(const TArray<float>& ForEmbedding);

@@ -141,6 +141,15 @@ public:
     UFUNCTION(BlueprintCallable, Category = "LLM Model Embedding Mode")
     void GeneratePromptEmbeddingsForText(const FString& Text);
 
+
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Embedding Mode")
+    void TestVectorDB();
+
 private:
     class FLlamaNative* LlamaNative;
+
+    //for testing
+    class FVectorDatabase* VectorDb;
+    int32 TempN;
+    TArray<float> TempEmbeddings;
 };

@@ -158,18 +158,6 @@ void ULlamaSubsystem::ResumeGeneration()
     LlamaNative->ResumeGeneration();
 }
 
-void ULlamaSubsystem::TestVectorSearch()
-{
-    FVectorDatabase* VectorDb = new FVectorDatabase();;
-
-    UE_LOG(LogTemp, Log, TEXT("VectorDB Pre"));
-    VectorDb->BasicsTest();
-    UE_LOG(LogTemp, Log, TEXT("VectorDB Post"));
-
-    delete VectorDb;
-    VectorDb = nullptr;
-}
-
 FString ULlamaSubsystem::RawContextHistory()
 {
     return ModelState.ContextHistory;

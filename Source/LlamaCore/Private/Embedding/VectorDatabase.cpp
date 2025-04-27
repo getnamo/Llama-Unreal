@@ -110,13 +110,14 @@ void FVectorDatabase::AddVectorEmbeddingIdPair(const TArray<float>& Embedding, i
     Private->HNSW->addPoint(&Embedding, UniqueId);
 }
 
-void FVectorDatabase::AddVectorEmbeddingStringPair(const TArray<float>& Embedding, const FString& Text)
+int64 FVectorDatabase::AddVectorEmbeddingStringPair(const TArray<float>& Embedding, const FString& Text)
 {
     TextDatabaseMaxId++;
     int64 UniqueId = TextDatabaseMaxId;
     TextDatabase.Add(UniqueId, Text);
 
     AddVectorEmbeddingIdPair(Embedding, UniqueId);
+    return UniqueId;
 }
 
 int64 FVectorDatabase::FindNearestId(const TArray<float>& ForEmbedding)

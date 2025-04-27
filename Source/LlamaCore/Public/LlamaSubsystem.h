@@ -108,10 +108,6 @@ public:
     UFUNCTION(BlueprintCallable, Category = "LLM Model Subsystem")
     void ResumeGeneration();
 
-    //Temporary for testing purposes
-    UFUNCTION(BlueprintCallable, Category = "TESTING")
-    void TestVectorSearch();
-
     //Obtain the currently formatted context
     UFUNCTION(BlueprintPure, Category = "LLM Model Subsystem")
     FString RawContextHistory();

@@ -3,6 +3,7 @@
 #include "LlamaComponent.h"
 #include "LlamaUtility.h"
 #include "LlamaNative.h"
+#include "Embedding/VectorDatabase.h"
 
 ULlamaComponent::ULlamaComponent(const FObjectInitializer &ObjectInitializer)
     : UActorComponent(ObjectInitializer)
@@ -55,6 +56,11 @@ ULlamaComponent::~ULlamaComponent()
 		delete LlamaNative;
 		LlamaNative = nullptr;
 	}
+    if (VectorDb)
+    {
+        delete VectorDb;
+        VectorDb = nullptr;
+    }
 }
 
 void ULlamaComponent::Activate(bool bReset)
@@ -240,4 +246,63 @@ void ULlamaComponent::GeneratePromptEmbeddingsForText(const FString& Text)
     {
         OnEmbeddings.Broadcast(Embeddings, SourceText);
     });
+}
+
+void ULlamaComponent::TestVectorDB()
+{
+    //roughly 10 sample sentences from https://randomwordgenerator.com/sentence.php
+    TArray<FString> Sentences = {
+        TEXT("They desperately needed another drummer since the current one only knew how to play bongos."),
+        TEXT("Poison ivy grew through the fence they said was impenetrable."),
+        TEXT("Most shark attacks occur about 10 feet from the beach since that's where the people are."),
+        TEXT("Mothers spend months of their lives waiting on their children."),
+        TEXT("He realized there had been several deaths on this road, but his concern rose when he saw the exact number."),
+        TEXT("Just go ahead and press that button."),
+        TEXT("The worst thing about being at the top of the career ladder is that there's a long way to fall."),
+        TEXT("The fish listened intently to what the frogs had to say."),
+        TEXT("My dentist tells me that chewing bricks is very bad for your teeth."),
+        TEXT("She wondered what his eyes were saying beneath his mirrored sunglasses."),
+    };
+
+    if (!VectorDb)
+    {
+        VectorDb = new FVectorDatabase();
+    }
+
+    UE_LOG(LogTemp, Log, TEXT("VectorDB Pre"));
+    VectorDb->BasicsTest();
+    UE_LOG(LogTemp, Log, TEXT("VectorDB Post"));
+
+    TempN = 0;
+    int32 Total = Sentences.Num();
+    FString QueryTest = Sentences[2];   //should be "Most shark attacks..."
+
+    //used for query later, guaranteed due to piping to be processed first
+    LlamaNative->GetPromptEmbeddings(QueryTest, [this](const TArray<float>& Embeddings, const FString& SourceText)
+    {
+        TempEmbeddings = Embeddings;
+    });
+
+    for (FString& Sentence : Sentences)
+    {
+        UE_LOG(LogTemp, Log, TEXT("Queuing embed for <%s>"), *Sentence);
+        LlamaNative->GetPromptEmbeddings(Sentence, [this, Sentence, Total](const TArray<float>& Embeddings, const FString& SourceText)
+        {
+            UE_LOG(LogTemp, Log, TEXT("Got embed for <%s>"), *Sentence);
+            VectorDb->AddVectorEmbeddingStringPair(Embeddings, SourceText);
+            TempN++;
+
+            //Last one?
+            if (TempN == Total)
+            {
+                //Try searching
+                UE_LOG(LogTemp, Log, TEXT("Embedded all sentences, doing a search..."));
+                
+                //we need to run Query test through embed..
+                FString Nearest = VectorDb->FindNearestString(TempEmbeddings);
+
+                UE_LOG(LogTemp, Log, TEXT("Nearest to <%s> is <%s>"), *Sentence, *Nearest);
+            }
+        });   
+    }
 }
