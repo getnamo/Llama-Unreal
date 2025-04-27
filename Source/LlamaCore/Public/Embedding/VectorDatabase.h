@@ -56,8 +56,11 @@ public:
 
     //Lookup single top entry
     int64 FindNearest(const TArray<float>& ForEmbedding);
-
     FString FindNearestString(const TArray<float>& ForEmbedding);
+
+    //Lookup group entries
+    void FindNearestNIds(TArray<int64>& IdResults, const TArray<float>& ForEmbedding, int32 N = 1);
+    void FindNearestNStrings(TArray<FString>& StringResults, const TArray<float>& ForEmbedding, int32 N = 1);
 
     //todo: add version that returns n nearest
 

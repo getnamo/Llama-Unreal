@@ -121,24 +121,58 @@ void FVectorDatabase::AddVectorEmbeddingStringPair(const TArray<float>& Embeddin
 
 int64 FVectorDatabase::FindNearest(const TArray<float>& ForEmbedding)
 {
-    std::priority_queue<std::pair<float, hnswlib::labeltype>> result = Private->HNSW->searchKnn(&ForEmbedding, 1);
-    hnswlib::labeltype label = result.top().second;
-
-    return (int64)label;
+    TArray<int64> Ids;
+    FindNearestNIds(Ids, ForEmbedding, 1);
+    if (Ids.Num() > 0)
+    {
+        return Ids[0];
+    }
+    else
+    {
+        return -1;
+    }
 }
 
 FString FVectorDatabase::FindNearestString(const TArray<float>& ForEmbedding)
 {
-    int64 UniqueId = FindNearest(ForEmbedding);
-    FString* MaybeResult = TextDatabase.Find(UniqueId);
+    TArray<FString> StringResults;
+    FindNearestNStrings(StringResults, ForEmbedding, 1);
 
-    if (MaybeResult)
+    if (StringResults.Num()>0)
     {
-        return *MaybeResult;
+        return StringResults[0];
     }
     else
     {
         return TEXT("");
+    }
+}
+
+void FVectorDatabase::FindNearestNIds(TArray<int64>& IdResults, const TArray<float>& ForEmbedding, int32 N)
+{
+    std::priority_queue<std::pair<float, hnswlib::labeltype>> Results = Private->HNSW->searchKnn(&ForEmbedding, N);
+
+    while (!Results.empty())
+    {
+        const std::pair<float, hnswlib::labeltype>& Item = Results.top();
+        IdResults.Add(static_cast<int64>(Item.second));
+        Results.pop();
+    }
+}
+
+void FVectorDatabase::FindNearestNStrings(TArray<FString>& StringResults, const TArray<float>& ForEmbedding, int32 N)
+{
+    TArray<int64> Ids;
+    FindNearestNIds(Ids, ForEmbedding, N);
+
+    for (int64 Id : Ids)
+    {
+        FString* MaybeResult = TextDatabase.Find(Id);
+        if (MaybeResult)
+        {
+            FString StringResult = *MaybeResult;
+            StringResults.Add(StringResult);
+        }
     }
 }
 
