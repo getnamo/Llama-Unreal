@@ -510,17 +510,11 @@ void FLlamaInternal::GetPromptEmbeddings(const std::string& Text, std::vector<fl
         return;
     }
 
-    //Tokenize prompt - we're crashing out here... 
-    //Check if our sampling/etc params are wrong or vocab is wrong.
-    //Try tokenizing using normal method?
-    //CONTINUE HERE:
-
     UE_LOG(LogTemp, Log, TEXT("Trying to sample <%hs>"), Text.c_str());
 
     auto Input = common_tokenize(Context, Text, true, true);
 
-    //int32 NBatch = llama_n_ctx(Context);    //todo: get this from our params
-    int32 NBatch = Input.size();    //todo: get this from our params
+    int32 NBatch = Input.size();
 
     llama_batch Batch = llama_batch_init(NBatch, 0, 1);
     //llama_batch Batch = llama_batch_get_one(Input.data(), Input.size());
@@ -552,7 +546,7 @@ void FLlamaInternal::GetPromptEmbeddings(const std::string& Text, std::vector<fl
     //decode
     BatchDecodeEmbedding(Context, Batch, EmbeddingsPtr, 0, NEmbd, 2);
 
-    UE_LOG(LogTemp, Log, TEXT("Embeddings count: %d"), Embeddings.size());
+    UE_LOG(LogTemp, Log, TEXT("Embeddings generated (%d) for <%hs>"), Embeddings.size(), Text.c_str());
 }
 
 int32 FLlamaInternal::ProcessPrompt(const std::string& Prompt, EChatTemplateRole Role)

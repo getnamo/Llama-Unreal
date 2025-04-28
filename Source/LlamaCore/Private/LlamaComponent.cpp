@@ -251,7 +251,8 @@ void ULlamaComponent::GeneratePromptEmbeddingsForText(const FString& Text)
 void ULlamaComponent::TestVectorDB()
 {
     //roughly 10 sample sentences from https://randomwordgenerator.com/sentence.php
-    TArray<FString> Sentences = {
+    TArray<FString> Sentences = 
+    {
         TEXT("They desperately needed another drummer since the current one only knew how to play bongos."),
         TEXT("Poison ivy grew through the fence they said was impenetrable."),
         TEXT("Most shark attacks occur about 10 feet from the beach since that's where the people are."),
@@ -267,11 +268,12 @@ void ULlamaComponent::TestVectorDB()
     if (!VectorDb)
     {
         VectorDb = new FVectorDatabase();
+        VectorDb->InitializeDB();
     }
 
     UE_LOG(LogTemp, Log, TEXT("VectorDB Pre"));
-    VectorDb->BasicsTest();
-    UE_LOG(LogTemp, Log, TEXT("VectorDB Post"));
+    //VectorDb->BasicsTest();
+    //UE_LOG(LogTemp, Log, TEXT("VectorDB Post"));
 
     TempN = 0;
     int32 Total = Sentences.Num();
@@ -286,10 +288,11 @@ void ULlamaComponent::TestVectorDB()
     for (FString& Sentence : Sentences)
     {
         UE_LOG(LogTemp, Log, TEXT("Queuing embed for <%s>"), *Sentence);
-        LlamaNative->GetPromptEmbeddings(Sentence, [this, Sentence, Total](const TArray<float>& Embeddings, const FString& SourceText)
+        LlamaNative->GetPromptEmbeddings(Sentence, [this, Sentence, Total, QueryTest](const TArray<float>& Embeddings, const FString& SourceText)
         {
             UE_LOG(LogTemp, Log, TEXT("Got embed for <%s>"), *Sentence);
-            VectorDb->AddVectorEmbeddingStringPair(Embeddings, SourceText);
+            TArray<float> SafeEmbeddings = Embeddings;
+            VectorDb->AddVectorEmbeddingStringPair(SafeEmbeddings, SourceText);
             TempN++;
 
             //Last one?
@@ -301,7 +304,7 @@ void ULlamaComponent::TestVectorDB()
                 //we need to run Query test through embed..
                 FString Nearest = VectorDb->FindNearestString(TempEmbeddings);
 
-                UE_LOG(LogTemp, Log, TEXT("Nearest to <%s> is <%s>"), *Sentence, *Nearest);
+                UE_LOG(LogTemp, Log, TEXT("Nearest to <%s> is <%s>"), *QueryTest, *Nearest);
             }
         });   
     }

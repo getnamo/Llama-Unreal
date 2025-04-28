@@ -15,11 +15,11 @@ struct FVectorDBParams
 
     // Maximum number of elements, should be known beforehand
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VectorDB Params")
-    int32 MaxElements = 1000;   
+    int32 MaxElements = 1024;   
 
     // Tightly connected with internal dimensionality of the data
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VectorDB Params")
-    int32 M = 1024;                 
+    int32 M = 16;                 
 
     // Controls index search speed/build speed tradeoff, strongly affects the memory consumption
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VectorDB Params")
@@ -72,5 +72,6 @@ private:
 
     //Stores the embedded text database. Use UniqueDBId (aka primary key) to lookup the text snippet
     TMap<int64, FString> TextDatabase;
+    TMap<int64, TArray<float>> Embeddings;
     int64 TextDatabaseMaxId = 0;
 };

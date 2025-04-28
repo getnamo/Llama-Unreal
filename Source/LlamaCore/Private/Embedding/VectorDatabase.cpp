@@ -107,7 +107,11 @@ void FVectorDatabase::InitializeDB()
 
 void FVectorDatabase::AddVectorEmbeddingIdPair(const TArray<float>& Embedding, int64 UniqueId)
 {
-    Private->HNSW->addPoint(&Embedding, UniqueId);
+    Embeddings.Add(UniqueId, Embedding);
+
+    //Todo: continue here: There's a bug complainign about the data in addpoint for 1024 dim.
+    //understand/test smaller data parts
+    Private->HNSW->addPoint(Embeddings[UniqueId].GetData(), UniqueId);
 }
 
 int64 FVectorDatabase::AddVectorEmbeddingStringPair(const TArray<float>& Embedding, const FString& Text)
