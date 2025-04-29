@@ -75,7 +75,7 @@ cmake --build . --config Release -j --verbose
 6. Build plugin
 
 ### Current Version
-Current Plugin [Llama.cpp](https://github.com/ggml-org/llama.cpp) was built from git has/tag: [b5122](https://github.com/ggml-org/llama.cpp/releases/tag/b5122)
+Current Plugin [Llama.cpp](https://github.com/ggml-org/llama.cpp) was built from git has/tag: [b5215](https://github.com/ggml-org/llama.cpp/releases/tag/b5215)
 
 NB: use `-DGGML_NATIVE=OFF` to ensure wider portability.
 
