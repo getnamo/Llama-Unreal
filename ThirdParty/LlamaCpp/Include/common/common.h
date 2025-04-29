@@ -36,7 +36,7 @@ using llama_tokens = std::vector<llama_token>;
 
 // build info
 int LLAMA_BUILD_NUMBER = 0;
-const char * LLAMA_COMMIT = "e59ea539b83d2c7947c99bd350549364dbba450c";
+const char * LLAMA_COMMIT = "5f5e39e1ba5dbea814e41f2a15e035d749a520bc";
 const char * LLAMA_COMPILER = "";
 const char * LLAMA_BUILD_TARGET = "Vulkan - Unreal";
 
@@ -342,6 +342,8 @@ struct common_params {
 
     // multimodal models (see examples/llava)
     struct common_params_model mmproj;
+    bool mmproj_use_gpu = true;     // use GPU for multimodal model
+    bool no_mmproj = false;         // explicitly disable multimodal model
     std::vector<std::string> image; // path to image file(s)
 
     // embedding
