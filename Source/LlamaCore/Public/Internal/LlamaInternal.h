@@ -3,6 +3,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 #include "LlamaDataTypes.h"
 #include "llama.h"
 

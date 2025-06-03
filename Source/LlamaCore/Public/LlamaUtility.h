@@ -2,6 +2,8 @@
 
 #pragma once
 
+#include <string>
+#include <vector>
 #include "CoreMinimal.h"
 
 DECLARE_LOG_CATEGORY_EXTERN(LlamaLog, Log, All);
