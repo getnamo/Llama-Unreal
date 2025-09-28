@@ -37,6 +37,10 @@ FLlamaNative::FLlamaNative()
             {
                 Partial = FLlamaString::GetLastSentence(CombinedPieceText);
             }
+            if (!Partial.IsEmpty())
+            {
+                CombinedTextOnPartialEmit = CombinedPieceText;
+            }
         }
 
         //Emit token to game thread
@@ -72,13 +76,27 @@ FLlamaNative::FLlamaNative()
             ModelState.LastTokenGenerationSpeed = SpeedTps;
         });
 
+        FString Partial;
+
+        //Emit last full partial if we didn't end on punctuation
+        if (ModelParams.Advanced.bEmitPartials && CombinedTextOnPartialEmit.Len() != CombinedPieceText.Len())
+        {
+            Partial = FLlamaString::GetLastSentence(CombinedPieceText);
+        }
+
         //Clear our partial text parser
         CombinedPieceText.Empty();
+        CombinedTextOnPartialEmit.Empty();
 
         //Emit response generated to general listeners
         FString ResponseString = FLlamaString::ToUE(Response);
-        EnqueueGTTask([this, ResponseString]
+        EnqueueGTTask([this, ResponseString, Partial]
         {
+            //ensure partials are fully emitted too
+            if (OnPartialGenerated && !Partial.IsEmpty())
+            {
+                OnPartialGenerated(Partial);
+            }
             if (OnResponseGenerated)
             {
                 OnResponseGenerated(ResponseString);

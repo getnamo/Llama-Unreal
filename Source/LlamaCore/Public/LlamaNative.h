@@ -97,6 +97,7 @@ protected:
 
 	//BG State - do not read/write on GT
 	FString CombinedPieceText;	//accumulates tokens into full string during per-token inference.
+	FString CombinedTextOnPartialEmit; //state needed to check if on finish we've emitted all partials (broken grammar).
 
 	//Threading
 	void StartLLMThread();
