@@ -782,8 +782,15 @@ int32 FLlamaInternal::ApplyTemplateToContextHistory(bool bAddAssistantBOS)
 
 int32 FLlamaInternal::ApplyTemplateFromMessagesToBuffer(const std::string& InTemplate, std::vector<llama_chat_message>& FromMessages, std::vector<char>& ToBuffer, bool bAddAssistantBoS)
 {
-    int32 NewLen = llama_chat_apply_template(InTemplate.c_str(), FromMessages.data(), FromMessages.size(),
-        bAddAssistantBoS, ToBuffer.data(), ToBuffer.size());
+    //Handle empty template case
+    char* templatePtr = (char*)InTemplate.c_str();
+    if (InTemplate.length() == 0)
+    {
+        templatePtr = nullptr;
+    }
+
+    int32 NewLen = llama_chat_apply_template(templatePtr, FromMessages.data(), FromMessages.size(),
+            bAddAssistantBoS, ToBuffer.data(), ToBuffer.size());
 
     //Resize if ToBuffer can't hold it
     if (NewLen > ToBuffer.size())
