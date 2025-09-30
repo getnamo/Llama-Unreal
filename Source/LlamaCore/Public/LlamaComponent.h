@@ -100,6 +100,10 @@ public:
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
     void RemoveLastUserInput();
 
+    //fine-grained removal, may desync history
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
+    void RemoveLastNTokens(int32 TokenCount = 1);
+
     //Main input function
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
     void InsertTemplatedPrompt(UPARAM(meta=(MultiLine=true)) const FString& Text, EChatTemplateRole Role = EChatTemplateRole::User, bool bAddAssistantBOS = false, bool bGenerateReply = true);

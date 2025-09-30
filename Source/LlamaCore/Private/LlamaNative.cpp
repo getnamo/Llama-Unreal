@@ -590,6 +590,17 @@ void FLlamaNative::RemoveLastNMessages(int32 MessageCount)
     });
 }
 
+void FLlamaNative::RemoveLastNTokens(int32 TokensCount)
+{
+    EnqueueBGTask([this, TokensCount](int64 TaskId)
+    {
+        Internal->RollbackContextHistoryByTokens(TokensCount);
+
+        //Sync state
+        SyncModelStateToInternal();
+    });
+}
+
 bool FLlamaNative::IsGenerating()
 {
     //this is threadsafe

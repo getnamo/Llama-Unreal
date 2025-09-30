@@ -61,6 +61,8 @@ public:
 	//Base api to do message rollback
 	void RemoveLastNMessages(int32 MessageCount);	//rollback
 
+	void RemoveLastNTokens(int32 TokensCount = 1);	//fine rollback
+
 	//Pure query of current game thread context
 	void SyncPassedModelStateToNative(FLLMModelState& StateToSync);
 

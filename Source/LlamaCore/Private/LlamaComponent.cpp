@@ -190,6 +190,11 @@ void ULlamaComponent::RemoveLastUserInput()
     }
 }
 
+void ULlamaComponent::RemoveLastNTokens(int32 TokenCount)
+{
+    LlamaNative->RemoveLastNTokens(TokenCount);
+}
+
 
 void ULlamaComponent::ImpersonateTemplatedPrompt(const FLlamaChatPrompt& ChatPrompt)
 {
