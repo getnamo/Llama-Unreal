@@ -371,6 +371,11 @@ void FLlamaInternal::ResetContextHistory(bool bKeepSystemsPrompt)
             RollbackContextHistoryByMessages(Messages.size() - 1);
             return;
         }
+        else
+        {
+            //Only message is the system's prompt, nothing to do
+            return;
+        }
     }
 
     //Full Reset
