@@ -39,7 +39,7 @@ Explore [LlamaComponent.h](https://github.com/getnamo/Llama-Unreal/blob/ae243df8
 
 # Note on speed
 
-If you're running the inference in a high spec game fully loaded into the same GPU that renders the game, expect about ~1/3-1/2 of the performance due to resource contention; e.g. an 8B model running at ~90TPS might have ~40TPS speed in game. You may want to use a smaller model or apply pressure easing strategies to manage perfectly stable framerates.
+If you're running the inference in a high spec game fully loaded into the same GPU that renders the game, expect about ~1/3-1/2 of the performance due to resource contention; e.g. an 8B model running at ~90TPS might have ~40TPS speed in game. You may want to use a smaller model or [apply pressure easing strategies](https://github.com/getnamo/Llama-Unreal/blob/main/Source/LlamaCore/Public/LlamaDataTypes.h#L133) to manage perfectly stable framerates.
 
 # Llama.cpp Build Instructions
 
