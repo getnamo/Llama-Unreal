@@ -1,7 +1,7 @@
 {
 	"FileVersion": 3,
 	"Version": 1,
-	"VersionName": "0.10.4",
+	"VersionName": "0.11.0",
 	"FriendlyName": "Llama",
 	"Description": "Llama.cpp plugin for large language model (LLM) inference.",
 	"Category": "LLM",
