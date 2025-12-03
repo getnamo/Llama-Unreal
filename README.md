@@ -45,6 +45,8 @@ If you're running the inference in a high spec game fully loaded into the same G
 
 To do custom backends or support platforms not currently supported you can follow these build instruction. Note that these build instructions should be run from the cloned llama.cpp root directory, not the plugin root.
 
+SN: curl issues: https://github.com/ggml-org/llama.cpp/issues/9937
+
 ### Basic Build Steps
 1. clone [Llama.cpp](https://github.com/ggml-org/llama.cpp)
 2. build using commands given below e.g. for Vulkan
