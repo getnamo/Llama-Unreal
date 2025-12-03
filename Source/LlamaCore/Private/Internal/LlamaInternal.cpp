@@ -337,7 +337,7 @@ int32 FLlamaInternal::UsedContext()
 {
     if (Context)
     {
-        return llama_kv_self_used_cells(Context);
+        return llama_memory_seq_pos_max(llama_get_memory(Context), 0);
     }
     else
     {
@@ -382,16 +382,16 @@ void FLlamaInternal::ResetContextHistory(bool bKeepSystemsPrompt)
     ContextHistory.clear();
     Messages.clear();
 
-    llama_kv_self_clear(Context);
+    llama_memory_clear(llama_get_memory(Context), false);
     FilledContextCharLength = 0;
 }
 
 void FLlamaInternal::RollbackContextHistoryByTokens(int32 NTokensToErase)
 {
     // clear the last n_regen tokens from the KV cache and update n_past
-    int32 TokensUsed = llama_kv_self_used_cells(Context); //FilledContextCharLength
+    int32 TokensUsed = llama_memory_seq_pos_max(llama_get_memory(Context), 0); //FilledContextCharLength
 
-    llama_kv_self_seq_rm(Context, 0, TokensUsed - NTokensToErase, -1);
+    llama_memory_seq_rm(llama_get_memory(Context), 0, TokensUsed - NTokensToErase, -1);
 
     //FilledContextCharLength -= NTokensToErase;
 
@@ -566,7 +566,7 @@ int32 FLlamaInternal::ProcessPrompt(const std::string& Prompt, EChatTemplateRole
 
     //Grab vocab
     const llama_vocab* Vocab = llama_model_get_vocab(LlamaModel);
-    const bool IsFirst = llama_kv_self_used_cells(Context) == 0;
+    const bool IsFirst = llama_memory_seq_pos_max(llama_get_memory(Context), 0) == 0;
 
     // tokenize the prompt
     const int NPromptTokens = -llama_tokenize(Vocab, Prompt.c_str(), Prompt.size(), NULL, 0, IsFirst, true);
@@ -585,7 +585,7 @@ int32 FLlamaInternal::ProcessPrompt(const std::string& Prompt, EChatTemplateRole
 
         //check sizing before running prompt decode
         int NContext = llama_n_ctx(Context);
-        int NContextUsed = llama_kv_self_used_cells(Context);
+        int NContextUsed = llama_memory_seq_pos_max(llama_get_memory(Context), 0);
 
         if (NContextUsed + NPromptTokens > NContext)
         {
@@ -630,7 +630,7 @@ int32 FLlamaInternal::ProcessPrompt(const std::string& Prompt, EChatTemplateRole
 
             // Check context before running decode
             int NContext = llama_n_ctx(Context);
-            int NContextUsed = llama_kv_self_used_cells(Context);
+            int NContextUsed = llama_memory_seq_pos_max(llama_get_memory(Context), 0);
 
             if (NContextUsed + BatchTokens.size() > NContext)
             {
@@ -687,7 +687,7 @@ std::string FLlamaInternal::Generate(const std::string& Prompt, bool bAppendToMe
 
     // check if we have enough space in the context to evaluate this batch - might need to be inside loop
     int NContext = llama_n_ctx(Context);
-    int NContextUsed = llama_kv_self_used_cells(Context);
+    int NContextUsed = llama_memory_seq_pos_max(llama_get_memory(Context), 0);
     bool bEOGExit = false;
     
     while (bGenerationActive) //processing can be aborted by flipping the boolean
@@ -837,7 +837,7 @@ void FLlamaInternal::BatchDecodeEmbedding(llama_context* InContext, llama_batch&
     const struct llama_model* model = llama_get_model(InContext);
 
     // clear previous kv_cache values (irrelevant for embeddings)
-    llama_kv_self_clear(InContext);
+    llama_memory_clear(llama_get_memory(InContext), false);
 
     // run model
     
