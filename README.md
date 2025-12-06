@@ -56,6 +56,14 @@ cd build/
 cmake .. -DGGML_VULKAN=ON -DGGML_NATIVE=OFF
 cmake --build . --config Release -j --verbose
 ```
+
+also in newer builds consider
+
+```cmake .. -DGGML_VULKAN=ON -DGGML_NATIVE=OFF -DLLAMA_CURL=OFF -DCMAKE_CXX_FLAGS_RELEASE="/Zi"```
+
+to workaround CURL and generate .pdbs for debugging
+
+
 3. Include: After build 
 - Copy `{llama.cpp root}/include`
 - Copy `{llama.cpp root}/ggml/include`
