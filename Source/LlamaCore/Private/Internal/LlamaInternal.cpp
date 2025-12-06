@@ -480,15 +480,19 @@ std::string FLlamaInternal::InsertTemplatedPrompt(const std::string& Prompt, ECh
         NewLen = ApplyTemplateToContextHistory(bAddAssistantBoS);
     }
 
-    if (NewLen == 0 || NewLen == -1)
+    //Check for invalid lengths
+    if (NewLen < 0)
     {
-        UE_LOG(LogTemp, Warning, TEXT("Inserted prompt after templating has an invalid length of %d, skipping generation. Check your jinja template or model gguf."), NewLen);
+        UE_LOG(LlamaLog, Warning, TEXT("Inserted prompt after templating has an invalid length of %d, skipping generation. Check your jinja template or model gguf. NB: some templates merge system prompts with user prompts (e.g. gemma) and it's considered normal behavior."), NewLen);
         return std::string();
     }
 
-    std::string FormattedPrompt(ContextHistory.data() + FilledContextCharLength, ContextHistory.data() + NewLen);
-
-    int32 TokensProcessed = ProcessPrompt(FormattedPrompt, Role);
+    //Only process non-zero prompts
+    if (NewLen > 0)
+    {
+        std::string FormattedPrompt(ContextHistory.data() + FilledContextCharLength, ContextHistory.data() + NewLen);
+        int32 TokensProcessed = ProcessPrompt(FormattedPrompt, Role);
+    }
 
     FilledContextCharLength = NewLen;
 
@@ -818,7 +822,9 @@ int32 FLlamaInternal::ApplyTemplateFromMessagesToBuffer(const std::string& InTem
         }
         else if (NewLen == 0)
         {
-            EmitErrorMessage(TEXT("Failed to apply the chat template ApplyTemplateFromMessagesToBuffer, length is 0."), 102, __func__);
+            //This isn't an error but needs to be handled by downstream
+            
+            //EmitErrorMessage(TEXT("Failed to apply the chat template ApplyTemplateFromMessagesToBuffer, length is 0."), 102, __func__);
         }
     }
     
