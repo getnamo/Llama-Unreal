@@ -5,7 +5,7 @@
 
 An Unreal plugin for [llama.cpp](https://github.com/ggml-org/llama.cpp) to support embedding local LLMs in your projects.
 
-Fork is modern re-write from [upstream](https://github.com/mika314/UELlama) to support latest API, including: GPULayers, advanced sampling (MinP, Miro, etc), Jinja templates, chat history, partial rollback & context reset, regeneration, and more. Defaults to Vulkan build on windows for wider hardware support at about ~10% perf loss compared to CUDA backend on token generation speed. 
+Fork is modern re-write from [upstream](https://github.com/mika314/UELlama) to support latest API, including: GPULayers, advanced sampling (MinP, Miro, etc), Jinja templates, chat history, partial rollback & context reset, regeneration, and more. Defaults to Vulkan build on windows for wider hardware support while retaining very similar performance to CUDA backend (~3% diff) in both prompt processing and token generation speed (as tested on b7285 benchmarks). 
 
 
 [Discord Server](https://discord.gg/qfJUyxaW4s)
