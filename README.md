@@ -16,7 +16,14 @@ Fork is modern re-write from [upstream](https://github.com/mika314/UELlama) to s
 2. Create new or choose desired unreal project.
 3. Browse to your project folder (project root)
 4. Copy *Plugins* folder from .7z release into your project root.
+
+#### Windows
 5. Plugin should now be ready to use.
+
+#### Other platforms
+5. If platform doesn't have a supported release, build llama.cpp for your platform (see below)
+6. Ensure project is mixed type (has c++ and blueprints), compile project (plugin gets compiled with it).
+
 
 # How to use - Basics
 
