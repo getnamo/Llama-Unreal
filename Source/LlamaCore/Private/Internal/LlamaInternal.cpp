@@ -45,10 +45,10 @@ bool FLlamaInternal::LoadModelFromParams(const FLLMModelParams& InModelParams)
         CommonParams.n_gpu_layers = InModelParams.GPULayers;
         CommonParams.model.path = ModelPath;
 
-        common_init_result LlamaInit = common_init_from_params(CommonParams);
+        common_init_result_ptr LlamaInit = common_init_from_params(CommonParams);
 
-        LlamaModel = LlamaInit.model.get();
-        Context = LlamaInit.context.get();
+        LlamaModel = LlamaInit->model();
+        Context = LlamaInit->context();
 
         //Sanity check the model settings for embedding
         if (CommonParams.embedding)
