@@ -92,7 +92,7 @@ to workaround CURL and generate .pdbs for debugging
 6. Build plugin
 
 ### Current Version
-Current Plugin [Llama.cpp](https://github.com/ggml-org/llama.cpp) was built from git has/tag: [b5215](https://github.com/ggml-org/llama.cpp/releases/tag/b5215)
+Current Plugin [Llama.cpp](https://github.com/ggml-org/llama.cpp) was built from git has/tag: [b8373](https://github.com/ggml-org/llama.cpp/releases/tag/b8373)
 
 NB: use `-DGGML_NATIVE=OFF` to ensure wider portability.
 
