@@ -92,7 +92,7 @@ to workaround CURL and generate .pdbs for debugging
 6. Build plugin
 
 ### Current Version
-Current Plugin [Llama.cpp](https://github.com/ggml-org/llama.cpp) was built from git has/tag: [b8373](https://github.com/ggml-org/llama.cpp/releases/tag/b8373)
+Current Plugin [Llama.cpp](https://github.com/ggml-org/llama.cpp) was built from git has/tag: [b8586](https://github.com/ggml-org/llama.cpp/releases/tag/b8586)
 
 NB: use `-DGGML_NATIVE=OFF` to ensure wider portability.
 
@@ -164,6 +164,15 @@ Whisper.cpp embedded into the plugin, using the same ggml backend.
 Exposed via `UWhisperComponent` wrapping `FWhisperNative` which can be optionally embedded in your own class instead. The basic api is the following:
 
 1. Add `UWhisperComponent` to your actor of choice. Model defined in `ModelParams` will load on startup, '.' before any path denotes relative to `Saved/Models`. Grab e.g. `ggml-small.en.bin` from  https://huggingface.co/ggerganov/whisper.cpp/tree/main
-2. Model will load on begin play disable option on component if you wish to load manually
-3. Use VAD or not. If using VAD, start the microphone when you wish to detect audio and stop when you're done conversing, you will get `OnVADStateChanged` callbacks and `OnTranscriptionResult` when results are ready. In Non-VAD mode starting the microphone and then stopping it will send the audio between those segments for transcription. At 15 seconds, it will auto-chunk and overlap by ~0.5 sec, you may need to de-duplicate manually.
-4. Listen to `OnTranscriptionResult` for transcriptions. 
+2. Model will load on begin play, disable `bAutoLoadModelOnStartup` on the component if you wish to load manually.
+3. Choose a VAD mode via `StreamParams.VADMode`:
+   - **Disabled** — no VAD; audio buffers from `StartMicrophoneCapture` to `StopMicrophoneCapture` and is dispatched as one chunk. If audio exceeds `MaxSpeechSegmentSec` (default 15s) it is auto-chunked with `NonVADOverlapSec` overlap (default 0.5s) — you may need to de-duplicate words at boundaries manually.
+   - **Energy-Based (RMS)** *(default)* — lightweight onset/offset detection using an RMS energy threshold. Configurable via `VADThreshold`, `VADHoldTimeSec`, and `VADPreRollSec`. Fast, zero extra model files, works best in quiet environments.
+   - **Silero Neural VAD** — neural VAD using a ggml-converted Silero model. More robust in noisy environments. Requires a separate model file pointed to by `StreamParams.PathToVADModel` (default `./ggml-silero-v5.1.2.bin`). The model loads automatically after the whisper model loads. Download from:
+     - v5: https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v5.1.2.bin
+     - v6: https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v6.2.0.bin
+
+   Place the file in your project's `Saved/Models/` folder and set the path with a leading `.` (e.g. `./ggml-silero-v5.1.2.bin`). Bind `OnVADModelLoaded` to react when the Silero model is ready.
+
+   In all VAD modes, start the microphone with `StartMicrophoneCapture` and stop with `StopMicrophoneCapture`. Any in-progress speech at stop time is always flushed and dispatched.
+4. Listen to `OnTranscriptionResult` for transcriptions. Bind `OnVADStateChanged` for speech onset/offset events.

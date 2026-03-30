@@ -57,6 +57,10 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Whisper Component")
 	FOnWhisperVADStateChanged OnVADStateChanged;
 
+	/** Fires when the Silero VAD model finishes loading (Silero mode only). */
+	UPROPERTY(BlueprintAssignable, Category = "Whisper Component")
+	FOnWhisperVADModelLoaded OnVADModelLoaded;
+
 	// ---------------------------------------------------------------------------
 	// Properties
 	// ---------------------------------------------------------------------------
@@ -114,6 +118,20 @@ public:
 	/** Returns true if microphone capture is currently active. */
 	UFUNCTION(BlueprintPure, Category = "Whisper Component")
 	bool IsMicrophoneCaptureActive() const;
+
+	/** Manually load (or reload) the Silero VAD model specified in StreamParams.PathToVADModel.
+	 *  Not needed in normal use — the VAD model loads automatically when LoadModel is called
+	 *  with VADMode set to Silero. */
+	UFUNCTION(BlueprintCallable, Category = "Whisper Component")
+	void LoadVADModel();
+
+	/** Unload the Silero VAD model and free its memory. */
+	UFUNCTION(BlueprintCallable, Category = "Whisper Component")
+	void UnloadVADModel();
+
+	/** Returns true if the Silero VAD model is currently loaded. */
+	UFUNCTION(BlueprintPure, Category = "Whisper Component")
+	bool IsVADModelLoaded() const;
 
 private:
 	class FWhisperNative* WhisperNative;

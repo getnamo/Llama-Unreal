@@ -8,8 +8,6 @@ UWhisperComponent::UWhisperComponent(const FObjectInitializer& ObjectInitializer
 {
 	PrimaryComponentTick.bCanEverTick = true;
 
-	//bAutoActivate = true;
-
 	WhisperNative = new FWhisperNative();
 
 	// Wire up native callbacks to component delegates (all fired on the game thread)
@@ -35,6 +33,20 @@ UWhisperComponent::UWhisperComponent(const FObjectInitializer& ObjectInitializer
 	{
 		ModelState.bVADSpeechDetected = bIsSpeech;
 		OnVADStateChanged.Broadcast(bIsSpeech);
+	};
+
+	WhisperNative->OnVADModelLoaded = [this](const FString& VADModelPath, bool bSuccess)
+	{
+		ModelState.bVADModelLoaded = bSuccess;
+		if (bSuccess)
+		{
+			OnVADModelLoaded.Broadcast(VADModelPath);
+		}
+		else
+		{
+			OnError.Broadcast(FString::Printf(
+				TEXT("Failed to load Silero VAD model: %s"), *VADModelPath));
+		}
 	};
 
 	WhisperNative->OnTranscribingStateChanged = [this](bool bTranscribing)
@@ -75,6 +87,12 @@ void UWhisperComponent::Deactivate()
 		WhisperNative->StopMicrophoneCapture();
 	}
 
+	if (ModelState.bVADModelLoaded)
+	{
+		WhisperNative->UnloadVADModel(nullptr);
+		ModelState.bVADModelLoaded = false;
+	}
+
 	WhisperNative->UnloadModel();
 	ModelState.bModelLoaded     = false;
 	ModelState.bMicrophoneActive = false;
@@ -96,6 +114,7 @@ void UWhisperComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 void UWhisperComponent::LoadModel(bool bForceReload)
 {
 	WhisperNative->SetModelParams(ModelParams);
+	WhisperNative->SetStreamParams(StreamParams);
 
 	WhisperNative->LoadModel(bForceReload,
 		[this](const FString& ModelPath, int32 StatusCode)
@@ -149,4 +168,23 @@ void UWhisperComponent::StopMicrophoneCapture()
 bool UWhisperComponent::IsMicrophoneCaptureActive() const
 {
 	return ModelState.bMicrophoneActive;
+}
+
+void UWhisperComponent::LoadVADModel()
+{
+	WhisperNative->SetStreamParams(StreamParams);
+	WhisperNative->LoadVADModel();
+}
+
+void UWhisperComponent::UnloadVADModel()
+{
+	WhisperNative->UnloadVADModel([this](int32)
+	{
+		ModelState.bVADModelLoaded = false;
+	});
+}
+
+bool UWhisperComponent::IsVADModelLoaded() const
+{
+	return ModelState.bVADModelLoaded;
 }

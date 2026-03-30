@@ -39,11 +39,12 @@ public:
 	// Callbacks — all fired on the game thread via the GT task queue
 	// ---------------------------------------------------------------------------
 
-	TFunction<void(const FString& Text, bool bIsFinal)> OnTranscriptionResult;
-	TFunction<void(const FString& ModelPath)>           OnModelLoaded;
-	TFunction<void(const FString& ErrorMessage)>        OnError;
-	TFunction<void(bool bIsSpeechDetected)>             OnVADStateChanged;
-	TFunction<void(bool bIsTranscribing)>               OnTranscribingStateChanged;
+	TFunction<void(const FString& Text, bool bIsFinal)>      OnTranscriptionResult;
+	TFunction<void(const FString& ModelPath)>                OnModelLoaded;
+	TFunction<void(const FString& ErrorMessage)>             OnError;
+	TFunction<void(bool bIsSpeechDetected)>                  OnVADStateChanged;
+	TFunction<void(bool bIsTranscribing)>                    OnTranscribingStateChanged;
+	TFunction<void(const FString& VADModelPath, bool bSuccess)> OnVADModelLoaded;
 
 	// ---------------------------------------------------------------------------
 	// Configuration
@@ -60,6 +61,12 @@ public:
 		TFunction<void(const FString& ModelPath, int32 StatusCode)> Callback = nullptr);
 	void UnloadModel(TFunction<void(int32 StatusCode)> Callback = nullptr);
 	bool IsModelLoaded() const;
+
+	/** Load the Silero VAD model specified in StreamParams.PathToVADModel.
+	 *  Called automatically by LoadModel when VADMode == Silero. */
+	void LoadVADModel(TFunction<void(const FString& VADModelPath, int32 StatusCode)> Callback = nullptr);
+	void UnloadVADModel(TFunction<void(int32 StatusCode)> Callback = nullptr);
+	bool IsVADModelLoaded() const;
 
 	// ---------------------------------------------------------------------------
 	// One-shot transcription (safe to call from game thread)
@@ -164,6 +171,17 @@ private:
 	FThreadSafeBool bIsTranscribing = false;
 
 	// ---------------------------------------------------------------------------
+	// Silero VAD — only accessed from the BG thread
+	// ---------------------------------------------------------------------------
+
+	// Forward-declared to avoid pulling whisper.h into all consumers of this header
+	struct whisper_vad_context* SileroContext = nullptr;
+
+	// Ring buffer read cursor for Silero: position up to which the BG thread has processed.
+	// Written and read exclusively on the BG thread — no mutex needed.
+	int64 SileroChunkStart = 0;
+
+	// ---------------------------------------------------------------------------
 	// Ticker handle (for optional standalone tick via AddTicker)
 	// ---------------------------------------------------------------------------
 
@@ -201,6 +219,11 @@ private:
 	/** Enqueue a transcription task for the segment [AbsStart, AbsEnd).
 	 *  Should be called WITHOUT AudioBufferMutex held (acquires it internally for the copy). */
 	void DispatchSegmentForTranscription(int64 AbsStart, int64 AbsEnd);
+
+	/** Run Silero VAD on ring buffer audio up to ChunkEnd.
+	 *  Drives the same onset/offset state machine as EnergyBased mode.
+	 *  Called exclusively from the BG thread. */
+	void ProcessSileroVADChunk(int64 ChunkEnd);
 
 	/** Internal callback registered with FAudioCapture. Runs on audio HW thread. */
 	void HandleAudioCaptureCallback(const float* InAudio, int32 NumFrames,

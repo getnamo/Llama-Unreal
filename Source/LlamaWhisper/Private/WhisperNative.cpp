@@ -71,6 +71,13 @@ FWhisperNative::~FWhisperNative()
 
 	RemoveTicker();
 
+	// Free Silero VAD context if loaded (BG thread is stopped by this point)
+	if (SileroContext)
+	{
+		whisper_vad_free(SileroContext);
+		SileroContext = nullptr;
+	}
+
 	delete Internal;
 	Internal = nullptr;
 
@@ -197,6 +204,11 @@ void FWhisperNative::LoadModel(bool bForceReload,
 				{
 					Callback(FullPath, 0);
 				}
+				// Auto-load Silero VAD model when whisper model loads in Silero mode
+				if (StreamParams.VADMode == EWhisperVADMode::Silero)
+				{
+					LoadVADModel();
+				}
 			}
 			else
 			{
@@ -227,6 +239,74 @@ void FWhisperNative::UnloadModel(TFunction<void(int32)> Callback)
 			{
 				Callback(0);
 			}
+		}, TaskId);
+	});
+}
+
+// ---------------------------------------------------------------------------
+// Silero VAD model control
+// ---------------------------------------------------------------------------
+
+bool FWhisperNative::IsVADModelLoaded() const
+{
+	return SileroContext != nullptr;
+}
+
+void FWhisperNative::LoadVADModel(TFunction<void(const FString&, int32)> Callback)
+{
+	if (SileroContext)
+	{
+		// Already loaded — report success without reloading
+		if (Callback) Callback(StreamParams.PathToVADModel, 0);
+		return;
+	}
+
+	const FString FullPath = FLlamaPaths::ParsePathIntoFullPath(StreamParams.PathToVADModel);
+	const FWhisperModelParams ParamsAtLoad = ModelParams;
+
+	EnqueueBGTask([this, FullPath, ParamsAtLoad, Callback](int64 TaskId)
+	{
+		whisper_vad_context_params VadCtxParams = whisper_vad_default_context_params();
+		VadCtxParams.n_threads  = ParamsAtLoad.Threads;
+		VadCtxParams.use_gpu    = ParamsAtLoad.bUseGPU;
+
+		SileroContext = whisper_vad_init_from_file_with_params(
+			TCHAR_TO_UTF8(*FullPath), VadCtxParams);
+
+		const bool bSuccess = (SileroContext != nullptr);
+
+		EnqueueGTTask([this, bSuccess, FullPath, Callback]()
+		{
+			if (OnVADModelLoaded)
+			{
+				OnVADModelLoaded(FullPath, bSuccess);
+			}
+			if (Callback)
+			{
+				Callback(FullPath, bSuccess ? 0 : -1);
+			}
+			if (!bSuccess && OnError)
+			{
+				OnError(FString::Printf(TEXT("FWhisperNative: Failed to load Silero VAD model: %s"), *FullPath));
+			}
+		}, TaskId);
+	});
+}
+
+void FWhisperNative::UnloadVADModel(TFunction<void(int32)> Callback)
+{
+	EnqueueBGTask([this, Callback](int64 TaskId)
+	{
+		if (SileroContext)
+		{
+			whisper_vad_free(SileroContext);
+			SileroContext    = nullptr;
+			SileroChunkStart = 0;
+		}
+
+		EnqueueGTTask([Callback]()
+		{
+			if (Callback) Callback(0);
 		}, TaskId);
 	});
 }
@@ -354,8 +434,11 @@ void FWhisperNative::StartMicrophoneCapture()
 		bVADSpeechActive     = false;
 		VADSilenceDuration   = 0.0f;
 		VADSegmentDuration   = 0.0f;
-		VADSpeechStartSample = 0;   // no-VAD mode accumulates from sample 0
+		VADSpeechStartSample = 0;   // no-VAD and Silero modes accumulate from sample 0
 	}
+
+	// Reset Silero read cursor — safe here because mic is not yet active so no BG tasks running
+	SileroChunkStart = 0;
 
 	// Create AudioCapture object
 	if (!AudioCapture)
@@ -435,6 +518,9 @@ void FWhisperNative::StopMicrophoneCapture()
 
 	bMicCaptureActive = false;
 
+	// Prevent any queued BG Silero tasks from advancing the cursor past the flush window
+	SileroChunkStart = TotalSamplesWritten;
+
 	// Flush any remaining buffered audio as a final segment.
 	// VADSpeechStartSample is advanced after every completed dispatch (VAD offset, force chunk,
 	// no-VAD chunk), so this window only contains truly unprocessed audio.  This covers:
@@ -508,16 +594,17 @@ void FWhisperNative::HandleAudioCaptureCallback(const float* InAudio, int32 NumF
 		return;
 	}
 
-	// Step 3: Append to ring buffer and run VAD — protected by mutex
-	int64 DispatchStart = -1;
-	int64 DispatchEnd   = -1;
-	bool  bVADOnset     = false;
-	bool  bVADOffset    = false;
+	// Step 3: Append to ring buffer; run energy VAD inline or note position for Silero/Disabled
+	int64 DispatchStart      = -1;
+	int64 DispatchEnd        = -1;
+	bool  bVADOnset          = false;
+	bool  bVADOffset         = false;
+	int64 SileroChunkEnd     = -1; // set in Silero branch; BG task uses this
 
 	{
 		FScopeLock Lock(&AudioBufferMutex);
 
-		// Update pre-roll circular buffer (always runs regardless of VAD state)
+		// Update pre-roll circular buffer (always runs regardless of VAD mode)
 		const int32 PreRollCap = PreRollBuffer.Num();
 		for (int32 i = 0; i < Samples16k.Num() && PreRollCap > 0; ++i)
 		{
@@ -527,8 +614,9 @@ void FWhisperNative::HandleAudioCaptureCallback(const float* InAudio, int32 NumF
 
 		AppendToRingBuffer_Locked(Samples16k);
 
-		if (StreamParams.bUseVAD)
+		if (StreamParams.VADMode == EWhisperVADMode::EnergyBased)
 		{
+			// Inline RMS VAD — fast enough to run on the audio HW thread
 			const float RMS = ComputeRMS(Samples16k.GetData(), Samples16k.Num());
 			const float ChunkDuration = static_cast<float>(Samples16k.Num()) / WHISPER_SAMPLE_RATE;
 
@@ -580,20 +668,24 @@ void FWhisperNative::HandleAudioCaptureCallback(const float* InAudio, int32 NumF
 					// Safety valve: force dispatch if segment is too long
 					if (VADSegmentDuration >= StreamParams.MaxSpeechSegmentSec)
 					{
-						DispatchStart    = VADSpeechStartSample;
-						DispatchEnd      = TotalSamplesWritten;
-						// Stay in speech state — reset start to continue from here
+						DispatchStart        = VADSpeechStartSample;
+						DispatchEnd          = TotalSamplesWritten;
 						VADSpeechStartSample = TotalSamplesWritten;
 						VADSegmentDuration   = 0.0f;
 					}
 				}
 			}
 		}
-		else
+		else if (StreamParams.VADMode == EWhisperVADMode::Silero)
 		{
-			// No-VAD mode: accumulate from mic start to mic stop.
-			// If accumulated audio exceeds MaxSpeechSegmentSec, dispatch a chunk and continue
-			// with an optional overlap so words at the boundary are not lost.
+			// Neural VAD must NOT run on the audio HW thread (up to ~15ms per chunk).
+			// Just capture the write cursor; the BG thread runs ProcessSileroVADChunk().
+			SileroChunkEnd = TotalSamplesWritten;
+		}
+		else // EWhisperVADMode::Disabled
+		{
+			// Accumulate from mic start to mic stop.
+			// Force-dispatch at MaxSpeechSegmentSec with optional overlap.
 			const float ChunkDuration = static_cast<float>(Samples16k.Num()) / WHISPER_SAMPLE_RATE;
 			VADSegmentDuration += ChunkDuration;
 
@@ -602,30 +694,142 @@ void FWhisperNative::HandleAudioCaptureCallback(const float* InAudio, int32 NumF
 				DispatchStart = VADSpeechStartSample;
 				DispatchEnd   = TotalSamplesWritten;
 
-				// Next segment starts OverlapSec before the end of this one
 				const int64 OverlapSamples = static_cast<int64>(
 					StreamParams.NonVADOverlapSec * WHISPER_SAMPLE_RATE);
 				VADSpeechStartSample = FMath::Max(0LL, TotalSamplesWritten - OverlapSamples);
-				// Pre-seed segment duration with the overlap we're re-using
-				VADSegmentDuration = StreamParams.NonVADOverlapSec;
+				VADSegmentDuration   = StreamParams.NonVADOverlapSec;
 			}
 		}
 	} // end of mutex scope
 
-	// Step 4: Fire GT callbacks and BG dispatch tasks OUTSIDE the mutex
+	// Step 4: Fire callbacks and dispatch tasks OUTSIDE the mutex
+
+	if (SileroChunkEnd > 0)
+	{
+		// Enqueue a lightweight BG task — all VAD logic runs there
+		EnqueueBGTask([this, SileroChunkEnd](int64) { ProcessSileroVADChunk(SileroChunkEnd); });
+	}
+
 	if (bVADOnset)
 	{
-		EnqueueGTTask([this]()
-		{
-			if (OnVADStateChanged) OnVADStateChanged(true);
-		});
+		EnqueueGTTask([this]() { if (OnVADStateChanged) OnVADStateChanged(true); });
 	}
 	if (bVADOffset)
 	{
-		EnqueueGTTask([this]()
+		EnqueueGTTask([this]() { if (OnVADStateChanged) OnVADStateChanged(false); });
+	}
+	if (DispatchStart >= 0 && DispatchEnd > DispatchStart)
+	{
+		DispatchSegmentForTranscription(DispatchStart, DispatchEnd);
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Silero VAD chunk processor (BG thread only)
+// ---------------------------------------------------------------------------
+
+void FWhisperNative::ProcessSileroVADChunk(int64 ChunkEnd)
+{
+	if (!SileroContext || ChunkEnd <= SileroChunkStart)
+	{
+		SileroChunkStart = ChunkEnd;
+		return;
+	}
+
+	// Step 1: Short mutex hold — copy new audio and snapshot VAD state
+	TArray<float> Chunk;
+	{
+		FScopeLock Lock(&AudioBufferMutex);
+		CopyRingBufferSegment_Locked(SileroChunkStart, ChunkEnd, Chunk);
+	}
+
+	if (Chunk.IsEmpty())
+	{
+		SileroChunkStart = ChunkEnd;
+		return;
+	}
+
+	// Step 2: Run Silero inference — must NOT hold the mutex (up to ~15ms)
+	const bool bSpeechDetected = whisper_vad_detect_speech(
+		SileroContext, Chunk.GetData(), Chunk.Num());
+
+	const float ChunkDuration = static_cast<float>(Chunk.Num()) / WHISPER_SAMPLE_RATE;
+
+	// Step 3: Onset/offset state machine — short mutex hold to read/write shared VAD state
+	int64 DispatchStart = -1;
+	int64 DispatchEnd   = -1;
+	bool  bVADOnset     = false;
+	bool  bVADOffset    = false;
+
+	{
+		FScopeLock Lock(&AudioBufferMutex);
+
+		if (!bVADSpeechActive)
 		{
-			if (OnVADStateChanged) OnVADStateChanged(false);
-		});
+			if (bSpeechDetected)
+			{
+				bVADSpeechActive = true;
+				bVADOnset        = true;
+
+				const int32 PreRollSamples = FMath::Min(
+					PreRollBuffer.Num(),
+					FMath::RoundToInt(StreamParams.VADPreRollSec * WHISPER_SAMPLE_RATE));
+
+				VADSpeechStartSample = FMath::Max(
+					SileroChunkStart - PreRollSamples,
+					TotalSamplesWritten - RingBuffer.Num()); // clamp to ring buffer range
+
+				VADSilenceDuration = 0.0f;
+				VADSegmentDuration = ChunkDuration;
+			}
+		}
+		else
+		{
+			VADSegmentDuration += ChunkDuration;
+
+			if (!bSpeechDetected)
+			{
+				VADSilenceDuration += ChunkDuration;
+
+				if (VADSilenceDuration >= StreamParams.VADHoldTimeSec)
+				{
+					// Voice offset: dispatch segment
+					bVADSpeechActive     = false;
+					bVADOffset           = true;
+					DispatchStart        = VADSpeechStartSample;
+					DispatchEnd          = ChunkEnd;
+					VADSpeechStartSample = ChunkEnd;
+					VADSilenceDuration   = 0.0f;
+					VADSegmentDuration   = 0.0f;
+				}
+			}
+			else
+			{
+				VADSilenceDuration = 0.0f;
+
+				// Safety valve: force dispatch if segment is too long
+				if (VADSegmentDuration >= StreamParams.MaxSpeechSegmentSec)
+				{
+					DispatchStart        = VADSpeechStartSample;
+					DispatchEnd          = ChunkEnd;
+					VADSpeechStartSample = ChunkEnd;
+					VADSegmentDuration   = 0.0f;
+				}
+			}
+		}
+	} // end of mutex scope
+
+	// Step 4: Advance BG read cursor (BG thread only — no mutex needed)
+	SileroChunkStart = ChunkEnd;
+
+	// Step 5: Fire GT callbacks and dispatch outside mutex
+	if (bVADOnset)
+	{
+		EnqueueGTTask([this]() { if (OnVADStateChanged) OnVADStateChanged(true); });
+	}
+	if (bVADOffset)
+	{
+		EnqueueGTTask([this]() { if (OnVADStateChanged) OnVADStateChanged(false); });
 	}
 	if (DispatchStart >= 0 && DispatchEnd > DispatchStart)
 	{
