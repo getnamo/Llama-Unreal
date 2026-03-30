@@ -43,7 +43,7 @@
 // WHISPER_VERSION: normally injected by CMake into a generated whisper-version.h.
 // We define it manually since we compile the source directly.
 #ifndef WHISPER_VERSION
-#	define WHISPER_VERSION "1.8.0"
+#	define WHISPER_VERSION "1.8.4"
 #endif
 
 // Suppress MSVC warnings that are benign in third-party code
