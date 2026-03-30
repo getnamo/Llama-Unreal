@@ -30,6 +30,7 @@ public:
 	UWhisperComponent(const FObjectInitializer& ObjectInitializer);
 	~UWhisperComponent();
 
+	virtual void BeginPlay() override;
 	virtual void Activate(bool bReset) override;
 	virtual void Deactivate() override;
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType,

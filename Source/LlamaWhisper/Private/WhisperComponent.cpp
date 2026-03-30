@@ -8,8 +8,7 @@ UWhisperComponent::UWhisperComponent(const FObjectInitializer& ObjectInitializer
 {
 	PrimaryComponentTick.bCanEverTick = true;
 
-	// Required for Activate() (and therefore auto model load) to be called from BeginPlay().
-	bAutoActivate = true;
+	//bAutoActivate = true;
 
 	WhisperNative = new FWhisperNative();
 
@@ -48,6 +47,12 @@ UWhisperComponent::~UWhisperComponent()
 {
 	delete WhisperNative;
 	WhisperNative = nullptr;
+}
+
+void UWhisperComponent::BeginPlay()
+{
+	Super::BeginPlay();
+	Activate(true);
 }
 
 void UWhisperComponent::Activate(bool bReset)
