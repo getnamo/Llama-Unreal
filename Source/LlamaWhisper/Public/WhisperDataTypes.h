@@ -120,15 +120,20 @@ struct LLAMAWHISPER_API FWhisperStreamParams
 		meta = (ClampMin = "0.0", ClampMax = "2.0"))
 	float VADPreRollSec = 0.15f;
 
-	/** Fixed chunk length (seconds) when bUseVAD is false — dispatches audio every N seconds. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Whisper Stream Params",
-		meta = (ClampMin = "0.5", EditCondition = "!bUseVAD"))
-	float ChunkLengthSec = 3.0f;
-
-	/** Safety valve: maximum segment length before a forced dispatch (even if speech continues). */
+	/** Maximum segment length (seconds) before a forced mid-stream dispatch.
+	 *  In VAD mode this acts as a safety valve when speech runs too long.
+	 *  In no-VAD mode this is the chunk boundary: audio is split here when the mic
+	 *  session exceeds this duration, and capture continues into the next chunk. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Whisper Stream Params",
 		meta = (ClampMin = "1.0"))
 	float MaxSpeechSegmentSec = 15.0f;
+
+	/** Overlap (seconds) between consecutive forced chunks when VAD is disabled.
+	 *  The tail of each dispatched chunk is re-included at the start of the next chunk,
+	 *  preventing words at boundaries from being cut off. Set to 0 to disable overlap. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Whisper Stream Params",
+		meta = (ClampMin = "0.0", ClampMax = "5.0", EditCondition = "!bUseVAD"))
+	float NonVADOverlapSec = 0.5f;
 
 	/** Ring buffer capacity in samples at 16 kHz. 30 seconds = 480,000 samples (~1.8 MB). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Whisper Stream Params",

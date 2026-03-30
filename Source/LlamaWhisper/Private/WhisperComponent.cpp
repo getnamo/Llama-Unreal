@@ -8,6 +8,9 @@ UWhisperComponent::UWhisperComponent(const FObjectInitializer& ObjectInitializer
 {
 	PrimaryComponentTick.bCanEverTick = true;
 
+	// Required for Activate() (and therefore auto model load) to be called from BeginPlay().
+	bAutoActivate = true;
+
 	WhisperNative = new FWhisperNative();
 
 	// Wire up native callbacks to component delegates (all fired on the game thread)

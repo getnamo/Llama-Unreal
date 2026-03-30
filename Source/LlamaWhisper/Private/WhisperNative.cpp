@@ -351,9 +351,10 @@ void FWhisperNative::StartMicrophoneCapture()
 		PreRollWritePos = 0;
 
 		// Reset VAD state
-		bVADSpeechActive   = false;
-		VADSilenceDuration = 0.0f;
-		VADSegmentDuration = 0.0f;
+		bVADSpeechActive     = false;
+		VADSilenceDuration   = 0.0f;
+		VADSegmentDuration   = 0.0f;
+		VADSpeechStartSample = 0;   // no-VAD mode accumulates from sample 0
 	}
 
 	// Create AudioCapture object
@@ -434,16 +435,20 @@ void FWhisperNative::StopMicrophoneCapture()
 
 	bMicCaptureActive = false;
 
-	// If VAD was active when we stopped, dispatch the remaining speech audio as a final segment.
+	// Flush any remaining buffered audio as a final segment.
+	// VADSpeechStartSample is advanced after every completed dispatch (VAD offset, force chunk,
+	// no-VAD chunk), so this window only contains truly unprocessed audio.  This covers:
+	//   VAD mode  — mic stopped mid-speech (bVADSpeechActive true) or during post-speech silence
+	//   No-VAD    — whatever accumulated since the last forced chunk (or since mic start)
 	// Extract dispatch params under the lock, then call dispatch outside to avoid deadlock.
 	int64 PendingSegStart = -1;
 	int64 PendingSegEnd   = -1;
 	{
 		FScopeLock Lock(&AudioBufferMutex);
-		if (bVADSpeechActive && TotalSamplesWritten > VADSpeechStartSample)
+		if (TotalSamplesWritten > VADSpeechStartSample)
 		{
-			PendingSegStart  = VADSpeechStartSample;
-			PendingSegEnd    = TotalSamplesWritten;
+			PendingSegStart = VADSpeechStartSample;
+			PendingSegEnd   = TotalSamplesWritten;
 		}
 		bVADSpeechActive = false;
 	}
@@ -558,12 +563,14 @@ void FWhisperNative::HandleAudioCaptureCallback(const float* InAudio, int32 NumF
 					if (VADSilenceDuration >= StreamParams.VADHoldTimeSec)
 					{
 						// Voice offset: dispatch the segment
-						bVADSpeechActive = false;
-						bVADOffset       = true;
-						DispatchStart    = VADSpeechStartSample;
-						DispatchEnd      = TotalSamplesWritten;
-						VADSilenceDuration = 0.0f;
-						VADSegmentDuration = 0.0f;
+						bVADSpeechActive     = false;
+						bVADOffset           = true;
+						DispatchStart        = VADSpeechStartSample;
+						DispatchEnd          = TotalSamplesWritten;
+						// Advance cursor so StopMicrophoneCapture won't re-dispatch this audio
+						VADSpeechStartSample = TotalSamplesWritten;
+						VADSilenceDuration   = 0.0f;
+						VADSegmentDuration   = 0.0f;
 					}
 				}
 				else
@@ -584,18 +591,23 @@ void FWhisperNative::HandleAudioCaptureCallback(const float* InAudio, int32 NumF
 		}
 		else
 		{
-			// Fixed-chunk mode: dispatch every ChunkLengthSec
+			// No-VAD mode: accumulate from mic start to mic stop.
+			// If accumulated audio exceeds MaxSpeechSegmentSec, dispatch a chunk and continue
+			// with an optional overlap so words at the boundary are not lost.
 			const float ChunkDuration = static_cast<float>(Samples16k.Num()) / WHISPER_SAMPLE_RATE;
 			VADSegmentDuration += ChunkDuration;
 
-			if (VADSegmentDuration >= StreamParams.ChunkLengthSec)
+			if (VADSegmentDuration >= StreamParams.MaxSpeechSegmentSec)
 			{
-				DispatchStart      = (VADSpeechStartSample == 0)
-				                     ? FMath::Max(0LL, TotalSamplesWritten - FMath::RoundToInt(VADSegmentDuration * WHISPER_SAMPLE_RATE))
-				                     : VADSpeechStartSample;
-				DispatchEnd        = TotalSamplesWritten;
-				VADSpeechStartSample = TotalSamplesWritten;
-				VADSegmentDuration = 0.0f;
+				DispatchStart = VADSpeechStartSample;
+				DispatchEnd   = TotalSamplesWritten;
+
+				// Next segment starts OverlapSec before the end of this one
+				const int64 OverlapSamples = static_cast<int64>(
+					StreamParams.NonVADOverlapSec * WHISPER_SAMPLE_RATE);
+				VADSpeechStartSample = FMath::Max(0LL, TotalSamplesWritten - OverlapSamples);
+				// Pre-seed segment duration with the overlap we're re-using
+				VADSegmentDuration = StreamParams.NonVADOverlapSec;
 			}
 		}
 	} // end of mutex scope
