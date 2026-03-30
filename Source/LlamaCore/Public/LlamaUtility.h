@@ -8,7 +8,7 @@
 
 DECLARE_LOG_CATEGORY_EXTERN(LlamaLog, Log, All);
 
-class FLlamaPaths
+class LLAMACORE_API FLlamaPaths
 {
 public:
 	static FString ModelsRelativeRootPath();
@@ -18,7 +18,7 @@ public:
 	static TArray<FString> DebugListDirectoryContent(const FString& InPath);
 };
 
-class FLlamaString
+class LLAMACORE_API FLlamaString
 {
 public:
 	static FString ToUE(const std::string& String);
