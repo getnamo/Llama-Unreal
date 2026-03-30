@@ -156,3 +156,14 @@ $ make
 ```
 
 Then the .so or .lib file was copied into e.g. `ThirdParty/LlamaCpp/Win64/cpu` directory and all the .h files were copied to the `Includes` directory.
+
+## LlamaWhisper Module
+
+Whisper.cpp embedded into the plugin, using the same ggml backend. 
+
+Exposed via `UWhisperComponent` wrapping `FWhisperNative` which can be optionally embedded in your own class instead. The basic api is the following:
+
+1. Add `UWhisperComponent` to your actor of choice. Model defined in `ModelParams` will load on startup, '.' before any path denotes relative to `Saved/Models`. Grab e.g. `ggml-small.en.bin` from  https://huggingface.co/ggerganov/whisper.cpp/tree/main
+2. Model will load on begin play disable option on component if you wish to load manually
+3. Use VAD or not. If using VAD, start the microphone when you wish to detect audio and stop when you're done conversing, you will get `OnVADStateChanged` callbacks and `OnTranscriptionResult` when results are ready. In Non-VAD mode starting the microphone and then stopping it will send the audio between those segments for transcription. At 15 seconds, it will auto-chunk and overlap by ~0.5 sec, you may need to de-duplicate manually.
+4. Listen to `OnTranscriptionResult` for transcriptions. 
