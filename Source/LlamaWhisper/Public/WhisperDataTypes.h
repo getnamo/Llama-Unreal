@@ -129,6 +129,13 @@ struct LLAMAWHISPER_API FWhisperStreamParams
 		meta = (EditCondition = "VADMode == EWhisperVADMode::Silero"))
 	FString PathToVADModel = TEXT("./ggml-silero-v5.1.2.bin");
 
+	/** Silero speech probability threshold [0.0–1.0].
+	 *  A window is considered speech if its probability exceeds this value.
+	 *  Lower values are more sensitive; raise to reduce false positives in noisy environments. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Whisper Stream Params",
+		meta = (ClampMin = "0.0", ClampMax = "1.0", EditCondition = "VADMode == EWhisperVADMode::Silero"))
+	float SileroThreshold = 0.5f;
+
 	/** RMS energy threshold for voice onset/offset detection [0.0–1.0].
 	 *  Lower values are more sensitive; raise if background noise causes false triggers.
 	 *  Only used when VADMode is EnergyBased. */
@@ -136,11 +143,17 @@ struct LLAMAWHISPER_API FWhisperStreamParams
 		meta = (ClampMin = "0.0", ClampMax = "1.0", EditCondition = "VADMode == EWhisperVADMode::EnergyBased"))
 	float VADThreshold = 0.02f;
 
-	/** Seconds of audio below VADThreshold before an active speech segment is considered ended.
-	 *  Used by both EnergyBased and Silero modes. */
+	/** Seconds of silence before an active speech segment is considered ended (EnergyBased mode).
+	 *  Higher values avoid premature cutoffs in paused speech. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Whisper Stream Params",
-		meta = (ClampMin = "0.1"))
+		meta = (ClampMin = "0.1", EditCondition = "VADMode == EWhisperVADMode::EnergyBased"))
 	float VADHoldTimeSec = 0.8f;
+
+	/** Seconds of silence before an active speech segment is considered ended (Silero mode).
+	 *  Silero's neural detection is more precise, so a shorter hold time is appropriate. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Whisper Stream Params",
+		meta = (ClampMin = "0.05", EditCondition = "VADMode == EWhisperVADMode::Silero"))
+	float SileroHoldTimeSec = 0.2f;
 
 	/** Pre-roll: seconds of audio before VAD onset to include at the start of a segment,
 	 *  ensuring consonant attack sounds are captured. Used by EnergyBased and Silero modes. */

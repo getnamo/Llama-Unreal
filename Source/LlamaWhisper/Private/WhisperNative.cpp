@@ -739,8 +739,6 @@ void FWhisperNative::ProcessSileroVADChunk(int64 ChunkEnd)
 {
 	if (!SileroContext || ChunkEnd <= SileroChunkStart)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[SILERO] early return: ctx=%p start=%lld end=%lld"),
-			(void*)SileroContext, (long long)SileroChunkStart, (long long)ChunkEnd);
 		SileroChunkStart = ChunkEnd;
 		bSileroInFlight = false;
 		return;
@@ -755,7 +753,6 @@ void FWhisperNative::ProcessSileroVADChunk(int64 ChunkEnd)
 
 	if (Chunk.IsEmpty())
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[SILERO] chunk empty"));
 		SileroChunkStart = ChunkEnd;
 		bSileroInFlight = false;
 		return;
@@ -765,40 +762,23 @@ void FWhisperNative::ProcessSileroVADChunk(int64 ChunkEnd)
 	// Accumulate samples into n_window-sized (512) frames and run one inference per frame.
 	const int WindowSize = whisper_vad_n_window(SileroContext);
 	bool bSpeechDetected = false;
-	constexpr float SileroThreshold = 0.5f;
+	const float SileroThreshold = StreamParams.SileroThreshold;
 
 	// Append chunk to residual buffer, then process complete windows
 	SileroResidual.Append(Chunk.GetData(), Chunk.Num());
 
 	int WindowsProcessed = 0;
-	float MaxProb = 0.0f;
 	while (SileroResidual.Num() >= WindowSize)
 	{
-		// Compute RMS of window to verify audio content
-		float Rms = 0.0f;
-		for (int j = 0; j < WindowSize; ++j)
-		{
-			Rms += SileroResidual[j] * SileroResidual[j];
-		}
-		Rms = FMath::Sqrt(Rms / WindowSize);
-
 		const float Prob = whisper_vad_detect_speech_streaming(
 			SileroContext, SileroResidual.GetData());
-		if (Prob > MaxProb) MaxProb = Prob;
 		if (Prob >= SileroThreshold)
 		{
 			bSpeechDetected = true;
 		}
 
-		UE_LOG(LogTemp, Log, TEXT("[SILERO] win rms=%.5f prob=%.4f"), Rms, Prob);
-
 		SileroResidual.RemoveAt(0, WindowSize, EAllowShrinking::No);
 		WindowsProcessed++;
-	}
-
-	if (bSpeechDetected)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("[SILERO] *** SPEECH DETECTED *** maxProb=%.4f"), MaxProb);
 	}
 
 	// If no complete window was processed, skip the state machine — we have no new
@@ -851,7 +831,7 @@ void FWhisperNative::ProcessSileroVADChunk(int64 ChunkEnd)
 			{
 				VADSilenceDuration += ChunkDuration;
 
-				if (VADSilenceDuration >= StreamParams.VADHoldTimeSec)
+				if (VADSilenceDuration >= StreamParams.SileroHoldTimeSec)
 				{
 					// Voice offset: dispatch segment
 					bVADSpeechActive     = false;
