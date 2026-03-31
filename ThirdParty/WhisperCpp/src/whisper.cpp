@@ -14,6 +14,11 @@
 #include "openvino/whisper-openvino-encoder.h"
 #endif
 
+#ifdef _MSC_VER
+#define NOMINMAX
+#include <windows.h>
+#endif
+
 #include <atomic>
 #include <algorithm>
 #include <cassert>
@@ -4725,9 +4730,17 @@ static bool whisper_vad_init_context(whisper_vad_context * vctx) {
         vctx->frame_in = ggml_graph_get_tensor(vctx->compute_gf, "frame");
         vctx->prob_out = ggml_graph_get_tensor(vctx->compute_gf, "prob");
 
-        WHISPER_LOG_INFO("%s: frame_in=%p  prob_out=%p  (after alloc, before free)\n", __func__,
-            (void *)(vctx->frame_in ? vctx->frame_in->data : nullptr),
-            (void *)(vctx->prob_out ? vctx->prob_out->data : nullptr));
+        // Diagnostic: OutputDebugStringA for VS debugger
+        {
+            char dbg[512];
+            snprintf(dbg, sizeof(dbg), "[VAD_INIT] compute_buf=%p size=%.2f MB\n",
+                (void *)vctx->compute_buf, ggml_backend_buffer_get_size(vctx->compute_buf) / 1e6);
+            OutputDebugStringA(dbg);
+            snprintf(dbg, sizeof(dbg), "[VAD_INIT] frame_in=%p frame_in->data=%p  prob_out=%p prob_out->data=%p\n",
+                (void *)vctx->frame_in, (void *)(vctx->frame_in ? vctx->frame_in->data : nullptr),
+                (void *)vctx->prob_out, (void *)(vctx->prob_out ? vctx->prob_out->data : nullptr));
+            OutputDebugStringA(dbg);
+        }
 
         // Keep ctx0 alive — b8586 ggml_free may invalidate tensor metadata in the buffer.
         // Will be freed in whisper_vad_free.
@@ -4886,7 +4899,9 @@ struct whisper_vad_context * whisper_vad_init_with_params(
     };
 
     whisper_context_params wparams = whisper_context_default_params();
-    wparams.use_gpu = params.use_gpu;
+    // VAD compute is always CPU-only (forced in whisper_vad_init_context),
+    // so model weights must also be in CPU buffers regardless of user's use_gpu setting.
+    wparams.use_gpu = false;
     wparams.gpu_device = params.gpu_device;
     buft_list_t buft_list = make_buft_list(wparams);
 
@@ -5129,33 +5144,37 @@ bool whisper_vad_detect_speech(
     struct ggml_tensor * frame = vctx->frame_in;
     struct ggml_tensor * prob  = vctx->prob_out;
 
-    WHISPER_LOG_INFO("%s: frame=%p frame->data=%p  prob=%p prob->data=%p\n", __func__,
-        (void *)frame, (void *)(frame ? frame->data : nullptr),
-        (void *)prob,  (void *)(prob  ? prob->data  : nullptr));
-
-    // Scan ALL graph nodes for NULL data pointers
+    // Diagnostic: use OutputDebugStringA so it shows in VS debugger Output window
     {
+        char dbg[512];
+        snprintf(dbg, sizeof(dbg), "[VAD_DIAG] frame=%p frame->data=%p  prob=%p prob->data=%p\n",
+            (void *)frame, (void *)(frame ? frame->data : nullptr),
+            (void *)prob,  (void *)(prob  ? prob->data  : nullptr));
+        OutputDebugStringA(dbg);
+
         struct ggml_cgraph * gf = vctx->compute_gf;
         const int nn = ggml_graph_n_nodes(gf);
-        WHISPER_LOG_INFO("%s: graph has %d nodes\n", __func__, nn);
+        snprintf(dbg, sizeof(dbg), "[VAD_DIAG] graph has %d nodes\n", nn);
+        OutputDebugStringA(dbg);
         for (int j = 0; j < nn; j++) {
             struct ggml_tensor * t = ggml_graph_node(gf, j);
-            WHISPER_LOG_INFO("%s: node[%d] '%s' data=%p  view_src=%p  op=%d\n", __func__, j,
-                t->name, t->data, (void *)t->view_src, (int)t->op);
+            snprintf(dbg, sizeof(dbg), "[VAD_DIAG] node[%d] '%s' data=%p view_src=%p op=%d\n",
+                j, t->name, t->data, (void *)t->view_src, (int)t->op);
+            OutputDebugStringA(dbg);
         }
-    }
-    // Also scan all tensors in the compute context
-    {
+
         struct ggml_context * cctx = vctx->compute_ctx;
         int idx = 0;
         for (struct ggml_tensor * t = ggml_get_first_tensor(cctx); t; t = ggml_get_next_tensor(cctx, t)) {
             if (t->data == nullptr) {
-                WHISPER_LOG_ERROR("%s: CTX_TENSOR[%d] '%s' has NULL data!  view_src=%p\n", __func__, idx,
-                    t->name, (void *)t->view_src);
+                snprintf(dbg, sizeof(dbg), "[VAD_DIAG] CTX_TENSOR[%d] '%s' NULL data! view_src=%p\n",
+                    idx, t->name, (void *)t->view_src);
+                OutputDebugStringA(dbg);
             }
             idx++;
         }
-        WHISPER_LOG_INFO("%s: scanned %d tensors in compute_ctx, above are any with NULL data\n", __func__, idx);
+        snprintf(dbg, sizeof(dbg), "[VAD_DIAG] scanned %d ctx tensors\n", idx);
+        OutputDebugStringA(dbg);
     }
 
     ggml_backend_cpu_set_n_threads(vctx->backends[0], vctx->n_threads);
