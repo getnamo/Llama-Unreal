@@ -811,7 +811,9 @@ void FWhisperNative::ProcessSileroVADChunk(int64 ChunkEnd)
 		return;
 	}
 
-	const float ChunkDuration = static_cast<float>(Chunk.Num()) / WHISPER_SAMPLE_RATE;
+	// Use actual processed sample count (complete Silero windows), not raw chunk size.
+	// The residual buffer means we may process more or fewer samples than the chunk contains.
+	const float ChunkDuration = static_cast<float>(WindowsProcessed * WindowSize) / WHISPER_SAMPLE_RATE;
 
 	// Step 3: Onset/offset state machine — short mutex hold to read/write shared VAD state
 	int64 DispatchStart = -1;
