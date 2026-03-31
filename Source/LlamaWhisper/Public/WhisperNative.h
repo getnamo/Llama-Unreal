@@ -86,6 +86,11 @@ public:
 	void StopMicrophoneCapture();
 	bool IsMicrophoneCaptureActive() const;
 
+	/** Mute/unmute the microphone input. While muted the audio callback discards all
+	 *  incoming samples — capture remains open and no flush/reset occurs. */
+	void SetMicrophoneMuted(bool bMuted);
+	bool IsMicrophoneMuted() const;
+
 	// ---------------------------------------------------------------------------
 	// Game thread pump — call from component/subsystem tick
 	// ---------------------------------------------------------------------------
@@ -158,6 +163,7 @@ private:
 
 	Audio::FAudioCapture* AudioCapture         = nullptr;
 	FThreadSafeBool       bMicCaptureActive    = false;
+	FThreadSafeBool       bMicMuted            = false;
 	int32                 CaptureDeviceSampleRate = 48000;
 	int32                 CaptureDeviceChannels   = 1;
 

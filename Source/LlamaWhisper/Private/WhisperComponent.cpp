@@ -170,6 +170,16 @@ bool UWhisperComponent::IsMicrophoneCaptureActive() const
 	return ModelState.bMicrophoneActive;
 }
 
+void UWhisperComponent::SetMicrophoneMuted(bool bMuted)
+{
+	WhisperNative->SetMicrophoneMuted(bMuted);
+}
+
+bool UWhisperComponent::IsMicrophoneMuted() const
+{
+	return WhisperNative->IsMicrophoneMuted();
+}
+
 void UWhisperComponent::LoadVADModel()
 {
 	WhisperNative->SetStreamParams(StreamParams);

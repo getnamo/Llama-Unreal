@@ -119,6 +119,16 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Whisper Component")
 	bool IsMicrophoneCaptureActive() const;
 
+	/** Mute the microphone input. While muted, incoming audio is silently discarded —
+	 *  capture remains open and no flush or state reset occurs. Useful for push-to-talk
+	 *  or suppressing input during TTS playback without tearing down the capture session. */
+	UFUNCTION(BlueprintCallable, Category = "Whisper Component")
+	void SetMicrophoneMuted(bool bMuted);
+
+	/** Returns true if microphone input is currently muted. */
+	UFUNCTION(BlueprintPure, Category = "Whisper Component")
+	bool IsMicrophoneMuted() const;
+
 	/** Manually load (or reload) the Silero VAD model specified in StreamParams.PathToVADModel.
 	 *  Not needed in normal use — the VAD model loads automatically when LoadModel is called
 	 *  with VADMode set to Silero. */

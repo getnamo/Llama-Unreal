@@ -567,10 +567,20 @@ bool FWhisperNative::IsMicrophoneCaptureActive() const
 // Audio capture callback (runs on audio HW thread)
 // ---------------------------------------------------------------------------
 
+void FWhisperNative::SetMicrophoneMuted(bool bMuted)
+{
+	bMicMuted = bMuted;
+}
+
+bool FWhisperNative::IsMicrophoneMuted() const
+{
+	return bMicMuted;
+}
+
 void FWhisperNative::HandleAudioCaptureCallback(const float* InAudio, int32 NumFrames,
                                                  int32 NumChannels, int32 SampleRate)
 {
-	if (!InAudio || NumFrames <= 0)
+	if (!InAudio || NumFrames <= 0 || bMicMuted)
 	{
 		return;
 	}
