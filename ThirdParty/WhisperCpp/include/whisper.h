@@ -694,8 +694,20 @@ extern "C" {
                            const float * samples,
                                    int   n_samples);
 
+    // Reset LSTM hidden/cell state to zero. Call once at the start of a new utterance/session.
+    WHISPER_API void whisper_vad_reset_state(struct whisper_vad_context * vctx);
+
+    // Streaming single-window inference: runs one 512-sample window through the model
+    // WITHOUT resetting LSTM state. Returns the speech probability for this window.
+    // The caller must provide exactly n_window samples (512 for 16kHz Silero).
+    // Returns negative value on error.
+    WHISPER_API float whisper_vad_detect_speech_streaming(
+            struct whisper_vad_context * vctx,
+                           const float * samples);
+
     WHISPER_API int     whisper_vad_n_probs(struct whisper_vad_context * vctx);
     WHISPER_API float * whisper_vad_probs  (struct whisper_vad_context * vctx);
+    WHISPER_API int     whisper_vad_n_window(struct whisper_vad_context * vctx);
 
     struct whisper_vad_segments;
 

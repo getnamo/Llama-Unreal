@@ -181,6 +181,13 @@ private:
 	// Written and read exclusively on the BG thread — no mutex needed.
 	int64 SileroChunkStart = 0;
 
+	// Guards against flooding the BG queue with overlapping Silero tasks.
+	FThreadSafeBool bSileroInFlight = false;
+
+	// Residual samples not yet forming a complete Silero window (512 samples).
+	// Written and read exclusively on the BG thread.
+	TArray<float> SileroResidual;
+
 	// ---------------------------------------------------------------------------
 	// Ticker handle (for optional standalone tick via AddTicker)
 	// ---------------------------------------------------------------------------

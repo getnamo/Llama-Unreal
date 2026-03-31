@@ -4699,6 +4699,10 @@ static bool whisper_vad_init_context(whisper_vad_context * vctx) {
         return false;
     }
 
+    // Zero LSTM state at init time so that streaming inference starts clean even if
+    // whisper_vad_reset_state() is never called (e.g. mic starts before model finishes loading).
+    ggml_backend_buffer_clear(vctx->buffer, 0);
+
     {
         vctx->sched.meta.resize(ggml_tensor_overhead()*WHISPER_MAX_NODES + ggml_graph_overhead());
 
@@ -5150,17 +5154,17 @@ bool whisper_vad_detect_speech(
         snprintf(dbg, sizeof(dbg), "[VAD_DIAG] frame=%p frame->data=%p  prob=%p prob->data=%p\n",
             (void *)frame, (void *)(frame ? frame->data : nullptr),
             (void *)prob,  (void *)(prob  ? prob->data  : nullptr));
-        OutputDebugStringA(dbg);
+        //OutputDebugStringA(dbg);
 
         struct ggml_cgraph * gf = vctx->compute_gf;
         const int nn = ggml_graph_n_nodes(gf);
         snprintf(dbg, sizeof(dbg), "[VAD_DIAG] graph has %d nodes\n", nn);
-        OutputDebugStringA(dbg);
+        //OutputDebugStringA(dbg);
         for (int j = 0; j < nn; j++) {
             struct ggml_tensor * t = ggml_graph_node(gf, j);
             snprintf(dbg, sizeof(dbg), "[VAD_DIAG] node[%d] '%s' data=%p view_src=%p op=%d\n",
                 j, t->name, t->data, (void *)t->view_src, (int)t->op);
-            OutputDebugStringA(dbg);
+            //OutputDebugStringA(dbg);
         }
 
         struct ggml_context * cctx = vctx->compute_ctx;
@@ -5169,12 +5173,12 @@ bool whisper_vad_detect_speech(
             if (t->data == nullptr) {
                 snprintf(dbg, sizeof(dbg), "[VAD_DIAG] CTX_TENSOR[%d] '%s' NULL data! view_src=%p\n",
                     idx, t->name, (void *)t->view_src);
-                OutputDebugStringA(dbg);
+                //OutputDebugStringA(dbg);
             }
             idx++;
         }
         snprintf(dbg, sizeof(dbg), "[VAD_DIAG] scanned %d ctx tensors\n", idx);
-        OutputDebugStringA(dbg);
+        //OutputDebugStringA(dbg);
     }
 
     ggml_backend_cpu_set_n_threads(vctx->backends[0], vctx->n_threads);
@@ -5237,6 +5241,35 @@ float whisper_vad_segments_get_segment_t0(struct whisper_vad_segments * segments
 
 float whisper_vad_segments_get_segment_t1(struct whisper_vad_segments * segments, int i_segment) {
     return segments->data[i_segment].end;
+}
+
+void whisper_vad_reset_state(struct whisper_vad_context * vctx) {
+    ggml_backend_buffer_clear(vctx->buffer, 0);
+}
+
+float whisper_vad_detect_speech_streaming(
+        struct whisper_vad_context * vctx,
+        const float * samples) {
+    struct ggml_tensor * frame = vctx->frame_in;
+    struct ggml_tensor * prob  = vctx->prob_out;
+
+    ggml_backend_cpu_set_n_threads(vctx->backends[0], vctx->n_threads);
+
+    // Set frame data (exactly n_window samples expected)
+    ggml_backend_tensor_set(frame, samples, 0, ggml_nelements(frame) * sizeof(float));
+
+    if (ggml_backend_graph_compute(vctx->backends[0], vctx->compute_gf) != GGML_STATUS_SUCCESS) {
+        WHISPER_LOG_ERROR("%s: failed to compute VAD graph\n", __func__);
+        return -1.0f;
+    }
+
+    float speech_prob = 0.0f;
+    ggml_backend_tensor_get(prob, &speech_prob, 0, sizeof(float));
+    return speech_prob;
+}
+
+int whisper_vad_n_window(struct whisper_vad_context * vctx) {
+    return vctx->n_window;
 }
 
 int whisper_vad_n_probs(struct whisper_vad_context * vctx) {

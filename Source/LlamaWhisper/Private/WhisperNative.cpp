@@ -267,7 +267,7 @@ void FWhisperNative::LoadVADModel(TFunction<void(const FString&, int32)> Callbac
 	EnqueueBGTask([this, FullPath, ParamsAtLoad, Callback](int64 TaskId)
 	{
 		whisper_vad_context_params VadCtxParams = whisper_vad_default_context_params();
-		VadCtxParams.n_threads  = ParamsAtLoad.Threads;
+		VadCtxParams.n_threads  = 1; // Silero is a tiny model; 1 thread avoids contention with game thread
 		VadCtxParams.use_gpu    = ParamsAtLoad.bUseGPU;
 
 		SileroContext = whisper_vad_init_from_file_with_params(
@@ -437,8 +437,13 @@ void FWhisperNative::StartMicrophoneCapture()
 		VADSpeechStartSample = 0;   // no-VAD and Silero modes accumulate from sample 0
 	}
 
-	// Reset Silero read cursor — safe here because mic is not yet active so no BG tasks running
+	// Reset Silero state — safe here because mic is not yet active so no BG tasks running
 	SileroChunkStart = 0;
+	SileroResidual.Reset();
+	if (SileroContext)
+	{
+		whisper_vad_reset_state(SileroContext);
+	}
 
 	// Create AudioCapture object
 	if (!AudioCapture)
@@ -704,9 +709,11 @@ void FWhisperNative::HandleAudioCaptureCallback(const float* InAudio, int32 NumF
 
 	// Step 4: Fire callbacks and dispatch tasks OUTSIDE the mutex
 
-	if (SileroChunkEnd > 0)
+	if (SileroChunkEnd > 0 && !bSileroInFlight)
 	{
-		// Enqueue a lightweight BG task — all VAD logic runs there
+		// Enqueue a lightweight BG task — all VAD logic runs there.
+		// Guard prevents flooding the queue while a previous chunk is still processing.
+		bSileroInFlight = true;
 		EnqueueBGTask([this, SileroChunkEnd](int64) { ProcessSileroVADChunk(SileroChunkEnd); });
 	}
 
@@ -732,7 +739,10 @@ void FWhisperNative::ProcessSileroVADChunk(int64 ChunkEnd)
 {
 	if (!SileroContext || ChunkEnd <= SileroChunkStart)
 	{
+		UE_LOG(LogTemp, Warning, TEXT("[SILERO] early return: ctx=%p start=%lld end=%lld"),
+			(void*)SileroContext, (long long)SileroChunkStart, (long long)ChunkEnd);
 		SileroChunkStart = ChunkEnd;
+		bSileroInFlight = false;
 		return;
 	}
 
@@ -745,13 +755,61 @@ void FWhisperNative::ProcessSileroVADChunk(int64 ChunkEnd)
 
 	if (Chunk.IsEmpty())
 	{
+		UE_LOG(LogTemp, Warning, TEXT("[SILERO] chunk empty"));
 		SileroChunkStart = ChunkEnd;
+		bSileroInFlight = false;
 		return;
 	}
 
-	// Step 2: Run Silero inference — must NOT hold the mutex (up to ~15ms)
-	const bool bSpeechDetected = whisper_vad_detect_speech(
-		SileroContext, Chunk.GetData(), Chunk.Num());
+	// Step 2: Run Silero inference in streaming mode — does NOT reset LSTM state.
+	// Accumulate samples into n_window-sized (512) frames and run one inference per frame.
+	const int WindowSize = whisper_vad_n_window(SileroContext);
+	bool bSpeechDetected = false;
+	constexpr float SileroThreshold = 0.5f;
+
+	// Append chunk to residual buffer, then process complete windows
+	SileroResidual.Append(Chunk.GetData(), Chunk.Num());
+
+	int WindowsProcessed = 0;
+	float MaxProb = 0.0f;
+	while (SileroResidual.Num() >= WindowSize)
+	{
+		// Compute RMS of window to verify audio content
+		float Rms = 0.0f;
+		for (int j = 0; j < WindowSize; ++j)
+		{
+			Rms += SileroResidual[j] * SileroResidual[j];
+		}
+		Rms = FMath::Sqrt(Rms / WindowSize);
+
+		const float Prob = whisper_vad_detect_speech_streaming(
+			SileroContext, SileroResidual.GetData());
+		if (Prob > MaxProb) MaxProb = Prob;
+		if (Prob >= SileroThreshold)
+		{
+			bSpeechDetected = true;
+		}
+
+		UE_LOG(LogTemp, Log, TEXT("[SILERO] win rms=%.5f prob=%.4f"), Rms, Prob);
+
+		SileroResidual.RemoveAt(0, WindowSize, EAllowShrinking::No);
+		WindowsProcessed++;
+	}
+
+	if (bSpeechDetected)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[SILERO] *** SPEECH DETECTED *** maxProb=%.4f"), MaxProb);
+	}
+
+	// If no complete window was processed, skip the state machine — we have no new
+	// information. Running it with bSpeechDetected=false would incorrectly accumulate
+	// silence duration between windows.
+	if (WindowsProcessed == 0)
+	{
+		SileroChunkStart = ChunkEnd;
+		bSileroInFlight = false;
+		return;
+	}
 
 	const float ChunkDuration = static_cast<float>(Chunk.Num()) / WHISPER_SAMPLE_RATE;
 
@@ -821,6 +879,7 @@ void FWhisperNative::ProcessSileroVADChunk(int64 ChunkEnd)
 
 	// Step 4: Advance BG read cursor (BG thread only — no mutex needed)
 	SileroChunkStart = ChunkEnd;
+	bSileroInFlight = false;
 
 	// Step 5: Fire GT callbacks and dispatch outside mutex
 	if (bVADOnset)
