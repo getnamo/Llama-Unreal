@@ -4403,7 +4403,12 @@ struct whisper_vad_context {
     ggml_backend_buffer_t       buffer = nullptr;
     whisper_context_params      params;
     std::vector<uint8_t>        ctx_buf;
-    whisper_sched               sched;
+    whisper_sched               sched;    // meta buffer used for graph building
+    ggml_backend_buffer_t       compute_buf = nullptr;  // backend buffer for compute tensors
+    struct ggml_context       * compute_ctx = nullptr;  // persistent context for compute tensors (must outlive compute_gf)
+    struct ggml_cgraph        * compute_gf  = nullptr;  // persistent pre-allocated compute graph
+    struct ggml_tensor        * frame_in    = nullptr;  // audio input tensor
+    struct ggml_tensor        * prob_out    = nullptr;  // probability output tensor
 
     whisper_vad_model    model;
     std::string          path_model;
@@ -4594,22 +4599,27 @@ static ggml_tensor * whisper_vad_build_lstm_layer(ggml_context * ctx0,
     return out;
 }
 
-static struct ggml_cgraph * whisper_vad_build_graph(whisper_vad_context & vctx) {
+static struct ggml_cgraph * whisper_vad_build_graph(whisper_vad_context & vctx, struct ggml_context * ctx_external = nullptr) {
     const auto & model = vctx.model;
 
-    struct ggml_init_params params = {
-        /*.mem_size   =*/ vctx.sched.meta.size(),
-        /*.mem_buffer =*/ vctx.sched.meta.data(),
-        /*.no_alloc   =*/ true,
-    };
-
-    struct ggml_context * ctx0 = ggml_init(params);
+    struct ggml_context * ctx0;
+    if (ctx_external) {
+        ctx0 = ctx_external;
+    } else {
+        struct ggml_init_params params = {
+            /*.mem_size   =*/ vctx.sched.meta.size(),
+            /*.mem_buffer =*/ vctx.sched.meta.data(),
+            /*.no_alloc   =*/ true,
+        };
+        ctx0 = ggml_init(params);
+    }
 
     ggml_cgraph * gf = ggml_new_graph(ctx0);
 
     struct ggml_tensor * frame = ggml_new_tensor_2d(ctx0, GGML_TYPE_F32, vctx.n_window, 1);
     ggml_set_name(frame, "frame");
-    ggml_set_input(frame);
+    // Do not call ggml_set_input(frame) — the b8586 ggml DLL's allocator skips
+    // INPUT-flagged tensors (treats them as externally-managed), leaving data = NULL.
 
     struct ggml_tensor * cur = nullptr;
     {
@@ -4627,12 +4637,15 @@ static struct ggml_cgraph * whisper_vad_build_graph(whisper_vad_context & vctx) 
         cur = ggml_add(ctx0, cur, model.final_conv_bias);
         cur = ggml_sigmoid(ctx0, cur);
         ggml_set_name(cur, "prob");
-        ggml_set_output(cur);
+        // Do not call ggml_set_output(cur) — same reason as ggml_set_input: b8586 DLL
+        // may skip OUTPUT-flagged tensors in allocation, leaving data = NULL.
     }
 
     ggml_build_forward_expand(gf, cur);
 
-    ggml_free(ctx0);
+    if (!ctx_external) {
+        ggml_free(ctx0);
+    }
 
     return gf;
 }
@@ -4682,17 +4695,43 @@ static bool whisper_vad_init_context(whisper_vad_context * vctx) {
     }
 
     {
-        bool ok = whisper_sched_graph_init(vctx->sched, vctx->backends,
-                [&]() {
-                    return whisper_vad_build_graph(*vctx);
-                });
+        vctx->sched.meta.resize(ggml_tensor_overhead()*WHISPER_MAX_NODES + ggml_graph_overhead());
 
-        if (!ok) {
-            WHISPER_LOG_ERROR("%s: failed to init VAD allocator\n", __func__);
+        struct ggml_init_params params0 = {
+            /*.mem_size   =*/ vctx->sched.meta.size(),
+            /*.mem_buffer =*/ vctx->sched.meta.data(),
+            /*.no_alloc   =*/ true,
+        };
+        struct ggml_context * ctx0 = ggml_init(params0);
+        if (!ctx0) {
+            WHISPER_LOG_ERROR("%s: failed to init VAD compute context\n", __func__);
             return false;
         }
 
-        WHISPER_LOG_INFO("%s: compute buffer (VAD)   = %7.2f MB\n", __func__, whisper_sched_size(vctx->sched) / 1e6);
+        vctx->compute_gf = whisper_vad_build_graph(*vctx, ctx0);
+
+        // Allocate all compute tensors (frame + intermediates) into CPU backend buffer.
+        // ggml_backend_alloc_ctx_tensors handles regular tensors and views correctly.
+        vctx->compute_buf = ggml_backend_alloc_ctx_tensors(ctx0, vctx->backends[0]);
+        if (!vctx->compute_buf) {
+            WHISPER_LOG_ERROR("%s: failed to allocate VAD compute tensors\n", __func__);
+            ggml_free(ctx0);
+            return false;
+        }
+
+        WHISPER_LOG_INFO("%s: compute buffer (VAD)   = %7.2f MB\n", __func__,
+            ggml_backend_buffer_get_size(vctx->compute_buf) / 1e6);
+
+        vctx->frame_in = ggml_graph_get_tensor(vctx->compute_gf, "frame");
+        vctx->prob_out = ggml_graph_get_tensor(vctx->compute_gf, "prob");
+
+        WHISPER_LOG_INFO("%s: frame_in=%p  prob_out=%p  (after alloc, before free)\n", __func__,
+            (void *)(vctx->frame_in ? vctx->frame_in->data : nullptr),
+            (void *)(vctx->prob_out ? vctx->prob_out->data : nullptr));
+
+        // Keep ctx0 alive — b8586 ggml_free may invalidate tensor metadata in the buffer.
+        // Will be freed in whisper_vad_free.
+        vctx->compute_ctx = ctx0;
     }
 
     return true;
@@ -5087,22 +5126,45 @@ bool whisper_vad_detect_speech(
 
     std::vector<float> window(vctx->n_window, 0.0f);
 
-    auto & sched = vctx->sched.sched;
+    struct ggml_tensor * frame = vctx->frame_in;
+    struct ggml_tensor * prob  = vctx->prob_out;
 
-    ggml_cgraph * gf = whisper_vad_build_graph(*vctx);
+    WHISPER_LOG_INFO("%s: frame=%p frame->data=%p  prob=%p prob->data=%p\n", __func__,
+        (void *)frame, (void *)(frame ? frame->data : nullptr),
+        (void *)prob,  (void *)(prob  ? prob->data  : nullptr));
 
-    if (!ggml_backend_sched_alloc_graph(sched, gf)) {
-        WHISPER_LOG_ERROR("%s: failed to allocate the compute buffer\n", __func__);
-        return false;
+    // Scan ALL graph nodes for NULL data pointers
+    {
+        struct ggml_cgraph * gf = vctx->compute_gf;
+        const int nn = ggml_graph_n_nodes(gf);
+        WHISPER_LOG_INFO("%s: graph has %d nodes\n", __func__, nn);
+        for (int j = 0; j < nn; j++) {
+            struct ggml_tensor * t = ggml_graph_node(gf, j);
+            WHISPER_LOG_INFO("%s: node[%d] '%s' data=%p  view_src=%p  op=%d\n", __func__, j,
+                t->name, t->data, (void *)t->view_src, (int)t->op);
+        }
+    }
+    // Also scan all tensors in the compute context
+    {
+        struct ggml_context * cctx = vctx->compute_ctx;
+        int idx = 0;
+        for (struct ggml_tensor * t = ggml_get_first_tensor(cctx); t; t = ggml_get_next_tensor(cctx, t)) {
+            if (t->data == nullptr) {
+                WHISPER_LOG_ERROR("%s: CTX_TENSOR[%d] '%s' has NULL data!  view_src=%p\n", __func__, idx,
+                    t->name, (void *)t->view_src);
+            }
+            idx++;
+        }
+        WHISPER_LOG_INFO("%s: scanned %d tensors in compute_ctx, above are any with NULL data\n", __func__, idx);
     }
 
-    struct ggml_tensor * frame = ggml_graph_get_tensor(gf, "frame");
-    struct ggml_tensor * prob  = ggml_graph_get_tensor(gf, "prob");
+    ggml_backend_cpu_set_n_threads(vctx->backends[0], vctx->n_threads);
 
     // we are going to reuse the graph multiple times for each chunk
     const int64_t t_start_vad_us = ggml_time_us();
 
     for (int i = 0; i < n_chunks; i++) {
+
         const int idx_start = i * vctx->n_window;
         const int idx_end = std::min(idx_start + vctx->n_window, n_samples);
 
@@ -5129,8 +5191,7 @@ bool whisper_vad_detect_speech(
         // Set the frame tensor data with the samples.
         ggml_backend_tensor_set(frame, window.data(), 0, ggml_nelements(frame) * sizeof(float));
 
-        // do not reset the scheduler - we will reuse the graph in the next chunk
-        if (!ggml_graph_compute_helper(sched, gf, vctx->n_threads, false)) {
+        if (ggml_backend_graph_compute(vctx->backends[0], vctx->compute_gf) != GGML_STATUS_SUCCESS) {
             WHISPER_LOG_ERROR("%s: failed to compute VAD graph\n", __func__);
             break;
         }
@@ -5143,8 +5204,6 @@ bool whisper_vad_detect_speech(
 
     vctx->t_vad_us += ggml_time_us() - t_start_vad_us;
     WHISPER_LOG_INFO("%s: vad time = %.2f ms processing %d samples\n", __func__, 1e-3f * vctx->t_vad_us, n_samples);
-
-    ggml_backend_sched_reset(sched);
 
     return true;
 }
@@ -5428,7 +5487,10 @@ void whisper_vad_free(whisper_vad_context * ctx) {
             ggml_backend_buffer_free(buf);
         }
 
-        ggml_backend_sched_free(ctx->sched.sched);
+        ggml_backend_buffer_free(ctx->compute_buf);
+        if (ctx->compute_ctx) {
+            ggml_free(ctx->compute_ctx);
+        }
 
         for (auto & backend : ctx->backends) {
             ggml_backend_free(backend);
