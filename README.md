@@ -166,17 +166,16 @@ Exposed via `UWhisperComponent` wrapping `FWhisperNative` which can be optionall
 1. Add `UWhisperComponent` to your actor of choice. Model defined in `ModelParams` will load on startup, '.' before any path denotes relative to `Saved/Models`. Grab e.g. `ggml-small.en.bin` from  https://huggingface.co/ggerganov/whisper.cpp/tree/main
 2. Model will load on begin play, disable `bAutoLoadModelOnStartup` on the component if you wish to load manually.
 3. Choose a VAD mode via `StreamParams.VADMode`:
-   - **Disabled** — no VAD; audio buffers from `StartMicrophoneCapture` to `StopMicrophoneCapture` and is dispatched as one chunk. If audio exceeds `MaxSpeechSegmentSec` (default 15s) it is auto-chunked with `NonVADOverlapSec` overlap (default 0.5s) — you may need to de-duplicate words at boundaries manually.
-   - **Energy-Based (RMS)** *(default)* — lightweight onset/offset detection using an RMS energy threshold. Configurable via `VADThreshold`, `VADHoldTimeSec`, and `VADPreRollSec`. Fast, zero extra model files, works best in quiet environments.
-   - **Silero Neural VAD** — neural VAD using a ggml-converted Silero model. More robust in noisy environments. Requires a separate model file pointed to by `StreamParams.PathToVADModel` (default `./ggml-silero-v5.1.2.bin`). The model loads automatically after the whisper model loads. Silero-specific stream params:
-     - `SileroThreshold` (default 0.5) — speech probability threshold per window. Lower values are more sensitive; raise to reduce false positives in noisy environments.
-     - `SileroHoldTimeSec` (default 0.2s) — silence duration before speech offset. Shorter than the EnergyBased default (0.8s) because Silero's neural detection is more precise.
+   - **Disabled** - no VAD; audio buffers from `StartMicrophoneCapture` to `StopMicrophoneCapture` and is dispatched as one chunk. If audio exceeds `MaxSpeechSegmentSec` (default 15s) it is auto-chunked with `NonVADOverlapSec` overlap (default 0.5s) - you may need to de-duplicate words at boundaries manually.
+   - **Energy-Based (RMS)** *(default)* - lightweight onset/offset detection using an RMS energy threshold. Configurable via `VADThreshold`, `VADHoldTimeSec`, and `VADPreRollSec`. Fast, zero extra model files, works best in quiet environments.
+   - **Silero Neural VAD** - neural VAD using a ggml-converted Silero model. More robust in noisy environments. Requires a separate model file pointed to by `StreamParams.PathToVADModel` (default `./ggml-silero-v6.2.0.bin`). The model loads automatically after the whisper model loads. Silero-specific stream params:
+     - `SileroThreshold` (default 0.5) - speech probability threshold per window. Lower values are more sensitive; raise to reduce false positives in noisy environments.
+     - `SileroHoldTimeSec` (default 0Z.2s) - silence duration before speech offset. Shorter than the EnergyBased default (0.8s) because Silero's neural detection is more precise.
 
    Download Silero VAD models from:
-     - v5: https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v5.1.2.bin
      - v6: https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v6.2.0.bin
 
-   Place the file in your project's `Saved/Models/` folder and set the path with a leading `.` (e.g. `./ggml-silero-v5.1.2.bin`). Bind `OnVADModelLoaded` to react when the Silero model is ready.
+   Place the file in your project's `Saved/Models/` folder and set the path with a leading `.` (e.g. `./ggml-silero-v6.2.0.bin`). Bind `OnVADModelLoaded` to react when the Silero model is ready.
 
    In all VAD modes, start the microphone with `StartMicrophoneCapture` and stop with `StopMicrophoneCapture`. Any in-progress speech at stop time is always flushed and dispatched.
 4. Listen to `OnTranscriptionResult` for transcriptions. Bind `OnVADStateChanged` for speech onset/offset events.

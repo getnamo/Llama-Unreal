@@ -123,11 +123,11 @@ struct LLAMAWHISPER_API FWhisperStreamParams
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Whisper Stream Params")
 	EWhisperVADMode VADMode = EWhisperVADMode::EnergyBased;
 
-	/** Path to the ggml Silero VAD model file (e.g. ggml-silero-v5.1.2.bin).
+	/** Path to the ggml Silero VAD model file (e.g. ggml-silero-v6.2.0.bin).
 	 *  Paths beginning with '.' are relative to Saved/Models/. Only used when VADMode is Silero. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Whisper Stream Params",
 		meta = (EditCondition = "VADMode == EWhisperVADMode::Silero"))
-	FString PathToVADModel = TEXT("./ggml-silero-v5.1.2.bin");
+	FString PathToVADModel = TEXT("./ggml-silero-v6.2.0.bin");
 
 	/** Silero speech probability threshold [0.0–1.0].
 	 *  A window is considered speech if its probability exceeds this value.
