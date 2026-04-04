@@ -233,6 +233,146 @@ FStructuredChatHistory ULlamaComponent::GetStructuredChatHistory()
     return ModelState.ChatHistory;
 }
 
+void ULlamaComponent::InsertTemplateImagePrompt(UTexture2D* Image, const FString& Text, EChatTemplateRole Role, bool bAddAssistantBOS, bool bGenerateReply)
+{
+    if (!Image || !Image->GetPlatformData() || Image->GetPlatformData()->Mips.Num() == 0)
+    {
+        OnError.Broadcast(TEXT("Invalid or null texture passed to InsertTemplateImagePrompt"), 52);
+        return;
+    }
+    if (!LlamaNative->IsMultimodalLoaded())
+    {
+        OnError.Broadcast(TEXT("Multimodal projector not loaded. Set MmprojPath in ModelParams before calling LoadModel."), 50);
+        return;
+    }
+    if (!LlamaNative->SupportsVision())
+    {
+        OnError.Broadcast(TEXT("Vision not supported by loaded multimodal model"), 55);
+        return;
+    }
+
+    // Read pixels from texture on game thread
+    FTexturePlatformData* PlatformData = Image->GetPlatformData();
+    const int32 Width = PlatformData->SizeX;
+    const int32 Height = PlatformData->SizeY;
+
+    const void* RawData = PlatformData->Mips[0].BulkData.LockReadOnly();
+
+    TArray<uint8> RGBData;
+    RGBData.SetNum(Width * Height * 3);
+
+    // Convert BGRA -> RGB
+    const uint8* Src = static_cast<const uint8*>(RawData);
+    for (int32 i = 0; i < Width * Height; i++)
+    {
+        RGBData[i * 3 + 0] = Src[i * 4 + 2]; // R
+        RGBData[i * 3 + 1] = Src[i * 4 + 1]; // G
+        RGBData[i * 3 + 2] = Src[i * 4 + 0]; // B
+    }
+    PlatformData->Mips[0].BulkData.Unlock();
+
+    // Build multimodal prompt
+    FLlamaMultimodalPrompt Prompt;
+    Prompt.Prompt = Text.Contains(TEXT("<__media__>")) ? Text : FString::Printf(TEXT("<__media__>\n%s"), *Text);
+    Prompt.Role = Role;
+    Prompt.bAddAssistantBOS = bAddAssistantBOS;
+    Prompt.bGenerateReply = bGenerateReply;
+
+    FLlamaMediaEntry Entry;
+    Entry.MediaType = ELlamaMediaType::Image;
+    Entry.ImageRGBData = MoveTemp(RGBData);
+    Entry.ImageWidth = Width;
+    Entry.ImageHeight = Height;
+    Prompt.MediaEntries.Add(MoveTemp(Entry));
+
+    LlamaNative->InsertMultimodalPrompt(Prompt);
+}
+
+void ULlamaComponent::InsertTemplateImagePromptFromFile(const FString& ImagePath, const FString& Text, EChatTemplateRole Role, bool bAddAssistantBOS, bool bGenerateReply)
+{
+    if (!LlamaNative->IsMultimodalLoaded())
+    {
+        OnError.Broadcast(TEXT("Multimodal projector not loaded. Set MmprojPath in ModelParams before calling LoadModel."), 50);
+        return;
+    }
+    if (!LlamaNative->SupportsVision())
+    {
+        OnError.Broadcast(TEXT("Vision not supported by loaded multimodal model"), 55);
+        return;
+    }
+
+    FLlamaMultimodalPrompt Prompt;
+    Prompt.Prompt = Text.Contains(TEXT("<__media__>")) ? Text : FString::Printf(TEXT("<__media__>\n%s"), *Text);
+    Prompt.Role = Role;
+    Prompt.bAddAssistantBOS = bAddAssistantBOS;
+    Prompt.bGenerateReply = bGenerateReply;
+
+    FLlamaMediaEntry Entry;
+    Entry.MediaType = ELlamaMediaType::Image;
+    Entry.FilePath = ImagePath;
+    Prompt.MediaEntries.Add(MoveTemp(Entry));
+
+    LlamaNative->InsertMultimodalPrompt(Prompt);
+}
+
+void ULlamaComponent::InsertTemplateAudioPrompt(const TArray<float>& PCMAudio, const FString& Text, EChatTemplateRole Role, bool bAddAssistantBOS, bool bGenerateReply)
+{
+    if (!LlamaNative->IsMultimodalLoaded())
+    {
+        OnError.Broadcast(TEXT("Multimodal projector not loaded. Set MmprojPath in ModelParams before calling LoadModel."), 50);
+        return;
+    }
+    if (!LlamaNative->SupportsAudio())
+    {
+        OnError.Broadcast(TEXT("Audio not supported by loaded multimodal model"), 56);
+        return;
+    }
+
+    FLlamaMultimodalPrompt Prompt;
+    Prompt.Prompt = Text.Contains(TEXT("<__media__>")) ? Text : FString::Printf(TEXT("<__media__>\n%s"), *Text);
+    Prompt.Role = Role;
+    Prompt.bAddAssistantBOS = bAddAssistantBOS;
+    Prompt.bGenerateReply = bGenerateReply;
+
+    FLlamaMediaEntry Entry;
+    Entry.MediaType = ELlamaMediaType::Audio;
+    Entry.AudioPCMData = PCMAudio;
+    Prompt.MediaEntries.Add(MoveTemp(Entry));
+
+    LlamaNative->InsertMultimodalPrompt(Prompt);
+}
+
+void ULlamaComponent::InsertMultimodalPrompt(const FLlamaMultimodalPrompt& Prompt)
+{
+    if (!LlamaNative->IsMultimodalLoaded())
+    {
+        OnError.Broadcast(TEXT("Multimodal projector not loaded. Set MmprojPath in ModelParams before calling LoadModel."), 50);
+        return;
+    }
+
+    LlamaNative->InsertMultimodalPrompt(Prompt);
+}
+
+bool ULlamaComponent::IsMultimodalLoaded() const
+{
+    return LlamaNative->IsMultimodalLoaded();
+}
+
+bool ULlamaComponent::SupportsVision() const
+{
+    return LlamaNative->SupportsVision();
+}
+
+bool ULlamaComponent::SupportsAudio() const
+{
+    return LlamaNative->SupportsAudio();
+}
+
+int32 ULlamaComponent::GetAudioSampleRate() const
+{
+    return LlamaNative->GetAudioSampleRate();
+}
+
 void ULlamaComponent::GeneratePromptEmbeddingsForText(const FString& Text)
 {
     if (!ModelParams.Advanced.bEmbeddingMode)

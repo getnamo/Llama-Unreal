@@ -425,6 +425,64 @@ void FLlamaNative::InsertTemplatedPrompt(const FLlamaChatPrompt& Prompt, TFuncti
     });
 }
 
+void FLlamaNative::InsertMultimodalPrompt(const FLlamaMultimodalPrompt& Prompt, TFunction<void(const FString& Response)> OnResponseFinished)
+{
+    if (!IsModelLoaded() && !bModelLoadInitiated)
+    {
+        UE_LOG(LlamaLog, Warning, TEXT("Model isn't loaded, can't run multimodal prompt."));
+        return;
+    }
+
+    // Deep-copy the prompt for thread safety (TArrays copy by value)
+    FLlamaMultimodalPrompt ThreadSafePrompt = Prompt;
+
+    EnqueueBGTask([this, ThreadSafePrompt, OnResponseFinished](int64 TaskId)
+    {
+        const std::string TextStd = FLlamaString::ToStd(ThreadSafePrompt.Prompt);
+
+        if (ThreadSafePrompt.bGenerateReply)
+        {
+            FString Response = FLlamaString::ToUE(Internal->InsertMultimodalPrompt(
+                TextStd, ThreadSafePrompt.MediaEntries, ThreadSafePrompt.Role,
+                ThreadSafePrompt.bAddAssistantBOS, true));
+
+            EnqueueGTTask([this, Response, OnResponseFinished]()
+            {
+                if (OnResponseFinished)
+                {
+                    OnResponseFinished(Response);
+                }
+            });
+        }
+        else
+        {
+            Internal->InsertMultimodalPrompt(
+                TextStd, ThreadSafePrompt.MediaEntries, ThreadSafePrompt.Role,
+                ThreadSafePrompt.bAddAssistantBOS, false);
+        }
+    });
+}
+
+bool FLlamaNative::IsMultimodalLoaded()
+{
+    return Internal->IsMultimodalLoaded();
+}
+
+bool FLlamaNative::SupportsVision()
+{
+    return Internal->SupportsVision();
+}
+
+bool FLlamaNative::SupportsAudio()
+{
+    return Internal->SupportsAudio();
+}
+
+int32 FLlamaNative::GetAudioSampleRate()
+{
+    return Internal->GetAudioSampleRate();
+}
+
 void FLlamaNative::InsertRawPrompt(const FString& Prompt, bool bGenerateReply, TFunction<void(const FString& Response)>OnResponseFinished)
 {
     if (!IsModelLoaded() && !bModelLoadInitiated)

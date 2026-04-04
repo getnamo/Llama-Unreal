@@ -3,6 +3,8 @@
 #include "Internal/LlamaInternal.h"
 #include "common/common.h"
 #include "common/sampling.h"
+#include "mtmd/mtmd.h"
+#include "mtmd/mtmd-helper.h"
 #include "LlamaDataTypes.h"
 #include "LlamaUtility.h"
 #include "HardwareInfo.h"
@@ -251,11 +253,20 @@ bool FLlamaInternal::LoadModelFromParams(const FLLMModelParams& InModelParams)
 
     bIsModelLoaded = true;
 
+    //Initialize multimodal if mmproj path is provided
+    if (!InModelParams.MmprojPath.IsEmpty())
+    {
+        InitMultimodal(InModelParams.MmprojPath);
+    }
+
     return true;
 }
 
 void FLlamaInternal::UnloadModel()
 {
+    //Free mtmd before context/model since it holds references to them
+    FreeMultimodal();
+
     if (Sampler)
     {
         llama_sampler_free(Sampler);
@@ -923,6 +934,222 @@ void FLlamaInternal::BatchAddSeq(llama_batch& batch, const std::vector<int32_t>&
     {
         common_batch_add(batch, tokens[i], i, { seq_id }, true);
     }
+}
+
+bool FLlamaInternal::InitMultimodal(const FString& MmprojPath)
+{
+    if (MmprojPath.IsEmpty())
+    {
+        return false;
+    }
+    if (!LlamaModel)
+    {
+        EmitErrorMessage(TEXT("Cannot init multimodal: model not loaded"), 50, __func__);
+        return false;
+    }
+
+    std::string Path = TCHAR_TO_UTF8(*FLlamaPaths::ParsePathIntoFullPath(MmprojPath));
+
+    mtmd_context_params Params = mtmd_context_params_default();
+    Params.use_gpu = true;
+    Params.n_threads = LastLoadedParams.Threads;
+
+    MtmdContext = mtmd_init_from_file(Path.c_str(), LlamaModel, Params);
+    if (!MtmdContext)
+    {
+        EmitErrorMessage(FString::Printf(TEXT("Failed to load multimodal projector from <%hs>"), Path.c_str()), 50, __func__);
+        bMtmdLoaded = false;
+        return false;
+    }
+
+    bMtmdLoaded = true;
+    UE_LOG(LlamaLog, Log, TEXT("Multimodal projector loaded. Vision: %s, Audio: %s"),
+        mtmd_support_vision(MtmdContext) ? TEXT("yes") : TEXT("no"),
+        mtmd_support_audio(MtmdContext) ? TEXT("yes") : TEXT("no"));
+    return true;
+}
+
+void FLlamaInternal::FreeMultimodal()
+{
+    if (MtmdContext)
+    {
+        mtmd_free(MtmdContext);
+        MtmdContext = nullptr;
+    }
+    bMtmdLoaded = false;
+}
+
+bool FLlamaInternal::IsMultimodalLoaded()
+{
+    return bMtmdLoaded;
+}
+
+bool FLlamaInternal::SupportsVision()
+{
+    return MtmdContext && mtmd_support_vision(MtmdContext);
+}
+
+bool FLlamaInternal::SupportsAudio()
+{
+    return MtmdContext && mtmd_support_audio(MtmdContext);
+}
+
+int32 FLlamaInternal::GetAudioSampleRate()
+{
+    if (MtmdContext)
+    {
+        return mtmd_get_audio_sample_rate(MtmdContext);
+    }
+    return 0;
+}
+
+int32 FLlamaInternal::ProcessMultimodalPrompt(const std::string& FormattedPrompt, const TArray<FLlamaMediaEntry>& MediaEntries, EChatTemplateRole Role)
+{
+    const auto StartTime = ggml_time_us();
+
+    // 1. Build bitmaps from media entries
+    TArray<mtmd_bitmap*> Bitmaps;
+    TArray<const mtmd_bitmap*> BitmapPtrs;
+
+    for (const FLlamaMediaEntry& Entry : MediaEntries)
+    {
+        mtmd_bitmap* Bmp = nullptr;
+
+        if (!Entry.FilePath.IsEmpty())
+        {
+            std::string FilePath = TCHAR_TO_UTF8(*FLlamaPaths::ParsePathIntoFullPath(Entry.FilePath));
+            Bmp = mtmd_helper_bitmap_init_from_file(MtmdContext, FilePath.c_str());
+        }
+        else if (Entry.MediaType == ELlamaMediaType::Image)
+        {
+            if (Entry.ImageRGBData.Num() > 0 && Entry.ImageWidth > 0 && Entry.ImageHeight > 0)
+            {
+                Bmp = mtmd_bitmap_init(Entry.ImageWidth, Entry.ImageHeight, Entry.ImageRGBData.GetData());
+            }
+        }
+        else // Audio
+        {
+            if (Entry.AudioPCMData.Num() > 0)
+            {
+                Bmp = mtmd_bitmap_init_from_audio(Entry.AudioPCMData.Num(), Entry.AudioPCMData.GetData());
+            }
+        }
+
+        if (!Bmp)
+        {
+            // Free any previously created bitmaps
+            for (mtmd_bitmap* B : Bitmaps)
+            {
+                mtmd_bitmap_free(B);
+            }
+            EmitErrorMessage(TEXT("Failed to create mtmd bitmap from media entry"), 52, __func__);
+            return 0;
+        }
+
+        Bitmaps.Add(Bmp);
+        BitmapPtrs.Add(Bmp);
+    }
+
+    // 2. Tokenize with mtmd
+    mtmd_input_chunks* Chunks = mtmd_input_chunks_init();
+    const bool IsFirst = llama_memory_seq_pos_max(llama_get_memory(Context), 0) == 0;
+
+    mtmd_input_text InputText;
+    InputText.text = FormattedPrompt.c_str();
+    InputText.add_special = IsFirst;
+    InputText.parse_special = true;
+
+    int32_t TokenizeResult = mtmd_tokenize(MtmdContext, Chunks, &InputText, BitmapPtrs.GetData(), BitmapPtrs.Num());
+
+    if (TokenizeResult != 0)
+    {
+        FString Msg = (TokenizeResult == 1)
+            ? TEXT("Number of <__media__> markers does not match number of media entries")
+            : TEXT("Image/audio preprocessing error during mtmd_tokenize");
+        EmitErrorMessage(Msg, (TokenizeResult == 1) ? 51 : 53, __func__);
+
+        mtmd_input_chunks_free(Chunks);
+        for (mtmd_bitmap* B : Bitmaps) { mtmd_bitmap_free(B); }
+        return 0;
+    }
+
+    // 3. Eval all chunks into KV cache
+    llama_pos NPast = llama_memory_seq_pos_max(llama_get_memory(Context), 0);
+    llama_pos NewNPast = NPast;
+
+    int32_t EvalResult = mtmd_helper_eval_chunks(
+        MtmdContext, Context, Chunks,
+        NPast, 0,
+        LastLoadedParams.MaxBatchLength,
+        false, &NewNPast);
+
+    int32 TokensProcessed = (int32)mtmd_helper_get_n_tokens(Chunks);
+
+    // Cleanup
+    mtmd_input_chunks_free(Chunks);
+    for (mtmd_bitmap* B : Bitmaps) { mtmd_bitmap_free(B); }
+
+    if (EvalResult != 0)
+    {
+        EmitErrorMessage(TEXT("mtmd_helper_eval_chunks failed"), 54, __func__);
+        return 0;
+    }
+
+    const auto StopTime = ggml_time_us();
+    const float Duration = (StopTime - StartTime) / 1000000.0f;
+
+    if (OnPromptProcessed)
+    {
+        float Speed = (Duration > 0.f) ? TokensProcessed / Duration : 0.f;
+        OnPromptProcessed(TokensProcessed, Role, Speed);
+    }
+
+    return TokensProcessed;
+}
+
+std::string FLlamaInternal::InsertMultimodalPrompt(const std::string& TextWithMarkers, const TArray<FLlamaMediaEntry>& MediaEntries, EChatTemplateRole Role, bool bAddAssistantBoS, bool bGenerateReply)
+{
+    if (!bIsModelLoaded)
+    {
+        UE_LOG(LlamaLog, Warning, TEXT("Model isn't loaded"));
+        return std::string();
+    }
+
+    if (!bMtmdLoaded)
+    {
+        EmitErrorMessage(TEXT("Multimodal projector not loaded. Set MmprojPath in ModelParams before calling LoadModel."), 50, __func__);
+        return std::string();
+    }
+
+    int32 NewLen = FilledContextCharLength;
+
+    if (!TextWithMarkers.empty())
+    {
+        Messages.push_back({ RoleForEnum(Role), _strdup(TextWithMarkers.c_str()) });
+        NewLen = ApplyTemplateToContextHistory(bAddAssistantBoS);
+    }
+
+    if (NewLen < 0)
+    {
+        UE_LOG(LlamaLog, Warning, TEXT("Multimodal prompt after templating has an invalid length of %d"), NewLen);
+        return std::string();
+    }
+
+    if (NewLen > 0)
+    {
+        std::string FormattedPrompt(ContextHistory.data() + FilledContextCharLength, ContextHistory.data() + NewLen);
+        int32 TokensProcessed = ProcessMultimodalPrompt(FormattedPrompt, MediaEntries, Role);
+    }
+
+    FilledContextCharLength = NewLen;
+
+    std::string Response;
+    if (bGenerateReply)
+    {
+        Response = Generate();
+    }
+
+    return Response;
 }
 
 FLlamaInternal::FLlamaInternal()

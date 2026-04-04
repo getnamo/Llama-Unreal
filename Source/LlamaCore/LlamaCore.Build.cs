@@ -166,11 +166,13 @@ public class LlamaCore : ModuleRules
 			PublicAdditionalLibraries.Add(Path.Combine(LlamaLibPath, "ggml-cpu.lib"));
 
 			PublicAdditionalLibraries.Add(Path.Combine(LlamaLibPath, "common.lib"));
+			PublicAdditionalLibraries.Add(Path.Combine(LlamaLibPath, "mtmd.lib"));
 
 			RuntimeDependencies.Add("$(BinaryOutputDir)/ggml.dll", Path.Combine(LlamaDllPath, "ggml.dll"));
 			RuntimeDependencies.Add("$(BinaryOutputDir)/ggml-base.dll", Path.Combine(LlamaDllPath, "ggml-base.dll"));
 			RuntimeDependencies.Add("$(BinaryOutputDir)/ggml-cpu.dll", Path.Combine(LlamaDllPath, "ggml-cpu.dll"));
 			RuntimeDependencies.Add("$(BinaryOutputDir)/llama.dll", Path.Combine(LlamaDllPath, "llama.dll"));
+			RuntimeDependencies.Add("$(BinaryOutputDir)/mtmd.dll", Path.Combine(LlamaDllPath, "mtmd.dll"));
 
 			//System.Console.WriteLine("Llama-Unreal building using llama.lib at path " + LlamaLibPath);
 

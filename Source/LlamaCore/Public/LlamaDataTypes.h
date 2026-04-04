@@ -24,6 +24,62 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnPromptProcessedSignature, int3
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FVoidEventSignature);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnEmbeddingsSignature, const TArray<float>&, Embeddings, const FString&, SourceText);
 
+UENUM(BlueprintType)
+enum class ELlamaMediaType : uint8
+{
+    Image,
+    Audio
+};
+
+USTRUCT(BlueprintType)
+struct FLlamaMediaEntry
+{
+    GENERATED_USTRUCT_BODY();
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Llama Media")
+    ELlamaMediaType MediaType = ELlamaMediaType::Image;
+
+    // Image: raw RGB bytes (Width * Height * 3). Populated by UTexture2D readback or manually.
+    TArray<uint8> ImageRGBData;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Llama Media")
+    int32 ImageWidth = 0;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Llama Media")
+    int32 ImageHeight = 0;
+
+    // Audio: PCM float samples at model's expected sample rate (typically 16 kHz).
+    TArray<float> AudioPCMData;
+
+    // Optional file path (image or audio). If set, raw data arrays are ignored.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Llama Media")
+    FString FilePath;
+};
+
+USTRUCT(BlueprintType)
+struct FLlamaMultimodalPrompt
+{
+    GENERATED_USTRUCT_BODY();
+
+    // Text with <__media__> markers indicating where each media entry is placed (in order).
+    // If no markers are present and there is exactly one media entry, a marker is auto-prepended.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Multimodal Chat", meta = (MultiLine = true))
+    FString Prompt;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Multimodal Chat")
+    EChatTemplateRole Role = EChatTemplateRole::User;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Multimodal Chat")
+    bool bAddAssistantBOS = false;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Multimodal Chat")
+    bool bGenerateReply = true;
+
+    // Media entries: one per <__media__> marker in the prompt text, in order.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Multimodal Chat")
+    TArray<FLlamaMediaEntry> MediaEntries;
+};
+
 USTRUCT(BlueprintType)
 struct FLlamaRunTimings
 {
@@ -233,6 +289,11 @@ struct FLLMModelParams
     //If path begins with a . it's considered relative to Saved/Models path, otherwise it's an absolute path.
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
     FString PathToModel = "./model.gguf";
+
+    // Path to multimodal projector GGUF (mmproj). If empty, multimodal is disabled.
+    // Paths beginning with '.' are relative to Saved/Models path.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
+    FString MmprojPath;
 
     //Gets embedded on first input after a model load
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params", meta=(MultiLine=true))

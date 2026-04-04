@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include "Engine/Texture2D.h"
 #include "LlamaDataTypes.h"
 
 #include "LlamaComponent.generated.h"
@@ -140,6 +141,33 @@ public:
 
     UFUNCTION(BlueprintPure, Category = "LLM Model Component")
     FStructuredChatHistory GetStructuredChatHistory();
+
+    //Multimodal - Image
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Component - Multimodal")
+    void InsertTemplateImagePrompt(UTexture2D* Image, const FString& Text, EChatTemplateRole Role = EChatTemplateRole::User, bool bAddAssistantBOS = false, bool bGenerateReply = true);
+
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Component - Multimodal")
+    void InsertTemplateImagePromptFromFile(const FString& ImagePath, const FString& Text, EChatTemplateRole Role = EChatTemplateRole::User, bool bAddAssistantBOS = false, bool bGenerateReply = true);
+
+    //Multimodal - Audio
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Component - Multimodal")
+    void InsertTemplateAudioPrompt(const TArray<float>& PCMAudio, const FString& Text, EChatTemplateRole Role = EChatTemplateRole::User, bool bAddAssistantBOS = false, bool bGenerateReply = true);
+
+    //Multimodal - Full control with multiple media entries in one message
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Component - Multimodal")
+    void InsertMultimodalPrompt(const FLlamaMultimodalPrompt& Prompt);
+
+    UFUNCTION(BlueprintPure, Category = "LLM Model Component - Multimodal")
+    bool IsMultimodalLoaded() const;
+
+    UFUNCTION(BlueprintPure, Category = "LLM Model Component - Multimodal")
+    bool SupportsVision() const;
+
+    UFUNCTION(BlueprintPure, Category = "LLM Model Component - Multimodal")
+    bool SupportsAudio() const;
+
+    UFUNCTION(BlueprintPure, Category = "LLM Model Component - Multimodal")
+    int32 GetAudioSampleRate() const;
 
     //This function requires embedding mode or it will not run
     UFUNCTION(BlueprintCallable, Category = "LLM Model Embedding Mode")

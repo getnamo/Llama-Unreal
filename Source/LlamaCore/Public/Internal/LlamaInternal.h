@@ -7,6 +7,8 @@
 #include "LlamaDataTypes.h"
 #include "llama.h"
 
+struct mtmd_context;
+
 /** 
 * Uses mostly Llama.cpp native API, meant to be embedded in LlamaNative that wraps 
 * unreal threading and data types.
@@ -19,6 +21,10 @@ public:
     llama_context* Context = nullptr;
     llama_sampler* Sampler = nullptr;
     struct common_sampler* CommonSampler = nullptr;
+
+    //Multimodal state
+    mtmd_context* MtmdContext = nullptr;
+    FThreadSafeBool bMtmdLoaded = false;
 
     //main streaming callback
     TFunction<void(const std::string& TokenPiece)>OnTokenGenerated = nullptr;
@@ -75,6 +81,17 @@ public:
     ~FLlamaInternal();
 
 
+    //Multimodal
+    bool InitMultimodal(const FString& MmprojPath);
+    void FreeMultimodal();
+    bool IsMultimodalLoaded();
+    bool SupportsVision();
+    bool SupportsAudio();
+    int32 GetAudioSampleRate();
+
+    //Main multimodal prompt entry point
+    std::string InsertMultimodalPrompt(const std::string& TextWithMarkers, const TArray<FLlamaMediaEntry>& MediaEntries, EChatTemplateRole Role, bool bAddAssistantBoS, bool bGenerateReply);
+
     //for embedding models
 
     //take a prompt and return an array of floats signifying the embeddings
@@ -83,6 +100,7 @@ public:
 protected:
     //Wrapper for user<->assistant templated conversation
     int32 ProcessPrompt(const std::string& Prompt, EChatTemplateRole Role = EChatTemplateRole::Unknown);
+    int32 ProcessMultimodalPrompt(const std::string& FormattedPrompt, const TArray<FLlamaMediaEntry>& MediaEntries, EChatTemplateRole Role);
     std::string Generate(const std::string& Prompt = "", bool bAppendToMessageHistory = true);
 
     void EmitErrorMessage(const FString& ErrorMessage, int32 ErrorCode = -1, const FString& FunctionName = TEXT("unknown"));

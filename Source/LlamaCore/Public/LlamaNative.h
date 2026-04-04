@@ -33,9 +33,11 @@ public:
 	bool IsModelLoaded();
 
 	//Prompt input
-	void InsertTemplatedPrompt(const FLlamaChatPrompt& Prompt, 
+	void InsertTemplatedPrompt(const FLlamaChatPrompt& Prompt,
 		TFunction<void(const FString& Response)>OnResponseFinished = nullptr);
-	void InsertRawPrompt(const FString& Prompt, bool bGenerateReply = true, 
+	void InsertMultimodalPrompt(const FLlamaMultimodalPrompt& Prompt,
+		TFunction<void(const FString& Response)>OnResponseFinished = nullptr);
+	void InsertRawPrompt(const FString& Prompt, bool bGenerateReply = true,
 		TFunction<void(const FString& Response)>OnResponseFinished = nullptr);
 	void ImpersonateTemplatedPrompt(const FLlamaChatPrompt& Prompt);
 	void ImpersonateTemplatedToken(const FString& Token, EChatTemplateRole Role = EChatTemplateRole::Assistant, bool bEoS = false);
@@ -67,6 +69,12 @@ public:
 	void SyncPassedModelStateToNative(FLLMModelState& StateToSync);
 
 	FString WrapPromptForRole(const FString& Text, EChatTemplateRole Role, const FString& OverrideTemplate, bool bAddAssistantBoS = false);
+
+	//Multimodal queries
+	bool IsMultimodalLoaded();
+	bool SupportsVision();
+	bool SupportsAudio();
+	int32 GetAudioSampleRate();
 
 	//Embedding mode
 
