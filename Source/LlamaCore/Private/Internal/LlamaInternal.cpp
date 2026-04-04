@@ -675,11 +675,17 @@ std::string FLlamaInternal::Generate(const std::string& Prompt, bool bAppendToMe
     // For M-RoPE models (e.g. Qwen2VL), seq_pos_max reflects the max 2D spatial position of
     // image tokens and is NOT the correct next text position. Use NextGenerationNPast when it has
     // been set by ProcessMultimodalPrompt; otherwise fall back to seq_pos_max+1 (text-only path).
+    llama_pos SeqPosMaxAtGenStart = llama_memory_seq_pos_max(llama_get_memory(Context), 0);
     llama_pos NPast = (NextGenerationNPast > 0)
         ? NextGenerationNPast
-        : llama_memory_seq_pos_max(llama_get_memory(Context), 0) + 1;
+        : SeqPosMaxAtGenStart + 1;
     NextGenerationNPast = 0; // consumed
 
+    UE_LOG(LlamaLog, Log, TEXT("[Generate] NPast=%d seq_pos_max=%d (from_mtmd=%s)"),
+        (int32)NPast, (int32)SeqPosMaxAtGenStart,
+        (NPast != SeqPosMaxAtGenStart + 1) ? TEXT("yes") : TEXT("no"));
+
+    bool bFirstToken = true;
     while (bGenerationActive) //processing can be aborted by flipping the boolean
     {
         //Common sampler is a bit faster
@@ -691,6 +697,14 @@ std::string FLlamaInternal::Generate(const std::string& Prompt, bool bAppendToMe
         else
         {
             NewTokenId = llama_sampler_sample(Sampler, Context, -1);
+        }
+
+        if (bFirstToken)
+        {
+            bFirstToken = false;
+            UE_LOG(LlamaLog, Log, TEXT("[Generate] first token id=%d piece='%hs'"),
+                (int32)NewTokenId,
+                common_token_to_piece(Vocab, NewTokenId, true).c_str());
         }
 
         // is it an end of generation?
@@ -1066,6 +1080,12 @@ int32 FLlamaInternal::ProcessMultimodalPrompt(const std::string& FormattedPrompt
     const size_t NChunks = mtmd_input_chunks_size(Chunks);
     const size_t NTokensInChunks = mtmd_helper_get_n_tokens(Chunks);
 
+    // Log first 150 chars of the formatted prompt so we can verify the delta content
+    {
+        std::string Preview = FormattedPrompt.substr(0, std::min((size_t)150, FormattedPrompt.size()));
+        UE_LOG(LlamaLog, Log, TEXT("[ProcessMultimodalPrompt] prompt_preview='%hs'"), Preview.c_str());
+    }
+
     const int32 ModelRopeType = (int32)llama_model_rope_type(LlamaModel);
     UE_LOG(LlamaLog, Log, TEXT("[ProcessMultimodalPrompt] n_past=%d n_ctx=%d chunks=%zu tokens_in_chunks=%zu n_batch=%d uses_mrope=%d model_rope_type=%d"),
         (int32)NPast, NCtx, NChunks, NTokensInChunks,
@@ -1095,6 +1115,9 @@ int32 FLlamaInternal::ProcessMultimodalPrompt(const std::string& FormattedPrompt
     // Record the correct next KV position from mtmd (NOT seq_pos_max, which is wrong for M-RoPE
     // because 2D spatial positions from image tokens inflate seq_pos_max beyond the true text position).
     NextGenerationNPast = NewNPast;
+    UE_LOG(LlamaLog, Log, TEXT("[ProcessMultimodalPrompt] eval complete: NewNPast=%d seq_pos_max=%d"),
+        (int32)NewNPast,
+        (int32)llama_memory_seq_pos_max(llama_get_memory(Context), 0));
 
     const auto StopTime = ggml_time_us();
     const float Duration = (StopTime - StartTime) / 1000000.0f;
@@ -1127,7 +1150,10 @@ std::string FLlamaInternal::InsertMultimodalPrompt(const std::string& TextWithMa
     if (!TextWithMarkers.empty())
     {
         Messages.push_back({ RoleForEnum(Role), _strdup(TextWithMarkers.c_str()) });
-        NewLen = ApplyTemplateToContextHistory(bAddAssistantBoS);
+        // When generating a reply, always add the assistant BOS so the model responds immediately
+        // rather than generating the <|im_start|>assistant token itself (which causes loops on vision models)
+        const bool bActualAddAssistantBoS = bAddAssistantBoS || bGenerateReply;
+        NewLen = ApplyTemplateToContextHistory(bActualAddAssistantBoS);
     }
 
     if (NewLen < 0)
