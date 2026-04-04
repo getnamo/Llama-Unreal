@@ -2,6 +2,7 @@
 
 #include "LlamaUtility.h"
 #include "Misc/Paths.h"
+#include "HAL/FileManager.h"
 
 DEFINE_LOG_CATEGORY(LlamaLog);
 

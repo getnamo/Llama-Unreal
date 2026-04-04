@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include "CoreMinimal.h"
 #include "LlamaDataTypes.generated.h"
 
 UENUM(BlueprintType)

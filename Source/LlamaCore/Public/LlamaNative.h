@@ -4,6 +4,10 @@
 
 #include "LlamaDataTypes.h"
 #include "CoreMinimal.h"
+#include "Containers/Queue.h"
+#include "HAL/ThreadSafeBool.h"
+#include "HAL/ThreadSafeCounter.h"
+#include "Containers/Ticker.h"
 
 
 /** 

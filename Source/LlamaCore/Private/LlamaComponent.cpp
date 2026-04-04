@@ -3,6 +3,8 @@
 #include "LlamaComponent.h"
 #include "LlamaUtility.h"
 #include "LlamaNative.h"
+#include "Engine/Texture2D.h"
+#include "TextureResource.h"
 
 ULlamaComponent::ULlamaComponent(const FObjectInitializer &ObjectInitializer)
     : UActorComponent(ObjectInitializer)

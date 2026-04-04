@@ -2,9 +2,12 @@
 
 #pragma once
 
+#include "LlamaDataTypes.h"
+#include "HAL/ThreadSafeBool.h"
+#include "HAL/ThreadSafeCounter.h"
+
 #include <string>
 #include <vector>
-#include "LlamaDataTypes.h"
 #include "llama.h"
 
 struct mtmd_context;

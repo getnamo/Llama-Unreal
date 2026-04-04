@@ -5,6 +5,10 @@
 #include "CoreMinimal.h"
 #include "WhisperDataTypes.h"
 #include "LlamaDataTypes.h"  // FLLMThreadTask (reused from LlamaCore)
+#include "Containers/Queue.h"
+#include "HAL/ThreadSafeBool.h"
+#include "HAL/ThreadSafeCounter.h"
+#include "Containers/Ticker.h"
 
 // Forward-declare AudioCapture types to avoid heavy header pull in downstream includes
 namespace Audio
