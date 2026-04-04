@@ -19,10 +19,11 @@ bool FLlamaInternal::LoadModelFromParams(const FLLMModelParams& InModelParams)
     LastLoadedParams = InModelParams;
 
     // only print errors
-    llama_log_set([](enum ggml_log_level level, const char* text, void* /* user_data */) 
+    llama_log_set([](enum ggml_log_level level, const char* text, void* /* user_data */)
     {
         if (level >= GGML_LOG_LEVEL_ERROR) {
-            fprintf(stderr, "%s", text);
+            // Route to UE log so it appears in editor Output Log, not just stderr
+            UE_LOG(LlamaLog, Warning, TEXT("[llama] %hs"), text);
         }
     }, nullptr);
 
@@ -32,75 +33,38 @@ bool FLlamaInternal::LoadModelFromParams(const FLLMModelParams& InModelParams)
     std::string ModelPath = TCHAR_TO_UTF8(*FLlamaPaths::ParsePathIntoFullPath(InModelParams.PathToModel));
 
 
-    //CommonParams Init (false)//
-    if (false)
-    //if (InModelParams.Advanced.bUseCommonParams || InModelParams.Advanced.bEmbeddingMode)
+    //Regular init
+    llama_model_params LlamaModelParams = llama_model_default_params();
+    LlamaModelParams.n_gpu_layers = InModelParams.GPULayers;
+
+    LlamaModel = llama_model_load_from_file(ModelPath.c_str(), LlamaModelParams);
+    if (!LlamaModel)
     {
-        //use common init
-        common_init();
-
-        common_params CommonParams;
-        CommonParams.n_ctx = InModelParams.MaxContextLength;
-        CommonParams.n_batch = InModelParams.MaxBatchLength;
-        CommonParams.cpuparams.n_threads = InModelParams.Threads;
-        CommonParams.embedding = InModelParams.Advanced.bEmbeddingMode;  //true
-        CommonParams.n_gpu_layers = InModelParams.GPULayers;
-        CommonParams.model.path = ModelPath;
-
-        common_init_result_ptr LlamaInit = common_init_from_params(CommonParams);
-
-        LlamaModel = LlamaInit->model();
-        Context = LlamaInit->context();
-
-        //Sanity check the model settings for embedding
-        if (CommonParams.embedding)
-        {
-            if (llama_model_has_encoder(LlamaModel) && llama_model_has_decoder(LlamaModel))
-            {
-                EmitErrorMessage(TEXT("computing embeddings in encoder-decoder models is not supported"), 41, __func__);
-                return false;
-            }
-
-            const int n_ctx_train = llama_model_n_ctx_train(LlamaModel);
-            const int n_ctx = llama_n_ctx(Context);
-
-            if (n_ctx > n_ctx_train) 
-            {
-                FString ErrorMessage = FString::Printf(TEXT("warning: model was trained on only % d context tokens(% d specified)"), n_ctx_train, n_ctx);
-                EmitErrorMessage(ErrorMessage, 42, __func__);
-                return false;
-            }
-        }
+        FString ErrorMessage = FString::Printf(TEXT("Unable to load model at <%hs>"), ModelPath.c_str());
+        EmitErrorMessage(ErrorMessage, 10, __func__);
+        return false;
     }
-    else
+
+    llama_context_params ContextParams = llama_context_default_params();
+    ContextParams.n_ctx = InModelParams.MaxContextLength;
+    ContextParams.n_batch = InModelParams.MaxBatchLength;
+    ContextParams.n_threads = InModelParams.Threads;
+    ContextParams.n_threads_batch = InModelParams.Threads;
+
+    if (InModelParams.Advanced.bEmbeddingMode)
     {
-        //Regular init
-        // initialize the model
-        llama_model_params LlamaModelParams = llama_model_default_params();
-        LlamaModelParams.n_gpu_layers = InModelParams.GPULayers;
-
-        LlamaModel = llama_model_load_from_file(ModelPath.c_str(), LlamaModelParams);
-        if (!LlamaModel)
-        {
-            FString ErrorMessage = FString::Printf(TEXT("Unable to load model at <%hs>"), ModelPath.c_str());
-            EmitErrorMessage(ErrorMessage, 10, __func__);
-            return false;
-        }
-        
-        llama_context_params ContextParams = llama_context_default_params();
-        ContextParams.n_ctx = InModelParams.MaxContextLength;
-        ContextParams.n_batch = InModelParams.MaxBatchLength;
-        ContextParams.n_threads = InModelParams.Threads;
-        ContextParams.n_threads_batch = InModelParams.Threads;
-        
-        //only set if true
-        if (InModelParams.Advanced.bEmbeddingMode)
-        {
-            ContextParams.embeddings = InModelParams.Advanced.bEmbeddingMode;  //to be tested for A/B comparison if it works
-        }
-
-        Context = llama_init_from_model(LlamaModel, ContextParams);
+        ContextParams.embeddings = InModelParams.Advanced.bEmbeddingMode;
     }
+
+    // Let the model decide flash attention — AUTO picks the best supported mode.
+    // Required for vision models (Qwen2.5-Omni etc.) where the mmproj encoder needs it.
+    if (!InModelParams.MmprojPath.IsEmpty())
+    {
+        ContextParams.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_AUTO;
+    }
+
+    SavedFlashAttnType = ContextParams.flash_attn_type;
+    Context = llama_init_from_model(LlamaModel, ContextParams);
     
     if (!Context)
     {
@@ -953,6 +917,7 @@ bool FLlamaInternal::InitMultimodal(const FString& MmprojPath)
     mtmd_context_params Params = mtmd_context_params_default();
     Params.use_gpu = true;
     Params.n_threads = LastLoadedParams.Threads;
+    Params.flash_attn_type = SavedFlashAttnType;
 
     MtmdContext = mtmd_init_from_file(Path.c_str(), LlamaModel, Params);
     if (!MtmdContext)
@@ -961,6 +926,14 @@ bool FLlamaInternal::InitMultimodal(const FString& MmprojPath)
         bMtmdLoaded = false;
         return false;
     }
+
+    // Route mtmd-helper logs (image/audio batch errors) through UE log
+    mtmd_helper_log_set([](enum ggml_log_level level, const char* text, void* /*user_data*/)
+    {
+        if (level >= GGML_LOG_LEVEL_ERROR) {
+            UE_LOG(LlamaLog, Warning, TEXT("[mtmd] %hs"), text);
+        }
+    }, nullptr);
 
     bMtmdLoaded = true;
     UE_LOG(LlamaLog, Log, TEXT("Multimodal projector loaded. Vision: %s, Audio: %s"),
@@ -1003,7 +976,7 @@ int32 FLlamaInternal::GetAudioSampleRate()
     return 0;
 }
 
-int32 FLlamaInternal::ProcessMultimodalPrompt(const std::string& FormattedPrompt, const TArray<FLlamaMediaEntry>& MediaEntries, EChatTemplateRole Role)
+int32 FLlamaInternal::ProcessMultimodalPrompt(const std::string& FormattedPrompt, const TArray<FLlamaMediaEntry>& MediaEntries, EChatTemplateRole Role, bool bLogitsLast)
 {
     const auto StartTime = ggml_time_us();
 
@@ -1052,7 +1025,9 @@ int32 FLlamaInternal::ProcessMultimodalPrompt(const std::string& FormattedPrompt
 
     // 2. Tokenize with mtmd
     mtmd_input_chunks* Chunks = mtmd_input_chunks_init();
-    const bool IsFirst = llama_memory_seq_pos_max(llama_get_memory(Context), 0) == 0;
+    // seq_pos_max returns -1 when the KV cache is empty; only add BOS on the very first prompt
+    const llama_pos SeqPosMax = llama_memory_seq_pos_max(llama_get_memory(Context), 0);
+    const bool IsFirst = (SeqPosMax < 0);
 
     mtmd_input_text InputText;
     InputText.text = FormattedPrompt.c_str();
@@ -1074,16 +1049,28 @@ int32 FLlamaInternal::ProcessMultimodalPrompt(const std::string& FormattedPrompt
     }
 
     // 3. Eval all chunks into KV cache
-    llama_pos NPast = llama_memory_seq_pos_max(llama_get_memory(Context), 0);
+    // seq_pos_max is the last *occupied* position; next token must go at seq_pos_max + 1.
+    // For an empty cache (seq_pos_max == -1), -1 + 1 = 0 which is correct.
+    llama_pos NPast = SeqPosMax + 1;
     llama_pos NewNPast = NPast;
+    const int32 NCtx = llama_n_ctx(Context);
+    const size_t NChunks = mtmd_input_chunks_size(Chunks);
+    const size_t NTokensInChunks = mtmd_helper_get_n_tokens(Chunks);
+
+    const int32 ModelRopeType = (int32)llama_model_rope_type(LlamaModel);
+    UE_LOG(LlamaLog, Log, TEXT("[ProcessMultimodalPrompt] n_past=%d n_ctx=%d chunks=%zu tokens_in_chunks=%zu n_batch=%d uses_mrope=%d model_rope_type=%d"),
+        (int32)NPast, NCtx, NChunks, NTokensInChunks,
+        LastLoadedParams.MaxBatchLength,
+        (int32)mtmd_decode_use_mrope(MtmdContext),
+        ModelRopeType);
 
     int32_t EvalResult = mtmd_helper_eval_chunks(
         MtmdContext, Context, Chunks,
         NPast, 0,
         LastLoadedParams.MaxBatchLength,
-        false, &NewNPast);
+        bLogitsLast, &NewNPast);
 
-    int32 TokensProcessed = (int32)mtmd_helper_get_n_tokens(Chunks);
+    int32 TokensProcessed = (int32)NTokensInChunks;
 
     // Cleanup
     mtmd_input_chunks_free(Chunks);
@@ -1091,7 +1078,8 @@ int32 FLlamaInternal::ProcessMultimodalPrompt(const std::string& FormattedPrompt
 
     if (EvalResult != 0)
     {
-        EmitErrorMessage(TEXT("mtmd_helper_eval_chunks failed"), 54, __func__);
+        EmitErrorMessage(FString::Printf(TEXT("mtmd_helper_eval_chunks failed (ret=%d, n_past=%d, n_ctx=%d, chunks=%zu, tokens=%zu)"),
+            EvalResult, (int32)NPast, NCtx, NChunks, NTokensInChunks), 54, __func__);
         return 0;
     }
 
@@ -1138,7 +1126,7 @@ std::string FLlamaInternal::InsertMultimodalPrompt(const std::string& TextWithMa
     if (NewLen > 0)
     {
         std::string FormattedPrompt(ContextHistory.data() + FilledContextCharLength, ContextHistory.data() + NewLen);
-        int32 TokensProcessed = ProcessMultimodalPrompt(FormattedPrompt, MediaEntries, Role);
+        int32 TokensProcessed = ProcessMultimodalPrompt(FormattedPrompt, MediaEntries, Role, bGenerateReply);
     }
 
     FilledContextCharLength = NewLen;

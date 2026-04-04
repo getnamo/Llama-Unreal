@@ -103,7 +103,7 @@ public:
 protected:
     //Wrapper for user<->assistant templated conversation
     int32 ProcessPrompt(const std::string& Prompt, EChatTemplateRole Role = EChatTemplateRole::Unknown);
-    int32 ProcessMultimodalPrompt(const std::string& FormattedPrompt, const TArray<FLlamaMediaEntry>& MediaEntries, EChatTemplateRole Role);
+    int32 ProcessMultimodalPrompt(const std::string& FormattedPrompt, const TArray<FLlamaMediaEntry>& MediaEntries, EChatTemplateRole Role, bool bLogitsLast = true);
     std::string Generate(const std::string& Prompt = "", bool bAppendToMessageHistory = true);
 
     void EmitErrorMessage(const FString& ErrorMessage, int32 ErrorCode = -1, const FString& FunctionName = TEXT("unknown"));
@@ -116,6 +116,7 @@ protected:
     FThreadSafeBool bIsModelLoaded = false;
     int32 FilledContextCharLength = 0;
     FThreadSafeBool bGenerationActive = false;
+    enum llama_flash_attn_type SavedFlashAttnType = LLAMA_FLASH_ATTN_TYPE_AUTO;
 
     //Embedding Decoding utilities
     void BatchDecodeEmbedding(llama_context* ctx, llama_batch& batch, float* output, int n_seq, int n_embd, int embd_norm);
