@@ -39,6 +39,9 @@ public class LlamaWhisper : ModuleRules
 		// whisper.cpp uses standard C++ headers that conflict with Unreal's unity build environment.
 		bUseUnity = false;
 
+		// whisper.cpp uses try/catch internally; enable C++ exception handling (/EHsc) for this module.
+		bEnableExceptions = true;
+
 		PublicDependencyModuleNames.AddRange(
 			new string[]
 			{
