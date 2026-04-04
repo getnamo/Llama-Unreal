@@ -2,6 +2,7 @@
 
 #include "LlamaAudioUtils.h"
 #include "LlamaUtility.h"
+#include "Audio.h"
 
 bool ULlamaAudioUtils::SoundWaveToPCMFloat(USoundWave* SoundWave, TArray<float>& OutPCM, int32& OutSampleRate, int32& OutNumChannels)
 {
@@ -15,7 +16,45 @@ bool ULlamaAudioUtils::SoundWaveToPCMFloat(USoundWave* SoundWave, TArray<float>&
         return false;
     }
 
-    // RawPCMData is populated when the sound wave has been decoded (cooked runtime or editor with audio loaded)
+#if WITH_EDITORONLY_DATA
+    // Editor path: asset stores the original WAV in RawData bulk data
+    if (SoundWave->RawData.GetPayloadSize() > 0)
+    {
+        TFuture<FSharedBuffer> Future = SoundWave->RawData.GetPayload();
+        FSharedBuffer WavBytes = Future.Get();
+
+        if (!WavBytes.IsNull() && WavBytes.GetSize() > 0)
+        {
+            FWaveModInfo WaveInfo;
+            FString ErrorReason;
+            if (!WaveInfo.ReadWaveInfo(static_cast<const uint8*>(WavBytes.GetData()), (int32)WavBytes.GetSize(), &ErrorReason))
+            {
+                UE_LOG(LlamaLog, Warning, TEXT("SoundWaveToPCMFloat: failed to parse WAV for '%s': %s"), *SoundWave->GetName(), *ErrorReason);
+                return false;
+            }
+
+            const int32 BitsPerSample = (int32)*WaveInfo.pBitsPerSample;
+            if (BitsPerSample != 16)
+            {
+                UE_LOG(LlamaLog, Warning, TEXT("SoundWaveToPCMFloat: only 16-bit PCM supported (got %d-bit) for '%s'"), BitsPerSample, *SoundWave->GetName());
+                return false;
+            }
+
+            OutSampleRate = (int32)*WaveInfo.pSamplesPerSec;
+            OutNumChannels = (int32)*WaveInfo.pChannels;
+            const int32 NumSamples = WaveInfo.SampleDataSize / sizeof(int16);
+            OutPCM.SetNum(NumSamples);
+            const int16* Src = reinterpret_cast<const int16*>(WaveInfo.SampleDataStart);
+            for (int32 i = 0; i < NumSamples; i++)
+            {
+                OutPCM[i] = Src[i] / 32768.f;
+            }
+            return true;
+        }
+    }
+#endif
+
+    // Runtime path: decoded PCM is available after the sound has been loaded for playback
     if (SoundWave->RawPCMData && SoundWave->RawPCMDataSize > 0)
     {
         OutSampleRate = SoundWave->GetSampleRateForCurrentPlatform();
@@ -37,7 +76,7 @@ bool ULlamaAudioUtils::SoundWaveToPCMFloat(USoundWave* SoundWave, TArray<float>&
         return true;
     }
 
-    UE_LOG(LlamaLog, Warning, TEXT("SoundWaveToPCMFloat: no decoded PCM data available on '%s'. Ensure the asset is not streaming and has been loaded."), *SoundWave->GetName());
+    UE_LOG(LlamaLog, Warning, TEXT("SoundWaveToPCMFloat: no PCM data available on '%s'. Ensure the asset is not streaming."), *SoundWave->GetName());
     return false;
 }
 
