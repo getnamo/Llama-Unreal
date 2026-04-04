@@ -44,6 +44,156 @@ Everything is wrapped inside a [`ULlamaComponent`](https://github.com/getnamo/Ll
 Explore [LlamaComponent.h](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaComponent.h) for detailed API. Also if you need to modify sampling properties you find them in [`FLLMModelAdvancedParams`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaDataTypes.h#L49).
 
 
+# Multimodal (Vision & Audio)
+
+The plugin supports multimodal models - LLMs that can process images and/or audio alongside text - using the `mtmd` library bundled with llama.cpp.
+
+## Supported Models
+
+Any vision or audio model available in GGUF format that ships a separate multimodal projector file (`mmproj`). Tested with:
+- **Qwen2.5-Omni** (vision + audio)
+
+Models and projectors are available on Hugging Face in their respective GGUF repositories.
+
+## Setup Requirements
+
+### 1. Model Files
+
+You need two GGUF files per multimodal model:
+
+| File | Purpose |
+|---|---|
+| `model.gguf` | The base language model - same as any text-only LLM |
+| `mmproj-model-f16.gguf` (or similar) | The multimodal projector that encodes images/audio into token embeddings |
+
+Place both in your `Saved/Models` folder (or any absolute path).
+
+### 2. ModelParams Configuration
+
+Set `MmprojPath` in `FLLMModelParams` before calling `LoadModel`. Paths beginning with `.` are relative to `Saved/Models`:
+
+```
+ModelParams.PathToModel  = "./Qwen2.5-Omni-7B-Q4_K_M.gguf"
+ModelParams.MmprojPath   = "./mmproj-Qwen2.5-Omni-7B-Q8_0.gguf"
+```
+
+If `MmprojPath` is empty, multimodal is disabled and the model runs as text-only.
+
+### 3. Build Requirements (custom builds only)
+
+If building llama.cpp from source you must also build and include the `mtmd` target:
+
+```
+cmake --build . --config Release --target mtmd -j
+```
+
+Then copy alongside the other libs/dlls:
+- `{build root}/tools/mtmd/Release/mtmd.lib` → `ThirdParty/LlamaCpp/Lib/Win64/`
+- `{build root}/bin/Release/mtmd.dll` → `ThirdParty/LlamaCpp/Binaries/Win64/`
+
+And the headers:
+- `{llama.cpp root}/tools/mtmd/mtmd.h`
+- `{llama.cpp root}/tools/mtmd/mtmd-helper.h`
+
+→ `ThirdParty/LlamaCpp/Include/mtmd/`
+
+## How to Use
+
+### Capability Checks
+
+Before making multimodal calls, verify the projector loaded and the model supports the desired modality:
+
+```
+IsMultimodalLoaded()   // projector loaded successfully
+SupportsVision()       // model can process images
+SupportsAudio()        // model can process audio
+GetAudioSampleRate()   // expected PCM sample rate (typically 16000 Hz)
+```
+
+Calling a multimodal function without a loaded projector fires `OnError` with code **50** - no crash.
+
+### Image Prompts
+
+**From a UTexture2D** (e.g. a render target or imported asset, must be `PF_B8G8R8A8` format):
+
+```
+InsertTemplateImagePrompt(MyTexture, "What is in this image?")
+```
+
+**From a file path on disk** (more efficient - avoids GPU readback):
+
+```
+InsertTemplateImagePromptFromFile("C:/Images/photo.jpg", "Describe this scene.")
+```
+
+Both functions accept `Role`, `bAddAssistantBOS`, and `bGenerateReply` parameters matching the text API.
+
+### Audio Prompts
+
+Audio must be provided as mono float PCM at the model's expected sample rate (use `GetAudioSampleRate()` to check - typically 16 kHz). Use `ULlamaAudioUtils` to convert Unreal `USoundWave` assets:
+
+```
+// One-shot convenience: converts SoundWave → 16 kHz mono float PCM
+TArray<float> PCM;
+ULlamaAudioUtils::SoundWaveToLLMAudio(MySoundWave, PCM, GetAudioSampleRate());
+
+// Then pass to the component
+InsertTemplateAudioPrompt(PCM, "Transcribe this audio.")
+```
+
+`ULlamaAudioUtils` also exposes lower-level steps if you need finer control:
+- `SoundWaveToPCMFloat` - raw PCM decode (returns source sample rate and channel count)
+- `PCMFloatToMono` - stereo/multichannel → mono downmix
+- `ResamplePCMFloat` - arbitrary sample rate conversion
+
+### Multiple Media in One Message
+
+Use `InsertMultimodalPrompt` with an `FLlamaMultimodalPrompt` struct to place multiple images or audio clips in a single message. Each `<__media__>` marker in the prompt text corresponds to one `FLlamaMediaEntry` in `MediaEntries` (matched in order):
+
+```
+FLlamaMultimodalPrompt P;
+P.Prompt = "Image A: <__media__>\nImage B: <__media__>\nCompare these two images.";
+P.MediaEntries = { EntryA, EntryB };
+P.bGenerateReply = true;
+InsertMultimodalPrompt(P);
+```
+
+If the prompt contains no `<__media__>` markers and `MediaEntries` has exactly one entry, the marker is auto-prepended.
+
+### Multi-Message Composition
+
+Build up context across multiple calls using `bGenerateReply = false`, then trigger generation on the final call - works the same as the text-only API:
+
+```
+// Insert image without generating
+InsertTemplateImagePrompt(ImageA, "First image:", User, false, false)
+InsertTemplateImagePrompt(ImageB, "Second image:", User, false, false)
+// Generate on final text-only message
+InsertTemplatedPrompt("Now compare those two images.", User)
+```
+
+## Error Codes
+
+Multimodal errors are delivered through the existing `OnError` delegate:
+
+| Code | Condition |
+|---|---|
+| 50 | Multimodal projector not loaded (`MmprojPath` empty or init failed) |
+| 51 | `<__media__>` marker count doesn't match `MediaEntries` count |
+| 52 | Invalid bitmap (null texture, unsupported pixel format, failed file load) |
+| 53 | `mtmd_tokenize` failed |
+| 54 | `mtmd_helper_eval_chunks` failed (eval error during image/audio ingestion) |
+| 55 | Vision not supported by the loaded mmproj |
+| 56 | Audio not supported by the loaded mmproj |
+
+## Known Limitations
+
+- **Context rollback:** `RollbackContextHistoryByMessages` does not correctly account for the variable token count of multimodal messages (image token count depends on resolution). Use `ResetContextHistory` to clear context after multimodal sessions instead.
+- **Texture format:** `InsertTemplateImagePrompt` only supports `PF_B8G8R8A8` textures. Use `InsertTemplateImagePromptFromFile` to load other formats directly via the mtmd file decoder.
+- **Audio sample rate:** The caller is responsible for providing PCM at the model's expected rate. Use `GetAudioSampleRate()` and `ULlamaAudioUtils::ResamplePCMFloat` to convert if needed.
+
+---
+
 # Note on speed
 
 If you're running the inference in a high spec game fully loaded into the same GPU that renders the game, expect about ~1/3-1/2 of the performance due to resource contention; e.g. an 8B model running at ~90TPS might have ~40TPS speed in game. You may want to use a smaller model or [apply pressure easing strategies](https://github.com/getnamo/Llama-Unreal/blob/main/Source/LlamaCore/Public/LlamaDataTypes.h#L133) to manage perfectly stable framerates.
@@ -75,19 +225,23 @@ to workaround CURL and generate .pdbs for debugging
 - Copy `{llama.cpp root}/include`
 - Copy `{llama.cpp root}/ggml/include`
 - into `{plugin root}/ThirdParty/LlamaCpp/Include`
-- Copy `{llama.cpp root}/common/` `common.h` and `sampling.h` 
+- Copy `{llama.cpp root}/common/` `common.h` and `sampling.h`
 - into `{plugin root}/ThirdParty/LlamaCpp/Include/common`
+- *(Multimodal)* Copy `{llama.cpp root}/tools/mtmd/mtmd.h` and `mtmd-helper.h`
+- *(Multimodal)* into `{plugin root}/ThirdParty/LlamaCpp/Include/mtmd`
 
-4. Libs: Assuming `{llama.cpp root}/build` as `{build root}`. 
+4. Libs: Assuming `{llama.cpp root}/build` as `{build root}`.
 
-- Copy `{build root}/src/Release/llama.lib`, 
-- Copy `{build root}/common/Release/common.lib`, 
-- Copy `{build root}/ggml/src/Release/` `ggml.lib`, `ggml-base.lib` & `ggml-cpu.lib`, 
-- Copy `{build root}/ggml/src/Release/ggml-vulkan/Release/ggml-vulkan.lib` 
+- Copy `{build root}/src/Release/llama.lib`,
+- Copy `{build root}/common/Release/common.lib`,
+- Copy `{build root}/ggml/src/Release/` `ggml.lib`, `ggml-base.lib` & `ggml-cpu.lib`,
+- Copy `{build root}/ggml/src/Release/ggml-vulkan/Release/ggml-vulkan.lib`
+- *(Multimodal)* Copy `{build root}/tools/mtmd/Release/mtmd.lib`
 - into `{plugin root}/ThirdParty/LlamaCpp/Lib/Win64`
 
-5. Dlls: 
-- Copy `{build root}/bin/Release/` `ggml.dll`, `ggml-base.dll`, `ggml-cpu.dll`, `ggml-vulkan.dll`, & `llama.dll` 
+5. Dlls:
+- Copy `{build root}/bin/Release/` `ggml.dll`, `ggml-base.dll`, `ggml-cpu.dll`, `ggml-vulkan.dll`, & `llama.dll`
+- *(Multimodal)* Copy `{build root}/bin/Release/mtmd.dll`
 - into `{plugin root}/ThirdParty/LlamaCpp/Binaries/Win64`
 6. Build plugin
 
