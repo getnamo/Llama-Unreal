@@ -118,6 +118,10 @@ protected:
     FThreadSafeBool bGenerationActive = false;
     enum llama_flash_attn_type SavedFlashAttnType = LLAMA_FLASH_ATTN_TYPE_AUTO;
 
+    // Tracks the next KV position for generation. Must be updated explicitly after
+    // multimodal eval (seq_pos_max is wrong for M-RoPE due to 2D spatial positions).
+    llama_pos NextGenerationNPast = 0;
+
     //Embedding Decoding utilities
     void BatchDecodeEmbedding(llama_context* ctx, llama_batch& batch, float* output, int n_seq, int n_embd, int embd_norm);
     void BatchAddSeq(llama_batch& batch, const std::vector<int32_t>& tokens, llama_seq_id seq_id);

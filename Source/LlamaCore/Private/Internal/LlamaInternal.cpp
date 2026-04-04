@@ -665,16 +665,21 @@ std::string FLlamaInternal::Generate(const std::string& Prompt, bool bAppendToMe
 
     const llama_vocab* Vocab = llama_model_get_vocab(LlamaModel);
 
-    llama_batch Batch;
-    
     llama_token NewTokenId;
     int32 NDecoded = 0;
 
     // check if we have enough space in the context to evaluate this batch - might need to be inside loop
     int NContext = llama_n_ctx(Context);
-    int NContextUsed = llama_memory_seq_pos_max(llama_get_memory(Context), 0);
     bool bEOGExit = false;
-    
+
+    // For M-RoPE models (e.g. Qwen2VL), seq_pos_max reflects the max 2D spatial position of
+    // image tokens and is NOT the correct next text position. Use NextGenerationNPast when it has
+    // been set by ProcessMultimodalPrompt; otherwise fall back to seq_pos_max+1 (text-only path).
+    llama_pos NPast = (NextGenerationNPast > 0)
+        ? NextGenerationNPast
+        : llama_memory_seq_pos_max(llama_get_memory(Context), 0) + 1;
+    NextGenerationNPast = 0; // consumed
+
     while (bGenerationActive) //processing can be aborted by flipping the boolean
     {
         //Common sampler is a bit faster
@@ -697,11 +702,11 @@ std::string FLlamaInternal::Generate(const std::string& Prompt, bool bAppendToMe
 
         // convert the token to a string, print it and add it to the response
         std::string Piece = common_token_to_piece(Vocab, NewTokenId, true);
-        
+
         Response += Piece;
         NDecoded += 1;
 
-        if (NContextUsed + NDecoded > NContext)
+        if (NPast + NDecoded > NContext)
         {
             FString ErrorMessage = FString::Printf(TEXT("Context size %d exceeded on generation. Try increasing the context size and re-run prompt"), NContext);
 
@@ -714,10 +719,12 @@ std::string FLlamaInternal::Generate(const std::string& Prompt, bool bAppendToMe
             OnTokenGenerated(Piece);
         }
 
-        // prepare the next batch with the sampled token
-        Batch = llama_batch_get_one(&NewTokenId, 1);
+        // Use explicit n_past position (mirrors mtmd-cli reference implementation).
+        // This is critical for M-RoPE models where seq_pos_max != true next text position.
+        llama_batch SingleBatch = llama_batch_get_one(&NewTokenId, 1);
+        SingleBatch.pos = &NPast;  // override auto-position with tracked n_past
 
-        if (llama_decode(Context, Batch))
+        if (llama_decode(Context, SingleBatch))
         {
             bGenerationActive = false;
             FString ErrorMessage = TEXT("Failed to decode. Could not find a KV slot for the batch (try reducing the size of the batch or increase the context)");
@@ -725,6 +732,8 @@ std::string FLlamaInternal::Generate(const std::string& Prompt, bool bAppendToMe
             //Return partial response
             return Response;
         }
+
+        NPast++;
 
         //sleep pacing
         if (LastLoadedParams.Advanced.TokenGenerationPacingSleep > 0.f)
@@ -1082,6 +1091,10 @@ int32 FLlamaInternal::ProcessMultimodalPrompt(const std::string& FormattedPrompt
             EvalResult, (int32)NPast, NCtx, NChunks, NTokensInChunks), 54, __func__);
         return 0;
     }
+
+    // Record the correct next KV position from mtmd (NOT seq_pos_max, which is wrong for M-RoPE
+    // because 2D spatial positions from image tokens inflate seq_pos_max beyond the true text position).
+    NextGenerationNPast = NewNPast;
 
     const auto StopTime = ggml_time_us();
     const float Duration = (StopTime - StartTime) / 1000000.0f;
