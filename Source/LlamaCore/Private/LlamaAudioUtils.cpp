@@ -157,3 +157,81 @@ bool ULlamaAudioUtils::SoundWaveToLLMAudio(USoundWave* SoundWave, TArray<float>&
 
     return true;
 }
+
+// ---------------------------------------------------------------------------
+// Low-level pointer-based utilities (audio HW thread safe)
+// ---------------------------------------------------------------------------
+
+void ULlamaAudioUtils::DownmixToMono(const float* InInterleaved, int32 NumFrames, int32 NumChannels,
+                                      TArray<float>& OutMono)
+{
+    OutMono.SetNumUninitialized(NumFrames);
+
+    if (NumChannels == 1)
+    {
+        FMemory::Memcpy(OutMono.GetData(), InInterleaved, NumFrames * sizeof(float));
+    }
+    else
+    {
+        const float InvN = 1.0f / static_cast<float>(NumChannels);
+        for (int32 Frame = 0; Frame < NumFrames; ++Frame)
+        {
+            float Sum = 0.0f;
+            for (int32 Ch = 0; Ch < NumChannels; ++Ch)
+            {
+                Sum += InInterleaved[Frame * NumChannels + Ch];
+            }
+            OutMono[Frame] = Sum * InvN;
+        }
+    }
+}
+
+void ULlamaAudioUtils::ResampleLinear(const float* InSamples, int32 InCount, int32 InRate,
+                                       TArray<float>& OutSamples, int32 OutRate)
+{
+    if (InCount <= 0 || InRate <= 0 || OutRate <= 0)
+    {
+        OutSamples.Empty();
+        return;
+    }
+
+    if (InRate == OutRate)
+    {
+        OutSamples.SetNumUninitialized(InCount);
+        FMemory::Memcpy(OutSamples.GetData(), InSamples, InCount * sizeof(float));
+        return;
+    }
+
+    const int32 OutCount = static_cast<int32>(
+        static_cast<double>(InCount) * OutRate / InRate);
+
+    OutSamples.SetNumUninitialized(OutCount);
+
+    for (int32 i = 0; i < OutCount; ++i)
+    {
+        const double SrcPos = static_cast<double>(i) * InRate / OutRate;
+        const int32  SrcIdx = static_cast<int32>(SrcPos);
+        const float  Frac   = static_cast<float>(SrcPos - SrcIdx);
+
+        const float S0 = InSamples[SrcIdx];
+        const float S1 = (SrcIdx + 1 < InCount) ? InSamples[SrcIdx + 1] : S0;
+
+        OutSamples[i] = S0 + Frac * (S1 - S0);
+    }
+}
+
+float ULlamaAudioUtils::ComputeRMS(const float* Samples, int32 Count)
+{
+    if (Count <= 0)
+    {
+        return 0.0f;
+    }
+
+    double SumSq = 0.0;
+    for (int32 i = 0; i < Count; ++i)
+    {
+        const double S = Samples[i];
+        SumSq += S * S;
+    }
+    return static_cast<float>(FMath::Sqrt(SumSq / Count));
+}

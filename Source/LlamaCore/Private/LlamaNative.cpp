@@ -1,6 +1,7 @@
 // Copyright 2025-current Getnamo.
 
 #include "LlamaNative.h"
+#include "LlamaMediaCaptureTypes.h"
 #include "LlamaUtility.h"
 #include "Internal/LlamaInternal.h"
 #include "Async/TaskGraphInterfaces.h"
@@ -860,6 +861,29 @@ FString FLlamaNative::WrapPromptForRole(const FString& Text, EChatTemplateRole R
     return FLlamaString::ToUE( Internal->WrapPromptForRole(FLlamaString::ToStd(Text), Role, FLlamaString::ToStd(OverrideTemplate), bAddAssistantBoS) );
 }
 
+
+void FLlamaNative::OnAudioSegment(const FLlamaAudioSegment& Segment)
+{
+    // Called on the capture component's BG thread.
+    // Build a multimodal prompt and submit through the standard path.
+    // InsertMultimodalPrompt enqueues to our BG task queue — this is safe
+    // because MPSC queues accept writes from any thread.
+
+    FLlamaMultimodalPrompt Prompt;
+    Prompt.Prompt = AudioPromptTemplate.Contains(TEXT("<__media__>"))
+        ? AudioPromptTemplate
+        : FString::Printf(TEXT("<__media__>\n%s"), *AudioPromptTemplate);
+    Prompt.Role = AudioPromptRole;
+    Prompt.bAddAssistantBOS = false;
+    Prompt.bGenerateReply = true;
+
+    FLlamaMediaEntry Entry;
+    Entry.MediaType = ELlamaMediaType::Audio;
+    Entry.AudioPCMData = Segment.PCMSamples;  // copy
+    Prompt.MediaEntries.Add(MoveTemp(Entry));
+
+    InsertMultimodalPrompt(Prompt);  // enqueues to BG task queue
+}
 
 void FLlamaNative::GetPromptEmbeddings(const FString& Text, TFunction<void(const TArray<float>& Embeddings, const FString& SourceText)> OnEmbeddings)
 {

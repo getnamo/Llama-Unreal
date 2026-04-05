@@ -3,6 +3,7 @@
 #include "LlamaComponent.h"
 #include "LlamaUtility.h"
 #include "LlamaNative.h"
+#include "LlamaAudioCaptureComponent.h"
 #include "Engine/Texture2D.h"
 #include "TextureResource.h"
 
@@ -10,6 +11,10 @@ ULlamaComponent::ULlamaComponent(const FObjectInitializer &ObjectInitializer)
     : UActorComponent(ObjectInitializer)
 {
     LlamaNative = new FLlamaNative();
+
+    // Register in consumer registry so Blueprint can wire us via AddConsumerComponent.
+    // Done in constructor because LlamaNative pointer is stable for the component's lifetime.
+    ILlamaAudioConsumer::RegisterComponent(this, LlamaNative);
 
     //Hookup native callbacks
     LlamaNative->OnModelStateChanged = [this](const FLLMModelState& UpdatedModelState)
@@ -52,6 +57,8 @@ ULlamaComponent::ULlamaComponent(const FObjectInitializer &ObjectInitializer)
 
 ULlamaComponent::~ULlamaComponent()
 {
+	ILlamaAudioConsumer::UnregisterComponent(this);
+
 	if (LlamaNative)
 	{
 		delete LlamaNative;
@@ -67,10 +74,21 @@ void ULlamaComponent::Activate(bool bReset)
     {
         LoadModel(true);
     }
+
+    if (AudioSource)
+    {
+        LlamaNative->AudioPromptTemplate = AudioPromptTemplate;
+        AudioSource->AddConsumer(LlamaNative);
+    }
 }
 
 void ULlamaComponent::Deactivate()
 {
+    if (AudioSource)
+    {
+        AudioSource->RemoveConsumer(LlamaNative);
+    }
+
     Super::Deactivate();
 }
 
@@ -373,6 +391,12 @@ bool ULlamaComponent::SupportsAudio() const
 int32 ULlamaComponent::GetAudioSampleRate() const
 {
     return LlamaNative->GetAudioSampleRate();
+}
+
+void ULlamaComponent::SetAudioPromptTemplate(const FString& NewTemplate)
+{
+    AudioPromptTemplate = NewTemplate;
+    LlamaNative->AudioPromptTemplate = NewTemplate;
 }
 
 void ULlamaComponent::GeneratePromptEmbeddingsForText(const FString& Text)

@@ -6,6 +6,8 @@
 #include "Components/ActorComponent.h"
 #include "WhisperDataTypes.h"
 
+class ULlamaAudioCaptureComponent;
+
 #include "WhisperComponent.generated.h"
 
 /**
@@ -53,14 +55,6 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Whisper Component")
 	FOnWhisperError OnError;
 
-	/** Fires when VAD transitions: true = speech started, false = speech ended. */
-	UPROPERTY(BlueprintAssignable, Category = "Whisper Component")
-	FOnWhisperVADStateChanged OnVADStateChanged;
-
-	/** Fires when the Silero VAD model finishes loading (Silero mode only). */
-	UPROPERTY(BlueprintAssignable, Category = "Whisper Component")
-	FOnWhisperVADModelLoaded OnVADModelLoaded;
-
 	// ---------------------------------------------------------------------------
 	// Properties
 	// ---------------------------------------------------------------------------
@@ -68,8 +62,11 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Whisper Component")
 	FWhisperModelParams ModelParams;
 
+	/** Optional external audio capture source. When set, WhisperComponent subscribes to this
+	 *  component for audio segments instead of creating its own microphone capture.
+	 *  This enables sharing a single mic capture between multiple consumers (e.g. Whisper + LLM). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Whisper Component")
-	FWhisperStreamParams StreamParams;
+	ULlamaAudioCaptureComponent* ExternalAudioSource = nullptr;
 
 	/** Read-only runtime state. Updated on the game thread from background thread callbacks. */
 	UPROPERTY(BlueprintReadOnly, Category = "Whisper Component")
@@ -128,20 +125,6 @@ public:
 	/** Returns true if microphone input is currently muted. */
 	UFUNCTION(BlueprintPure, Category = "Whisper Component")
 	bool IsMicrophoneMuted() const;
-
-	/** Manually load (or reload) the Silero VAD model specified in StreamParams.PathToVADModel.
-	 *  Not needed in normal use — the VAD model loads automatically when LoadModel is called
-	 *  with VADMode set to Silero. */
-	UFUNCTION(BlueprintCallable, Category = "Whisper Component")
-	void LoadVADModel();
-
-	/** Unload the Silero VAD model and free its memory. */
-	UFUNCTION(BlueprintCallable, Category = "Whisper Component")
-	void UnloadVADModel();
-
-	/** Returns true if the Silero VAD model is currently loaded. */
-	UFUNCTION(BlueprintPure, Category = "Whisper Component")
-	bool IsVADModelLoaded() const;
 
 private:
 	class FWhisperNative* WhisperNative;

@@ -73,7 +73,8 @@ public class LlamaCore : ModuleRules
 				"Engine",
 				"Slate",
 				"SlateCore",
-				// ... add private dependencies that you statically link with here ...
+				"AudioCaptureCore",    // Audio::FAudioCapture for microphone capture pipeline
+				"MediaAssets",         // UMediaPlayer, UMediaTexture for video capture pipeline
 			}
 			);
 

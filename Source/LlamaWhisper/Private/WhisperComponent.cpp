@@ -10,6 +10,9 @@ UWhisperComponent::UWhisperComponent(const FObjectInitializer& ObjectInitializer
 
 	WhisperNative = new FWhisperNative();
 
+	// Register in consumer registry so Blueprint can wire us via AddConsumerComponent.
+	ILlamaAudioConsumer::RegisterComponent(this, WhisperNative);
+
 	// Wire up native callbacks to component delegates (all fired on the game thread)
 
 	WhisperNative->OnTranscriptionResult = [this](const FString& Text, bool bIsFinal)
@@ -29,26 +32,6 @@ UWhisperComponent::UWhisperComponent(const FObjectInitializer& ObjectInitializer
 		OnError.Broadcast(ErrorMessage);
 	};
 
-	WhisperNative->OnVADStateChanged = [this](bool bIsSpeech)
-	{
-		ModelState.bVADSpeechDetected = bIsSpeech;
-		OnVADStateChanged.Broadcast(bIsSpeech);
-	};
-
-	WhisperNative->OnVADModelLoaded = [this](const FString& VADModelPath, bool bSuccess)
-	{
-		ModelState.bVADModelLoaded = bSuccess;
-		if (bSuccess)
-		{
-			OnVADModelLoaded.Broadcast(VADModelPath);
-		}
-		else
-		{
-			OnError.Broadcast(FString::Printf(
-				TEXT("Failed to load Silero VAD model: %s"), *VADModelPath));
-		}
-	};
-
 	WhisperNative->OnTranscribingStateChanged = [this](bool bTranscribing)
 	{
 		ModelState.bIsTranscribing = bTranscribing;
@@ -57,6 +40,8 @@ UWhisperComponent::UWhisperComponent(const FObjectInitializer& ObjectInitializer
 
 UWhisperComponent::~UWhisperComponent()
 {
+	ILlamaAudioConsumer::UnregisterComponent(this);
+
 	delete WhisperNative;
 	WhisperNative = nullptr;
 }
@@ -72,7 +57,11 @@ void UWhisperComponent::Activate(bool bReset)
 	Super::Activate(bReset);
 
 	WhisperNative->SetModelParams(ModelParams);
-	WhisperNative->SetStreamParams(StreamParams);
+	// Wire external audio source if set
+	if (ExternalAudioSource)
+	{
+		WhisperNative->SetExternalAudioSource(ExternalAudioSource);
+	}
 
 	if (ModelParams.bAutoLoadModelOnStartup)
 	{
@@ -85,12 +74,6 @@ void UWhisperComponent::Deactivate()
 	if (WhisperNative->IsMicrophoneCaptureActive())
 	{
 		WhisperNative->StopMicrophoneCapture();
-	}
-
-	if (ModelState.bVADModelLoaded)
-	{
-		WhisperNative->UnloadVADModel(nullptr);
-		ModelState.bVADModelLoaded = false;
 	}
 
 	WhisperNative->UnloadModel();
@@ -114,7 +97,6 @@ void UWhisperComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 void UWhisperComponent::LoadModel(bool bForceReload)
 {
 	WhisperNative->SetModelParams(ModelParams);
-	WhisperNative->SetStreamParams(StreamParams);
 
 	WhisperNative->LoadModel(bForceReload,
 		[this](const FString& ModelPath, int32 StatusCode)
@@ -154,7 +136,6 @@ void UWhisperComponent::TranscribeWaveFile(const FString& FilePath)
 void UWhisperComponent::StartMicrophoneCapture()
 {
 	WhisperNative->SetModelParams(ModelParams);
-	WhisperNative->SetStreamParams(StreamParams);
 	WhisperNative->StartMicrophoneCapture();
 	ModelState.bMicrophoneActive = true;
 }
@@ -180,21 +161,3 @@ bool UWhisperComponent::IsMicrophoneMuted() const
 	return WhisperNative->IsMicrophoneMuted();
 }
 
-void UWhisperComponent::LoadVADModel()
-{
-	WhisperNative->SetStreamParams(StreamParams);
-	WhisperNative->LoadVADModel();
-}
-
-void UWhisperComponent::UnloadVADModel()
-{
-	WhisperNative->UnloadVADModel([this](int32)
-	{
-		ModelState.bVADModelLoaded = false;
-	});
-}
-
-bool UWhisperComponent::IsVADModelLoaded() const
-{
-	return ModelState.bVADModelLoaded;
-}

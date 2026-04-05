@@ -3,6 +3,7 @@
 #pragma once
 
 #include "LlamaDataTypes.h"
+#include "LlamaMediaCaptureTypes.h"
 #include "CoreMinimal.h"
 #include "Containers/Queue.h"
 #include "HAL/ThreadSafeBool.h"
@@ -14,7 +15,7 @@
 * C++ native wrapper in Unreal styling for Llama.cpp with threading and callbacks. Embed in final place
 * where it should be used e.g. ActorComponent, UObject, or Subsystem subclass.
 */
-class LLAMACORE_API FLlamaNative
+class LLAMACORE_API FLlamaNative : public ILlamaAudioConsumer
 {
 public:
 
@@ -84,6 +85,14 @@ public:
 
 	//Embed a prompt and return the embeddings
 	void GetPromptEmbeddings(const FString& Text, TFunction<void(const TArray<float>& Embeddings, const FString& SourceText)>OnEmbeddings = nullptr);
+
+	// ILlamaAudioConsumer — segments arrive directly on capture BG thread
+	virtual void OnAudioSegment(const FLlamaAudioSegment& Segment) override;
+
+	/** Text prompt template to use when auto-processing audio from an audio capture source.
+	 *  The audio data is inserted as <__media__> automatically. */
+	FString AudioPromptTemplate = TEXT("<__media__>\nRespond to what was said.");
+	EChatTemplateRole AudioPromptRole = EChatTemplateRole::User;
 
 	FLlamaNative();
 	~FLlamaNative();

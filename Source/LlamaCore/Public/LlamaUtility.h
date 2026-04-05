@@ -6,7 +6,7 @@
 #include <vector>
 #include "CoreMinimal.h"
 
-DECLARE_LOG_CATEGORY_EXTERN(LlamaLog, Log, All);
+LLAMACORE_API DECLARE_LOG_CATEGORY_EXTERN(LlamaLog, Log, All);
 
 class LLAMACORE_API FLlamaPaths
 {

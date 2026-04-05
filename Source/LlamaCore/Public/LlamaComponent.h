@@ -7,6 +7,8 @@
 #include "Engine/Texture2D.h"
 #include "LlamaDataTypes.h"
 
+class ULlamaAudioCaptureComponent;
+
 #include "LlamaComponent.generated.h"
 
 /** 
@@ -168,6 +170,26 @@ public:
 
     UFUNCTION(BlueprintPure, Category = "LLM Model Component - Multimodal")
     int32 GetAudioSampleRate() const;
+
+    // -----------------------------------------------------------------------
+    // Audio Capture Source — zero GT hop consumer wiring
+    // -----------------------------------------------------------------------
+
+    /** Optional audio capture source. When set, this component auto-registers as a consumer
+     *  and receives audio segments directly on the BG thread for multimodal inference.
+     *  Set AudioPromptTemplate on the underlying FLlamaNative to customize the prompt. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Component - Audio Capture")
+    ULlamaAudioCaptureComponent* AudioSource = nullptr;
+
+    /** Text template for audio prompts from the audio capture source.
+     *  Must contain <__media__> marker. Defaults to "<__media__>\nRespond to what was said." */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Component - Audio Capture")
+    FString AudioPromptTemplate = TEXT("<__media__>\nRespond to what was said.");
+
+    /** Update the audio prompt template at runtime (e.g. between segments).
+     *  Takes effect on the next audio segment received. */
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Component - Audio Capture")
+    void SetAudioPromptTemplate(const FString& NewTemplate);
 
     //This function requires embedding mode or it will not run
     UFUNCTION(BlueprintCallable, Category = "LLM Model Embedding Mode")

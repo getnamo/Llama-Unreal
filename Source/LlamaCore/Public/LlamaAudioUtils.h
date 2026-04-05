@@ -48,4 +48,19 @@ public:
      */
     UFUNCTION(BlueprintCallable, Category = "Llama|Audio")
     static bool SoundWaveToLLMAudio(USoundWave* SoundWave, TArray<float>& OutPCM, int32 TargetSampleRate = 16000);
+
+    // -----------------------------------------------------------------------
+    // Low-level utilities (pointer-based, suitable for audio HW thread use)
+    // -----------------------------------------------------------------------
+
+    /** Average interleaved N-channel frames to mono. */
+    static void DownmixToMono(const float* InInterleaved, int32 NumFrames, int32 NumChannels,
+                              TArray<float>& OutMono);
+
+    /** Linear interpolation resampler: mono float32 from InRate to OutRate. */
+    static void ResampleLinear(const float* InSamples, int32 InCount, int32 InRate,
+                               TArray<float>& OutSamples, int32 OutRate);
+
+    /** Compute root-mean-square energy of a sample block. */
+    static float ComputeRMS(const float* Samples, int32 Count);
 };
