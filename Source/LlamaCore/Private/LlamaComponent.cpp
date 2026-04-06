@@ -75,9 +75,11 @@ void ULlamaComponent::Activate(bool bReset)
         LoadModel(true);
     }
 
+    //Always sync template in case audio source attaches later
+    LlamaNative->AudioPromptTemplate = AudioPromptTemplate;
+
     if (AudioSource)
     {
-        LlamaNative->AudioPromptTemplate = AudioPromptTemplate;
         AudioSource->AddConsumer(LlamaNative);
     }
 }
