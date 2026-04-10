@@ -8,12 +8,32 @@
 
 #include "LlamaVideoCaptureComponent.generated.h"
 
+struct FMediaCaptureDeviceInfo;
 class UMediaPlayer;
 class UMediaSource;
 class UMediaTexture;
 class USceneCaptureComponent2D;
 class UTextureRenderTarget2D;
 class UTexture2D;
+
+/** Blueprint-friendly wrapper for a discovered video capture device. */
+USTRUCT(BlueprintType)
+struct LLAMACORE_API FLlamaVideoDevice
+{
+	GENERATED_USTRUCT_BODY()
+
+	/** Human-readable display name (e.g. "Logitech C920"). */
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "Video Capture")
+	FString DisplayName;
+
+	/** Media URL to pass to the player (e.g. "vidcap://..."). */
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "Video Capture")
+	FString URL;
+
+	/** Platform-specific debug info. */
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "Video Capture")
+	FString Info;
+};
 
 /**
  * Video capture component with on-demand frame snapshot.
@@ -53,19 +73,48 @@ public:
 		meta = (ClampMin = "64", ClampMax = "2160"))
 	int32 CaptureHeight = 512;
 
-	/** Webcam device URL. Platform-dependent. Common examples:
-	 *  Windows: "cam://0" or device name. Leave empty for default device. */
+	/** Index into the enumerated device list. 0 = first/default device.
+	 *  Call EnumerateVideoDevices() to discover available devices. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Video Capture",
+		meta = (ClampMin = "0", EditCondition = "CaptureSource == EVideoCaptureSource::Webcam"))
+	int32 SelectedDeviceIndex = 0;
+
+	/** Override webcam URL. When non-empty, this takes priority over SelectedDeviceIndex.
+	 *  Leave empty to use the device selected by index. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Video Capture",
 		meta = (EditCondition = "CaptureSource == EVideoCaptureSource::Webcam"))
-	FString WebcamURL;
+	FString WebcamURLOverride;
 
 	/** Whether to start capture automatically on BeginPlay. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Video Capture")
 	bool bAutoStartCapture = false;
 
 	// -----------------------------------------------------------------------
+	// Delegates
+	// -----------------------------------------------------------------------
+
+	/** Fires when the webcam media has opened and playback has started.
+	 *  Snapshot is safe to call after this fires. */
+	UPROPERTY(BlueprintAssignable, Category = "Video Capture")
+	FOnLlamaWebcamReady OnWebcamReady;
+
+	// -----------------------------------------------------------------------
 	// Blueprint API
 	// -----------------------------------------------------------------------
+
+	/** Enumerate available video capture devices on this platform.
+	 *  Results are cached until the next call. */
+	UFUNCTION(BlueprintCallable, Category = "Video Capture")
+	TArray<FLlamaVideoDevice> EnumerateVideoDevices();
+
+	/** Get the currently selected device info (after EnumerateVideoDevices has been called).
+	 *  Returns an empty struct if no devices are available or index is out of range. */
+	UFUNCTION(BlueprintPure, Category = "Video Capture")
+	FLlamaVideoDevice GetSelectedDevice() const;
+
+	/** Returns true if the webcam has fully opened and is streaming. */
+	UFUNCTION(BlueprintPure, Category = "Video Capture")
+	bool IsWebcamReady() const { return bMediaReady; }
 
 	UFUNCTION(BlueprintCallable, Category = "Video Capture")
 	void StartCapture();
@@ -115,6 +164,19 @@ private:
 	UTextureRenderTarget2D* RenderTarget = nullptr;
 
 	bool bIsCapturing = false;
+	bool bMediaReady = false;
+
+	UFUNCTION()
+	void HandleMediaOpened(FString OpenedUrl);
+
+	UFUNCTION()
+	void HandleMediaOpenFailed(FString FailedUrl);
+
+	/** Cached device list from last enumeration. */
+	TArray<FLlamaVideoDevice> CachedVideoDevices;
+
+	/** Resolves the webcam URL: uses override if set, otherwise looks up by device index. */
+	FString ResolveWebcamURL();
 
 	void SetupWebcamCapture();
 	void SetupSceneCapture();

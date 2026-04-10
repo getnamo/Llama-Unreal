@@ -13,6 +13,8 @@
 #include "Kismet/KismetRenderingLibrary.h"
 #include "TextureResource.h"
 #include "RenderUtils.h"
+#include "MediaCaptureSupport.h"
+#include "IMediaCaptureSupport.h"
 
 ULlamaVideoCaptureComponent::ULlamaVideoCaptureComponent(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -34,6 +36,65 @@ void ULlamaVideoCaptureComponent::EndPlay(const EEndPlayReason::Type EndPlayReas
 {
 	StopCapture();
 	Super::EndPlay(EndPlayReason);
+}
+
+TArray<FLlamaVideoDevice> ULlamaVideoCaptureComponent::EnumerateVideoDevices()
+{
+	CachedVideoDevices.Reset();
+
+	TArray<FMediaCaptureDeviceInfo> MediaDevices;
+	MediaCaptureSupport::EnumerateVideoCaptureDevices(MediaDevices);
+
+	for (const FMediaCaptureDeviceInfo& Device : MediaDevices)
+	{
+		FLlamaVideoDevice Entry;
+		Entry.DisplayName = Device.DisplayName.ToString();
+		Entry.URL = Device.Url;
+		Entry.Info = Device.Info;
+		CachedVideoDevices.Add(MoveTemp(Entry));
+	}
+
+	UE_LOG(LlamaLog, Log, TEXT("ULlamaVideoCaptureComponent: Found %d video capture device(s):"), CachedVideoDevices.Num());
+	for (int32 i = 0; i < CachedVideoDevices.Num(); ++i)
+	{
+		UE_LOG(LlamaLog, Log, TEXT("  [%d] %s (%s)"), i, *CachedVideoDevices[i].DisplayName, *CachedVideoDevices[i].URL);
+	}
+
+	return CachedVideoDevices;
+}
+
+FLlamaVideoDevice ULlamaVideoCaptureComponent::GetSelectedDevice() const
+{
+	if (CachedVideoDevices.IsValidIndex(SelectedDeviceIndex))
+	{
+		return CachedVideoDevices[SelectedDeviceIndex];
+	}
+	return FLlamaVideoDevice();
+}
+
+FString ULlamaVideoCaptureComponent::ResolveWebcamURL()
+{
+	// Explicit override takes priority
+	if (!WebcamURLOverride.IsEmpty())
+	{
+		return WebcamURLOverride;
+	}
+
+	// Enumerate if we haven't yet
+	if (CachedVideoDevices.Num() == 0)
+	{
+		EnumerateVideoDevices();
+	}
+
+	// Use device at selected index
+	if (CachedVideoDevices.IsValidIndex(SelectedDeviceIndex))
+	{
+		return CachedVideoDevices[SelectedDeviceIndex].URL;
+	}
+
+	// Fallback to platform default
+	UE_LOG(LlamaLog, Warning, TEXT("ULlamaVideoCaptureComponent: No device at index %d, falling back to vidcap://0"), SelectedDeviceIndex);
+	return TEXT("vidcap://0");
 }
 
 void ULlamaVideoCaptureComponent::StartCapture()
@@ -71,29 +132,28 @@ bool ULlamaVideoCaptureComponent::IsCaptureActive() const
 
 void ULlamaVideoCaptureComponent::SetupWebcamCapture()
 {
-	// Create MediaPlayer
+	// Create MediaPlayer — no looping for live capture streams
 	MediaPlayer = NewObject<UMediaPlayer>(this);
-	MediaPlayer->SetLooping(true);
+	MediaPlayer->PlayOnOpen = true;
 
 	// Create MediaTexture
 	CachedMediaTexture = NewObject<UMediaTexture>(this);
 	CachedMediaTexture->AutoClear = true;
+	CachedMediaTexture->NewStyleOutput = true;
 	CachedMediaTexture->SetMediaPlayer(MediaPlayer);
 	CachedMediaTexture->UpdateResource();
 
-	// Open the webcam URL
-	FString URL = WebcamURL;
-	if (URL.IsEmpty())
-	{
-		// Platform default webcam
-		// The actual URL format depends on the platform and installed media framework plugins
-		URL = TEXT("vidcap://0");
-	}
+	// Resolve the webcam URL from device index or override
+	FString URL = ResolveWebcamURL();
+
+	// Bind to OnMediaOpened to know when the stream is actually ready
+	MediaPlayer->OnMediaOpened.AddDynamic(this, &ULlamaVideoCaptureComponent::HandleMediaOpened);
+	MediaPlayer->OnMediaOpenFailed.AddDynamic(this, &ULlamaVideoCaptureComponent::HandleMediaOpenFailed);
 
 	if (MediaPlayer->OpenUrl(URL))
 	{
 		bIsCapturing = true;
-		UE_LOG(LlamaLog, Log, TEXT("ULlamaVideoCaptureComponent: Opened webcam: %s"), *URL);
+		UE_LOG(LlamaLog, Log, TEXT("ULlamaVideoCaptureComponent: Opening webcam: %s (waiting for media ready...)"), *URL);
 	}
 	else
 	{
@@ -131,9 +191,12 @@ void ULlamaVideoCaptureComponent::CleanupCapture()
 {
 	if (MediaPlayer)
 	{
+		MediaPlayer->OnMediaOpened.RemoveAll(this);
+		MediaPlayer->OnMediaOpenFailed.RemoveAll(this);
 		MediaPlayer->Close();
 		MediaPlayer = nullptr;
 	}
+	bMediaReady = false;
 	CachedMediaTexture = nullptr;
 	MediaSource = nullptr;
 
@@ -145,6 +208,53 @@ void ULlamaVideoCaptureComponent::CleanupCapture()
 		}
 	}
 	RenderTarget = nullptr;
+}
+
+void ULlamaVideoCaptureComponent::HandleMediaOpened(FString OpenedUrl)
+{
+	if (!MediaPlayer)
+	{
+		return;
+	}
+
+	const int32 NumVideoTracks = MediaPlayer->GetNumTracks(EMediaPlayerTrack::Video);
+	const int32 SelectedVideoTrack = MediaPlayer->GetSelectedTrack(EMediaPlayerTrack::Video);
+
+	UE_LOG(LlamaLog, Log, TEXT("ULlamaVideoCaptureComponent: Webcam media opened: %s"), *OpenedUrl);
+	UE_LOG(LlamaLog, Log, TEXT("  Video tracks: %d, Selected: %d, IsPlaying: %s, IsReady: %s"),
+		NumVideoTracks, SelectedVideoTrack,
+		MediaPlayer->IsPlaying() ? TEXT("true") : TEXT("false"),
+		MediaPlayer->IsReady() ? TEXT("true") : TEXT("false"));
+
+	// Ensure a video track is selected
+	if (NumVideoTracks > 0 && SelectedVideoTrack == INDEX_NONE)
+	{
+		UE_LOG(LlamaLog, Log, TEXT("  No video track selected — selecting track 0"));
+		MediaPlayer->SelectTrack(EMediaPlayerTrack::Video, 0);
+	}
+
+	// Log video dimensions if available
+	if (NumVideoTracks > 0)
+	{
+		const FIntPoint Dims = MediaPlayer->GetVideoTrackDimensions(
+			FMath::Max(SelectedVideoTrack, 0), INDEX_NONE);
+		UE_LOG(LlamaLog, Log, TEXT("  Video dimensions: %dx%d"), Dims.X, Dims.Y);
+	}
+
+	// Force playback start — capture devices need explicit Play()
+	MediaPlayer->Play();
+
+	UE_LOG(LlamaLog, Log, TEXT("  Play() called. IsPlaying: %s"),
+		MediaPlayer->IsPlaying() ? TEXT("true") : TEXT("false"));
+
+	bMediaReady = true;
+	OnWebcamReady.Broadcast();
+}
+
+void ULlamaVideoCaptureComponent::HandleMediaOpenFailed(FString FailedUrl)
+{
+	UE_LOG(LlamaLog, Warning, TEXT("ULlamaVideoCaptureComponent: Failed to open webcam media: %s"), *FailedUrl);
+	bMediaReady = false;
 }
 
 UTexture2D* ULlamaVideoCaptureComponent::SnapshotFrame()
@@ -166,8 +276,14 @@ UTexture2D* ULlamaVideoCaptureComponent::SnapshotFrame()
 
 UTexture2D* ULlamaVideoCaptureComponent::SnapshotFromMediaTexture()
 {
-	if (!CachedMediaTexture || !MediaPlayer || !MediaPlayer->IsPlaying())
+	if (!CachedMediaTexture || !MediaPlayer)
 	{
+		return nullptr;
+	}
+
+	if (!bMediaReady)
+	{
+		UE_LOG(LlamaLog, Warning, TEXT("ULlamaVideoCaptureComponent: Webcam media not ready yet. Wait for capture to fully open."));
 		return nullptr;
 	}
 

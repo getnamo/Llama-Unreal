@@ -74,6 +74,8 @@ public class LlamaCore : ModuleRules
 				"Slate",
 				"SlateCore",
 				"AudioCaptureCore",    // Audio::FAudioCapture for microphone capture pipeline
+				"Media",               // IMediaCaptureSupport, FMediaCaptureDeviceInfo
+				"MediaUtils",          // MediaCaptureSupport::EnumerateVideoCaptureDevices
 				"MediaAssets",         // UMediaPlayer, UMediaTexture for video capture pipeline
 			}
 			);

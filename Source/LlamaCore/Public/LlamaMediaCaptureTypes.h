@@ -68,6 +68,9 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnLlamaVADStateChanged, bool, bIsSp
 /** Fired when a new video frame is available. */
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnLlamaVideoFrameReady, UTexture2D*, Frame);
 
+/** Fired when the webcam media has opened and is ready for snapshots. */
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnLlamaWebcamReady);
+
 // ─── Pure C++ Interfaces ─────────────────────────────────────────────────────
 
 /**
