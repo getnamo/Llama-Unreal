@@ -45,6 +45,13 @@ public:
     std::string Template;
     std::string TemplateSource;
 
+    //Thinking mode state (auto-detected from template)
+    std::string ThinkingOpenTag;
+    std::string ThinkingCloseTag;
+    bool bThinkingEnabled = true;
+    bool bStripThinkingFromResponse = false;
+    bool bModelSupportsThinking = false;
+
     //Cached params, should be accessed on BT
     FLLMModelParams LastLoadedParams;
 

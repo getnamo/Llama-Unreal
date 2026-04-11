@@ -215,6 +215,26 @@ bool FLlamaInternal::LoadModelFromParams(const FLLMModelParams& InModelParams)
     
     FilledContextCharLength = 0;
 
+    //Detect thinking mode support from template
+    bThinkingEnabled = InModelParams.Advanced.bEnableThinking;
+    bStripThinkingFromResponse = InModelParams.Advanced.bStripThinkingFromResponse;
+
+    //Auto-detect thinking tags from template source (Qwen3, DeepSeek, etc.)
+    if (Template.find("<think>") != std::string::npos || Template.find("enable_thinking") != std::string::npos)
+    {
+        ThinkingOpenTag = "<think>";
+        ThinkingCloseTag = "</think>";
+        bModelSupportsThinking = true;
+        UE_LOG(LlamaLog, Log, TEXT("Thinking mode detected from template. Thinking %s."),
+            bThinkingEnabled ? TEXT("enabled") : TEXT("disabled (empty think block will be injected)"));
+    }
+    else
+    {
+        ThinkingOpenTag.clear();
+        ThinkingCloseTag.clear();
+        bModelSupportsThinking = false;
+    }
+
     bIsModelLoaded = true;
 
     //Initialize multimodal if mmproj path is provided
@@ -460,6 +480,19 @@ std::string FLlamaInternal::InsertTemplatedPrompt(const std::string& Prompt, ECh
     {
         UE_LOG(LlamaLog, Warning, TEXT("Inserted prompt after templating has an invalid length of %d, skipping generation. Check your jinja template or model gguf. NB: some templates merge system prompts with user prompts (e.g. gemma) and it's considered normal behavior."), NewLen);
         return std::string();
+    }
+
+    //Inject empty think block when thinking is disabled on a thinking-capable model
+    if (!bThinkingEnabled && bAddAssistantBoS && bModelSupportsThinking && NewLen > 0)
+    {
+        std::string EmptyThinkBlock = ThinkingOpenTag + "\n\n" + ThinkingCloseTag + "\n\n";
+        size_t InjLen = EmptyThinkBlock.size();
+        if (ContextHistory.size() < (size_t)NewLen + InjLen)
+        {
+            ContextHistory.resize(NewLen + InjLen);
+        }
+        memcpy(ContextHistory.data() + NewLen, EmptyThinkBlock.data(), InjLen);
+        NewLen += (int32)InjLen;
     }
 
     //Only process non-zero prompts
@@ -763,19 +796,37 @@ std::string FLlamaInternal::Generate(const std::string& Prompt, bool bAppendToMe
 
     if (bAppendToMessageHistory)
     {
-        //Add the response to our templated messages
+        //Add the raw response (with thinking) to our templated messages for context preservation
         Messages.push_back({ RoleForEnum(EChatTemplateRole::Assistant), _strdup(Response.c_str()) });
 
         //Sync ContextHistory
         FilledContextCharLength = ApplyTemplateToContextHistory(false);
     }
 
-    if (OnGenerationComplete)
+    //Strip thinking content from emitted response if requested
+    std::string EmittedResponse = Response;
+    if (bStripThinkingFromResponse && bModelSupportsThinking && !ThinkingCloseTag.empty())
     {
-        OnGenerationComplete(Response, Duration, NDecoded, NDecoded / Duration);
+        size_t ClosePos = EmittedResponse.find(ThinkingCloseTag);
+        if (ClosePos != std::string::npos)
+        {
+            size_t ContentStart = ClosePos + ThinkingCloseTag.size();
+            //Skip leading whitespace after close tag
+            while (ContentStart < EmittedResponse.size() &&
+                   (EmittedResponse[ContentStart] == '\n' || EmittedResponse[ContentStart] == '\r'))
+            {
+                ContentStart++;
+            }
+            EmittedResponse = EmittedResponse.substr(ContentStart);
+        }
     }
 
-    return Response;
+    if (OnGenerationComplete)
+    {
+        OnGenerationComplete(EmittedResponse, Duration, NDecoded, NDecoded / Duration);
+    }
+
+    return EmittedResponse;
 }
 
 void FLlamaInternal::EmitErrorMessage(const FString& ErrorMessage, int32 ErrorCode, const FString& FunctionName)
@@ -1160,6 +1211,20 @@ std::string FLlamaInternal::InsertMultimodalPrompt(const std::string& TextWithMa
     {
         UE_LOG(LlamaLog, Warning, TEXT("Multimodal prompt after templating has an invalid length of %d"), NewLen);
         return std::string();
+    }
+
+    //Inject empty think block when thinking is disabled on a thinking-capable model
+    const bool bActualThinkingInject = !bThinkingEnabled && (bAddAssistantBoS || bGenerateReply) && bModelSupportsThinking && NewLen > 0;
+    if (bActualThinkingInject)
+    {
+        std::string EmptyThinkBlock = ThinkingOpenTag + "\n\n" + ThinkingCloseTag + "\n\n";
+        size_t InjLen = EmptyThinkBlock.size();
+        if (ContextHistory.size() < (size_t)NewLen + InjLen)
+        {
+            ContextHistory.resize(NewLen + InjLen);
+        }
+        memcpy(ContextHistory.data() + NewLen, EmptyThinkBlock.data(), InjLen);
+        NewLen += (int32)InjLen;
     }
 
     if (NewLen > 0)

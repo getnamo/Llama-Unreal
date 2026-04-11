@@ -200,6 +200,17 @@ struct FLLMModelAdvancedParams
     //usually . ? !
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
     TArray<FString> PartialsSeparators;
+
+    //When enabled (default), thinking models (e.g. Qwen3) use chain-of-thought reasoning in <think> blocks.
+    //When disabled, injects an empty think block to suppress reasoning entirely (faster, no thinking tokens).
+    //Auto-detected from model template; has no effect on non-thinking models.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params - Thinking")
+    bool bEnableThinking = true;
+
+    //If true, <think>...</think> blocks are stripped from the emitted response.
+    //The raw response (with thinking) is still preserved in message history for context.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params - Thinking")
+    bool bStripThinkingFromResponse = false;
 };
 
 USTRUCT(BlueprintType)
