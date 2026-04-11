@@ -77,31 +77,31 @@ bool FLlamaInternal::LoadModelFromParams(const FLLMModelParams& InModelParams)
     if (!InModelParams.Advanced.bEmbeddingMode)
     {
         //common sampler strategy
-        if (InModelParams.Advanced.bUseCommonSampler)
+        if (InModelParams.Advanced.Sampling.bUseCommonSampler)
         {
             common_params_sampling SamplingParams;
 
-            if (InModelParams.Advanced.MinP != -1.f)
+            if (InModelParams.Advanced.Sampling.MinP != -1.f)
             {
-                SamplingParams.min_p = InModelParams.Advanced.MinP;
+                SamplingParams.min_p = InModelParams.Advanced.Sampling.MinP;
             }
-            if (InModelParams.Advanced.TopK != -1.f)
+            if (InModelParams.Advanced.Sampling.TopK != -1.f)
             {
-                SamplingParams.top_k = InModelParams.Advanced.TopK;
+                SamplingParams.top_k = InModelParams.Advanced.Sampling.TopK;
             }
-            if (InModelParams.Advanced.TopP != -1.f)
+            if (InModelParams.Advanced.Sampling.TopP != -1.f)
             {
-                SamplingParams.top_p = InModelParams.Advanced.TopP;
+                SamplingParams.top_p = InModelParams.Advanced.Sampling.TopP;
             }
-            if (InModelParams.Advanced.TypicalP != -1.f)
+            if (InModelParams.Advanced.Sampling.TypicalP != -1.f)
             {
-                SamplingParams.typ_p = InModelParams.Advanced.TypicalP;
+                SamplingParams.typ_p = InModelParams.Advanced.Sampling.TypicalP;
             }
-            if (InModelParams.Advanced.Mirostat != -1)
+            if (InModelParams.Advanced.Sampling.Mirostat != -1)
             {
-                SamplingParams.mirostat = InModelParams.Advanced.Mirostat;
-                SamplingParams.mirostat_eta = InModelParams.Advanced.MirostatEta;
-                SamplingParams.mirostat_tau = InModelParams.Advanced.MirostatTau;
+                SamplingParams.mirostat = InModelParams.Advanced.Sampling.Mirostat;
+                SamplingParams.mirostat_eta = InModelParams.Advanced.Sampling.MirostatEta;
+                SamplingParams.mirostat_tau = InModelParams.Advanced.Sampling.MirostatTau;
             }
 
             //Seed is either default or the one specifically passed in for deterministic results
@@ -116,40 +116,40 @@ bool FLlamaInternal::LoadModelFromParams(const FLLMModelParams& InModelParams)
         Sampler = llama_sampler_chain_init(llama_sampler_chain_default_params());
 
         //Temperature is always applied
-        llama_sampler_chain_add(Sampler, llama_sampler_init_temp(InModelParams.Advanced.Temp));
+        llama_sampler_chain_add(Sampler, llama_sampler_init_temp(InModelParams.Advanced.Sampling.Temp));
 
         //If any of the repeat penalties are set, apply penalties to sampler
-        if (InModelParams.Advanced.PenaltyLastN != 0 ||
-            InModelParams.Advanced.PenaltyRepeat != 1.f ||
-            InModelParams.Advanced.PenaltyFrequency != 0.f ||
-            InModelParams.Advanced.PenaltyPresence != 0.f)
+        if (InModelParams.Advanced.Sampling.PenaltyLastN != 0 ||
+            InModelParams.Advanced.Sampling.PenaltyRepeat != 1.f ||
+            InModelParams.Advanced.Sampling.PenaltyFrequency != 0.f ||
+            InModelParams.Advanced.Sampling.PenaltyPresence != 0.f)
         {
             llama_sampler_chain_add(Sampler, llama_sampler_init_penalties(
-                InModelParams.Advanced.PenaltyLastN, InModelParams.Advanced.PenaltyRepeat,
-                InModelParams.Advanced.PenaltyFrequency, InModelParams.Advanced.PenaltyPresence));
+                InModelParams.Advanced.Sampling.PenaltyLastN, InModelParams.Advanced.Sampling.PenaltyRepeat,
+                InModelParams.Advanced.Sampling.PenaltyFrequency, InModelParams.Advanced.Sampling.PenaltyPresence));
         }
 
         //Optional sampling strategies - MinP should be applied by default of 0.05f
-        if (InModelParams.Advanced.MinP != -1.f)
+        if (InModelParams.Advanced.Sampling.MinP != -1.f)
         {
-            llama_sampler_chain_add(Sampler, llama_sampler_init_min_p(InModelParams.Advanced.MinP, 1));
+            llama_sampler_chain_add(Sampler, llama_sampler_init_min_p(InModelParams.Advanced.Sampling.MinP, 1));
         }
-        if (InModelParams.Advanced.TopK != -1.f)
+        if (InModelParams.Advanced.Sampling.TopK != -1.f)
         {
-            llama_sampler_chain_add(Sampler, llama_sampler_init_top_k(InModelParams.Advanced.TopK));
+            llama_sampler_chain_add(Sampler, llama_sampler_init_top_k(InModelParams.Advanced.Sampling.TopK));
         }
-        if (InModelParams.Advanced.TopP != -1.f)
+        if (InModelParams.Advanced.Sampling.TopP != -1.f)
         {
-            llama_sampler_chain_add(Sampler, llama_sampler_init_top_p(InModelParams.Advanced.TopP, 1));
+            llama_sampler_chain_add(Sampler, llama_sampler_init_top_p(InModelParams.Advanced.Sampling.TopP, 1));
         }
-        if (InModelParams.Advanced.TypicalP != -1.f)
+        if (InModelParams.Advanced.Sampling.TypicalP != -1.f)
         {
-            llama_sampler_chain_add(Sampler, llama_sampler_init_typical(InModelParams.Advanced.TypicalP, 1));
+            llama_sampler_chain_add(Sampler, llama_sampler_init_typical(InModelParams.Advanced.Sampling.TypicalP, 1));
         }
-        if (InModelParams.Advanced.Mirostat != -1)
+        if (InModelParams.Advanced.Sampling.Mirostat != -1)
         {
             llama_sampler_chain_add(Sampler, llama_sampler_init_mirostat_v2(
-                InModelParams.Advanced.Mirostat, InModelParams.Advanced.MirostatTau, InModelParams.Advanced.MirostatEta));
+                InModelParams.Advanced.Sampling.Mirostat, InModelParams.Advanced.Sampling.MirostatTau, InModelParams.Advanced.Sampling.MirostatEta));
         }
 
         //Seed is either default or the one specifically passed in for deterministic results
@@ -216,8 +216,8 @@ bool FLlamaInternal::LoadModelFromParams(const FLLMModelParams& InModelParams)
     FilledContextCharLength = 0;
 
     //Detect thinking mode support from template
-    bThinkingEnabled = InModelParams.Advanced.bEnableThinking;
-    bStripThinkingFromResponse = InModelParams.Advanced.bStripThinkingFromResponse;
+    bThinkingEnabled = InModelParams.Advanced.Thinking.bEnableThinking;
+    bStripThinkingFromResponse = InModelParams.Advanced.Thinking.bStripThinkingFromResponse;
 
     //Auto-detect thinking tags from template source (Qwen3, DeepSeek, etc.)
     if (Template.find("<think>") != std::string::npos || Template.find("enable_thinking") != std::string::npos)
@@ -596,7 +596,7 @@ int32 FLlamaInternal::ProcessPrompt(const std::string& Prompt, EChatTemplateRole
     }
 
     //All in one batch
-    if (LastLoadedParams.Advanced.PromptProcessingPacingSleep == 0.f)
+    if (LastLoadedParams.Advanced.Output.PromptProcessingPacingSleep == 0.f)
     {
         // prepare a batch for the prompt
         llama_batch Batch = llama_batch_get_one(PromptTokens.data(), PromptTokens.size());
@@ -624,7 +624,7 @@ int32 FLlamaInternal::ProcessPrompt(const std::string& Prompt, EChatTemplateRole
     //Split it and sleep between batches for pacing purposes
     else
     {
-        int32 BatchCount = LastLoadedParams.Advanced.PromptProcessingPacingSplitN;
+        int32 BatchCount = LastLoadedParams.Advanced.Output.PromptProcessingPacingSplitN;
 
         int32 TotalTokens = PromptTokens.size();
         int32 TokensPerBatch = TotalTokens / BatchCount;
@@ -667,7 +667,7 @@ int32 FLlamaInternal::ProcessPrompt(const std::string& Prompt, EChatTemplateRole
             }
 
             StartIndex += CurrentBatchSize;
-            FPlatformProcess::Sleep(LastLoadedParams.Advanced.PromptProcessingPacingSleep);
+            FPlatformProcess::Sleep(LastLoadedParams.Advanced.Output.PromptProcessingPacingSleep);
         }
     }
 
@@ -783,9 +783,9 @@ std::string FLlamaInternal::Generate(const std::string& Prompt, bool bAppendToMe
         NPast++;
 
         //sleep pacing
-        if (LastLoadedParams.Advanced.TokenGenerationPacingSleep > 0.f)
+        if (LastLoadedParams.Advanced.Output.TokenGenerationPacingSleep > 0.f)
         {
-            FPlatformProcess::Sleep(LastLoadedParams.Advanced.TokenGenerationPacingSleep);
+            FPlatformProcess::Sleep(LastLoadedParams.Advanced.Output.TokenGenerationPacingSleep);
         }
     }
 

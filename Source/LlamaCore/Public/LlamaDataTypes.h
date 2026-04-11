@@ -117,129 +117,165 @@ struct FLlamaRunTimings
 
 
 USTRUCT(BlueprintType)
-struct FLLMModelAdvancedParams
+struct FLLMSamplingParams
 {
     GENERATED_USTRUCT_BODY();
 
     //Updates the logits l_i` = l_i/t. When t <= 0.0f, the maximum logit is kept at it's original value, the rest are set to -inf
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params - Sampling")
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sampling")
     float Temp = 0.80f;
 
     //Minimum P sampling as described in https://github.com/ggml-org/llama.cpp/pull/3841. if non -1 it will apply, typically good value ~0.05f
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params - Sampling")
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sampling")
     float MinP = 0.05f;
 
     //Top-K sampling described in academic paper "The Curious Case of Neural Text Degeneration" https://arxiv.org/abs/1904.09751. if non -1 it will apply, typically good value ~40
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params - Sampling")
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sampling")
     int32 TopK = -1;
 
     //Nucleus sampling described in academic paper "The Curious Case of Neural Text Degeneration" https://arxiv.org/abs/1904.09751. if non -1 it will apply, typically good value ~0.95f
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params - Sampling")
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sampling")
     float TopP = -1.f;
 
     //Locally Typical Sampling implementation described in the paper https://arxiv.org/abs/2202.00666. If non -1 it will apply, typically good value 1.f
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params - Sampling")
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sampling")
     float TypicalP = -1.f;
 
     //Repetition Penalty; avoid using on the full vocabulary as searching for repeated tokens can become slow, consider using Top-k and top-p smapling first. 0 is off, -1 is context
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params - Penalties")
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Penalties")
     int32 PenaltyLastN = 0;
 
     //Repetition Penalty. 1 is disabled
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params - Penalties")
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Penalties")
     float PenaltyRepeat = 1.f;
 
     //Repetition Penalty - frequency based. 0 is disabled
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params - Penalties")
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Penalties")
     float PenaltyFrequency = 0.f;
 
     //Repetition Penalty - presence based. 0 is disabled
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params - Penalties")
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Penalties")
     float PenaltyPresence = 0.f;
 
-    //Mirostat 2.0 algorithm described in the paper https://arxiv.org/abs/2007.14966. 
+    //Mirostat 2.0 algorithm described in the paper https://arxiv.org/abs/2007.14966.
     //If Mirostat != -1 then it will apply this seed value using mirostat v2 algorithm
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params - Mirostat")
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Mirostat")
     int32 Mirostat = -1;
 
-    //MirostatSeed -1 disables this
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params - Mirostat")
+    //Mirostat target entropy
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Mirostat")
     float MirostatTau = 5.f;
 
-    //MirostatSeed -1 disables this
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params - Mirostat")
+    //Mirostat learning rate
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Mirostat")
     float MirostatEta = 0.1f;
 
-    //synced per eos
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
-    bool bSyncStructuredChatHistory = true;
-
-    //run processing to emit e.g. sentence level breakups
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
-    bool bEmitPartials = true;
-
-    //Process callbacks on gamethread - NB: always emits on game thread for now, option doesn't do anything.
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
-    bool bEmitOnGameThread = true;
-
-    //temporarily defaulted on during dev
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
-    bool bLogGenerationStats = true;
-
     //if true sampling params won't be passed (v0.8)
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sampling")
     bool bUseCommonSampler = true;
+};
 
-    //use common_init instead of normal - may break functionality, use with care
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
-    bool bUseCommonParams = false;
-
-    //set to true if you want to use GeneratePromptEmbeddingsForText
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
-    bool bEmbeddingMode = false;
-
-    //if set above 0.f it will sleep between generation passes to ease gpu pressure
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
-    float TokenGenerationPacingSleep = 0.f;
-
-    //if set above 0.f it will sleep between prompt passes (chunking) to ease gpu pressure
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
-    float PromptProcessingPacingSleep = 0.f;
-
-    //this part is only active if PromptProcessingPacingSleep > 0.f. Splits prompts into n chunks with sleep
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
-    int32 PromptProcessingPacingSplitN = 4;
-
-    //usually . ? !
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
-    TArray<FString> PartialsSeparators;
+USTRUCT(BlueprintType)
+struct FLLMMarkdownStreamParams
+{
+    GENERATED_USTRUCT_BODY();
 
     //When enabled, markdown formatting is parsed from the token stream and OnMarkdownPartialGenerated emits partials tagged with state (Text, Italic, Bold, Heading, Quote). Formatting chars are stripped.
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params - Markdown")
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Markdown")
     bool bSplitMarkdown = false;
 
     //When enabled, leading and trailing whitespace/newlines are trimmed from each emitted markdown partial.
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params - Markdown")
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Markdown")
     bool bTrimMarkdownPartialWhitespace = true;
 
     //When enabled, single-word italic blocks (e.g. *really*) are reclassified as Emphasis instead of Italic. Useful to distinguish mid-sentence emphasis from multi-word action descriptions like *He walks away.*
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params - Markdown")
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Markdown")
     bool bSingleWordItalicAsEmphasis = true;
 
     //When enabled, emphasis words are folded into the surrounding Text segment instead of breaking it. e.g. "He looked *really* surprised." emits one Text partial "He looked really surprised." instead of three.
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params - Markdown")
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Markdown")
     bool bCollectEmphasisInText = true;
+};
+
+USTRUCT(BlueprintType)
+struct FLLMThinkingParams
+{
+    GENERATED_USTRUCT_BODY();
 
     //When enabled (default), thinking models (e.g. Qwen3) use chain-of-thought reasoning in <think> blocks.
     //When disabled, injects an empty think block to suppress reasoning entirely (faster, no thinking tokens).
     //Auto-detected from model template; has no effect on non-thinking models.
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params - Thinking")
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thinking")
     bool bEnableThinking = true;
 
     //If true, <think>...</think> blocks are stripped from the emitted response.
     //The raw response (with thinking) is still preserved in message history for context.
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params - Thinking")
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thinking")
     bool bStripThinkingFromResponse = false;
+};
+
+USTRUCT(BlueprintType)
+struct FLLMOutputParams
+{
+    GENERATED_USTRUCT_BODY();
+
+    //synced per eos
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Output")
+    bool bSyncStructuredChatHistory = true;
+
+    //run processing to emit e.g. sentence level breakups
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Output")
+    bool bEmitPartials = true;
+
+    //Process callbacks on gamethread - NB: always emits on game thread for now, option doesn't do anything.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Output")
+    bool bEmitOnGameThread = true;
+
+    //temporarily defaulted on during dev
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Output")
+    bool bLogGenerationStats = true;
+
+    //usually . ? !
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Output")
+    TArray<FString> PartialsSeparators;
+
+    //if set above 0.f it will sleep between generation passes to ease gpu pressure
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pacing")
+    float TokenGenerationPacingSleep = 0.f;
+
+    //if set above 0.f it will sleep between prompt passes (chunking) to ease gpu pressure
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pacing")
+    float PromptProcessingPacingSleep = 0.f;
+
+    //this part is only active if PromptProcessingPacingSleep > 0.f. Splits prompts into n chunks with sleep
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pacing")
+    int32 PromptProcessingPacingSplitN = 4;
+};
+
+USTRUCT(BlueprintType)
+struct FLLMModelAdvancedParams
+{
+    GENERATED_USTRUCT_BODY();
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
+    FLLMSamplingParams Sampling;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
+    FLLMOutputParams Output;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
+    FLLMMarkdownStreamParams Markdown;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
+    FLLMThinkingParams Thinking;
+
+    //use common_init instead of normal - may break functionality, use with care
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
+    bool bUseCommonParams = false;
+
+    //set to true if you want to use GeneratePromptEmbeddingsForText
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
+    bool bEmbeddingMode = false;
 };
 
 USTRUCT(BlueprintType)

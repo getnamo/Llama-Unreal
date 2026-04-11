@@ -23,11 +23,11 @@ FLlamaNative::FLlamaNative()
         FString Partial;
 
         //Compute Partials
-        if (ModelParams.Advanced.bEmitPartials)
+        if (ModelParams.Advanced.Output.bEmitPartials)
         {
             bool bSplitFound = false;
             //Check new token for separators
-            for (const FString& Separator : ModelParams.Advanced.PartialsSeparators)
+            for (const FString& Separator : ModelParams.Advanced.Output.PartialsSeparators)
             {
                 if (Token.Contains(Separator))
                 {
@@ -46,7 +46,7 @@ FLlamaNative::FLlamaNative()
 
         //Markdown stream splitting
         TArray<TPair<FString, EMarkdownStreamState>> MdPartials;
-        if (ModelParams.Advanced.bSplitMarkdown)
+        if (ModelParams.Advanced.Markdown.bSplitMarkdown)
         {
             for (int32 i = 0; i < Token.Len(); i++)
             {
@@ -55,7 +55,7 @@ FLlamaNative::FLlamaNative()
 
             //Check if raw token contains a separator — if so, emit accumulated markdown partials
             bool bMdSplitFound = false;
-            for (const FString& Separator : ModelParams.Advanced.PartialsSeparators)
+            for (const FString& Separator : ModelParams.Advanced.Output.PartialsSeparators)
             {
                 if (Token.Contains(Separator))
                 {
@@ -95,7 +95,7 @@ FLlamaNative::FLlamaNative()
 
     Internal->OnGenerationComplete = [this](const std::string& Response, float Duration, int32 TokensGenerated, float SpeedTps)
     {
-        if (ModelParams.Advanced.bLogGenerationStats)
+        if (ModelParams.Advanced.Output.bLogGenerationStats)
         {
             UE_LOG(LlamaLog, Log, TEXT("TGS - Generated %d tokens in %1.2fs (%1.2ftps)"), TokensGenerated, Duration, SpeedTps);
         }
@@ -112,7 +112,7 @@ FLlamaNative::FLlamaNative()
         FString Partial;
 
         //Emit last full partial if we didn't end on punctuation
-        if (ModelParams.Advanced.bEmitPartials && CombinedTextOnPartialEmit.Len() != CombinedPieceText.Len())
+        if (ModelParams.Advanced.Output.bEmitPartials && CombinedTextOnPartialEmit.Len() != CombinedPieceText.Len())
         {
             Partial = FLlamaString::GetLastSentence(CombinedPieceText);
         }
@@ -123,7 +123,7 @@ FLlamaNative::FLlamaNative()
 
         //Flush remaining markdown partials
         TArray<TPair<FString, EMarkdownStreamState>> MdFinalPartials;
-        if (ModelParams.Advanced.bSplitMarkdown)
+        if (ModelParams.Advanced.Markdown.bSplitMarkdown)
         {
             CollectMarkdownPartials(MdFinalPartials);
             ResetMarkdownState();
@@ -157,7 +157,7 @@ FLlamaNative::FLlamaNative()
 
     Internal->OnPromptProcessed = [this](int32 TokensProcessed, EChatTemplateRole RoleProcessed, float SpeedTps)
     {
-        if (ModelParams.Advanced.bLogGenerationStats)
+        if (ModelParams.Advanced.Output.bLogGenerationStats)
         {
             UE_LOG(LlamaLog, Log, TEXT("PPS - Processed %d tokens at %1.2ftps"), TokensProcessed, SpeedTps);
         }
@@ -638,11 +638,11 @@ void FLlamaNative::ImpersonateTemplatedToken(const FString& Token, EChatTemplate
     FString Partial;
 
     //Compute Partials
-    if (ModelParams.Advanced.bEmitPartials)
+    if (ModelParams.Advanced.Output.bEmitPartials)
     {
         bool bSplitFound = false;
         //Check new token for separators
-        for (const FString& Separator : ModelParams.Advanced.PartialsSeparators)
+        for (const FString& Separator : ModelParams.Advanced.Output.PartialsSeparators)
         {
             if (Token.Contains(Separator))
             {
@@ -1017,9 +1017,9 @@ void FLlamaNative::ProcessMarkdownChar(TCHAR Ch)
         {
             // Closing * -> exit Italic.
             bool bIsSingleWord = !MdCurrentSegmentText.Contains(TEXT(" "));
-            bool bIsEmphasis = ModelParams.Advanced.bSingleWordItalicAsEmphasis && bIsSingleWord;
+            bool bIsEmphasis = ModelParams.Advanced.Markdown.bSingleWordItalicAsEmphasis && bIsSingleWord;
 
-            if (bIsEmphasis && ModelParams.Advanced.bCollectEmphasisInText)
+            if (bIsEmphasis && ModelParams.Advanced.Markdown.bCollectEmphasisInText)
             {
                 // Fold emphasis back into the preceding Text segment: merge italic content
                 // into the last pending text segment or current text accumulator.
@@ -1118,7 +1118,7 @@ void FLlamaNative::ProcessMarkdownChar(TCHAR Ch)
 
 void FLlamaNative::CollectMarkdownPartials(TArray<TPair<FString, EMarkdownStreamState>>& OutPartials)
 {
-    const bool bTrim = ModelParams.Advanced.bTrimMarkdownPartialWhitespace;
+    const bool bTrim = ModelParams.Advanced.Markdown.bTrimMarkdownPartialWhitespace;
 
     // Append current segment to pending list for uniform processing
     if (!MdCurrentSegmentText.IsEmpty())

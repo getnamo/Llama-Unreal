@@ -54,9 +54,9 @@ ULlamaComponent::ULlamaComponent(const FObjectInitializer &ObjectInitializer)
     PrimaryComponentTick.bStartWithTickEnabled = true;
 
     //All sentence ending formatting.
-    ModelParams.Advanced.PartialsSeparators.Add(TEXT("."));
-    ModelParams.Advanced.PartialsSeparators.Add(TEXT("?"));
-    ModelParams.Advanced.PartialsSeparators.Add(TEXT("!"));
+    ModelParams.Advanced.Output.PartialsSeparators.Add(TEXT("."));
+    ModelParams.Advanced.Output.PartialsSeparators.Add(TEXT("?"));
+    ModelParams.Advanced.Output.PartialsSeparators.Add(TEXT("!"));
 }
 
 ULlamaComponent::~ULlamaComponent()

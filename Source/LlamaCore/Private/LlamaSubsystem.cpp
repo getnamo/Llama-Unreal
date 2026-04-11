@@ -42,9 +42,9 @@ void ULlamaSubsystem::Initialize(FSubsystemCollectionBase& Collection)
     };
 
     //All sentence ending formatting.
-    ModelParams.Advanced.PartialsSeparators.Add(TEXT("."));
-    ModelParams.Advanced.PartialsSeparators.Add(TEXT("?"));
-    ModelParams.Advanced.PartialsSeparators.Add(TEXT("!"));
+    ModelParams.Advanced.Output.PartialsSeparators.Add(TEXT("."));
+    ModelParams.Advanced.Output.PartialsSeparators.Add(TEXT("?"));
+    ModelParams.Advanced.Output.PartialsSeparators.Add(TEXT("!"));
 }
 
 void ULlamaSubsystem::Deinitialize()
