@@ -22,6 +22,7 @@ public:
 	//Callbacks
 	TFunction<void(const FString& Token)> OnTokenGenerated;
 	TFunction<void(const FString& Partial)> OnPartialGenerated;		//usually considered sentences, good for TTS.
+	TFunction<void(const FString& Partial, EMarkdownStreamState State)> OnMarkdownPartialGenerated; //markdown-aware partials
 	TFunction<void(const FString& Response)> OnResponseGenerated;	//per round
 	TFunction<void(int32 TokensProcessed, EChatTemplateRole ForRole, float Speed)> OnPromptProcessed;	//when an inserted prompt has finished processing (non-generation prompt)
 	TFunction<void()> OnGenerationStarted;
@@ -121,6 +122,22 @@ protected:
 	//BG State - do not read/write on GT
 	FString CombinedPieceText;	//accumulates tokens into full string during per-token inference.
 	FString CombinedTextOnPartialEmit; //state needed to check if on finish we've emitted all partials (broken grammar).
+
+	// Markdown stream splitter state (BG thread only)
+	EMarkdownStreamState MdCurrentState = EMarkdownStreamState::Text;
+	bool bMdAtLineStart = true;
+	int32 MdPendingStars = 0;
+	bool bMdClosingDelimiter = false;
+	bool bMdConsumingHeadingPrefix = false;
+
+	FString MdCurrentSegmentText;
+	EMarkdownStreamState MdCurrentSegmentState = EMarkdownStreamState::Text;
+	TArray<TPair<FString, EMarkdownStreamState>> MdPendingSegments;
+
+	void ProcessMarkdownChar(TCHAR Ch);
+	void FinalizeCurrentMdSegment();
+	void CollectMarkdownPartials(TArray<TPair<FString, EMarkdownStreamState>>& OutPartials);
+	void ResetMarkdownState();
 
 	//Threading
 	void StartLLMThread();

@@ -42,6 +42,10 @@ public:
     UPROPERTY(BlueprintAssignable)
     FOnPartialSignature OnPartialGenerated;
 
+    //Markdown-aware partials: content stripped of formatting chars, tagged with markdown state (Text, Italic, Bold, Heading, Quote). Enable bSplitMarkdown in Advanced params.
+    UPROPERTY(BlueprintAssignable)
+    FOnMarkdownPartialSignature OnMarkdownPartialGenerated;
+
     //Usually processing bound operation; TPS given for PPS
     UPROPERTY(BlueprintAssignable)
     FOnPromptProcessedSignature OnPromptProcessed;

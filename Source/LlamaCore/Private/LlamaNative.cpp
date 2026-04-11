@@ -44,21 +44,53 @@ FLlamaNative::FLlamaNative()
             }
         }
 
-        //Emit token to game thread
-        if (OnTokenGenerated)
+        //Markdown stream splitting
+        TArray<TPair<FString, EMarkdownStreamState>> MdPartials;
+        if (ModelParams.Advanced.bSplitMarkdown)
         {
-            EnqueueGTTask([this, Token, Partial]()
+            for (int32 i = 0; i < Token.Len(); i++)
             {
-                if (OnTokenGenerated)
+                ProcessMarkdownChar(Token[i]);
+            }
+
+            //Check if raw token contains a separator — if so, emit accumulated markdown partials
+            bool bMdSplitFound = false;
+            for (const FString& Separator : ModelParams.Advanced.PartialsSeparators)
+            {
+                if (Token.Contains(Separator))
                 {
-                    OnTokenGenerated(Token);
+                    bMdSplitFound = true;
+                    break;
                 }
-                if (OnPartialGenerated && !Partial.IsEmpty())
-                {
-                    OnPartialGenerated(Partial);
-                }
-            });
+            }
+            if (bMdSplitFound)
+            {
+                CollectMarkdownPartials(MdPartials);
+            }
         }
+
+        //Emit token to game thread
+        EnqueueGTTask([this, Token, Partial, MdPartials]()
+        {
+            if (OnTokenGenerated)
+            {
+                OnTokenGenerated(Token);
+            }
+            if (OnPartialGenerated && !Partial.IsEmpty())
+            {
+                OnPartialGenerated(Partial);
+            }
+            if (OnMarkdownPartialGenerated)
+            {
+                for (const auto& MdPartial : MdPartials)
+                {
+                    if (!MdPartial.Key.IsEmpty())
+                    {
+                        OnMarkdownPartialGenerated(MdPartial.Key, MdPartial.Value);
+                    }
+                }
+            }
+        });
     };
 
     Internal->OnGenerationComplete = [this](const std::string& Response, float Duration, int32 TokensGenerated, float SpeedTps)
@@ -89,14 +121,32 @@ FLlamaNative::FLlamaNative()
         CombinedPieceText.Empty();
         CombinedTextOnPartialEmit.Empty();
 
+        //Flush remaining markdown partials
+        TArray<TPair<FString, EMarkdownStreamState>> MdFinalPartials;
+        if (ModelParams.Advanced.bSplitMarkdown)
+        {
+            CollectMarkdownPartials(MdFinalPartials);
+            ResetMarkdownState();
+        }
+
         //Emit response generated to general listeners
         FString ResponseString = FLlamaString::ToUE(Response);
-        EnqueueGTTask([this, ResponseString, Partial]
+        EnqueueGTTask([this, ResponseString, Partial, MdFinalPartials]
         {
             //ensure partials are fully emitted too
             if (OnPartialGenerated && !Partial.IsEmpty())
             {
                 OnPartialGenerated(Partial);
+            }
+            if (OnMarkdownPartialGenerated)
+            {
+                for (const auto& MdPartial : MdFinalPartials)
+                {
+                    if (!MdPartial.Key.IsEmpty())
+                    {
+                        OnMarkdownPartialGenerated(MdPartial.Key, MdPartial.Value);
+                    }
+                }
             }
             if (OnResponseGenerated)
             {
@@ -883,6 +933,189 @@ void FLlamaNative::OnAudioSegment(const FLlamaAudioSegment& Segment)
     Prompt.MediaEntries.Add(MoveTemp(Entry));
 
     InsertMultimodalPrompt(Prompt);  // enqueues to BG task queue
+}
+
+// --- Markdown stream splitter ---
+
+void FLlamaNative::FinalizeCurrentMdSegment()
+{
+    if (!MdCurrentSegmentText.IsEmpty())
+    {
+        MdPendingSegments.Add(TPair<FString, EMarkdownStreamState>(MoveTemp(MdCurrentSegmentText), MdCurrentSegmentState));
+        MdCurrentSegmentText.Empty();
+    }
+    MdCurrentSegmentState = MdCurrentState;
+}
+
+void FLlamaNative::ProcessMarkdownChar(TCHAR Ch)
+{
+    // Resolve pending stars first
+    if (MdPendingStars > 0)
+    {
+        if (Ch == TEXT('*'))
+        {
+            if (bMdClosingDelimiter)
+            {
+                // Closing ** -> exit Bold
+                FinalizeCurrentMdSegment();
+                MdCurrentState = EMarkdownStreamState::Text;
+                MdCurrentSegmentState = MdCurrentState;
+            }
+            else
+            {
+                // Opening ** -> enter Bold
+                FinalizeCurrentMdSegment();
+                MdCurrentState = EMarkdownStreamState::Bold;
+                MdCurrentSegmentState = MdCurrentState;
+            }
+            MdPendingStars = 0;
+            bMdClosingDelimiter = false;
+            bMdAtLineStart = false;
+            return;
+        }
+        else
+        {
+            // Single star resolved
+            if (bMdClosingDelimiter)
+            {
+                // Inside Bold, single * is literal content
+                MdCurrentSegmentText += TEXT('*');
+            }
+            else
+            {
+                // Opening single * -> enter Italic
+                FinalizeCurrentMdSegment();
+                MdCurrentState = EMarkdownStreamState::Italic;
+                MdCurrentSegmentState = MdCurrentState;
+            }
+            MdPendingStars = 0;
+            bMdClosingDelimiter = false;
+            // Fall through to process Ch normally
+        }
+    }
+
+    // Handle heading prefix consumption
+    if (bMdConsumingHeadingPrefix)
+    {
+        if (Ch == TEXT('#'))
+        {
+            return; // consume additional # chars
+        }
+        if (Ch == TEXT(' '))
+        {
+            bMdConsumingHeadingPrefix = false;
+            return; // consume the space after #
+        }
+        bMdConsumingHeadingPrefix = false;
+        // Fall through — first real content char of heading
+    }
+
+    // Star handling
+    if (Ch == TEXT('*'))
+    {
+        if (MdCurrentState == EMarkdownStreamState::Italic)
+        {
+            // Closing * -> exit Italic
+            FinalizeCurrentMdSegment();
+            MdCurrentState = EMarkdownStreamState::Text;
+            MdCurrentSegmentState = MdCurrentState;
+            bMdAtLineStart = false;
+            return;
+        }
+        else if (MdCurrentState == EMarkdownStreamState::Bold)
+        {
+            // Might be start of closing **
+            MdPendingStars = 1;
+            bMdClosingDelimiter = true;
+            return;
+        }
+        else
+        {
+            // Text/Heading/Quote — might be opening * or **
+            MdPendingStars = 1;
+            bMdClosingDelimiter = false;
+            return;
+        }
+    }
+
+    // Newline handling
+    if (Ch == TEXT('\n'))
+    {
+        if (MdCurrentState == EMarkdownStreamState::Heading || MdCurrentState == EMarkdownStreamState::Quote)
+        {
+            FinalizeCurrentMdSegment();
+            MdCurrentState = EMarkdownStreamState::Text;
+            MdCurrentSegmentState = MdCurrentState;
+        }
+        bMdAtLineStart = true;
+        MdCurrentSegmentText += Ch;
+        return;
+    }
+
+    // Line-start formatting
+    if (bMdAtLineStart && MdCurrentState == EMarkdownStreamState::Text)
+    {
+        if (Ch == TEXT('#'))
+        {
+            FinalizeCurrentMdSegment();
+            MdCurrentState = EMarkdownStreamState::Heading;
+            MdCurrentSegmentState = MdCurrentState;
+            bMdConsumingHeadingPrefix = true;
+            bMdAtLineStart = false;
+            return;
+        }
+        if (Ch == TEXT('>'))
+        {
+            FinalizeCurrentMdSegment();
+            MdCurrentState = EMarkdownStreamState::Quote;
+            MdCurrentSegmentState = MdCurrentState;
+            bMdAtLineStart = false;
+            // Check if next char is space — handled by consuming it if present
+            // For simplicity, we'll just skip the > and let space be content
+            return;
+        }
+    }
+
+    // Skip space after > for quotes
+    if (MdCurrentState == EMarkdownStreamState::Quote && bMdAtLineStart && Ch == TEXT(' '))
+    {
+        bMdAtLineStart = false;
+        return;
+    }
+
+    bMdAtLineStart = false;
+    MdCurrentSegmentText += Ch;
+}
+
+void FLlamaNative::CollectMarkdownPartials(TArray<TPair<FString, EMarkdownStreamState>>& OutPartials)
+{
+    // Collect all pending segments + current segment
+    for (auto& Seg : MdPendingSegments)
+    {
+        if (!Seg.Key.IsEmpty())
+        {
+            OutPartials.Add(MoveTemp(Seg));
+        }
+    }
+    MdPendingSegments.Empty();
+
+    if (!MdCurrentSegmentText.IsEmpty())
+    {
+        OutPartials.Add(TPair<FString, EMarkdownStreamState>(MoveTemp(MdCurrentSegmentText), MdCurrentSegmentState));
+        MdCurrentSegmentText.Empty();
+    }
+}
+
+void FLlamaNative::ResetMarkdownState()
+{
+    MdCurrentState = EMarkdownStreamState::Text;
+    bMdAtLineStart = true;
+    MdPendingStars = 0;
+    bMdClosingDelimiter = false;
+    bMdConsumingHeadingPrefix = false;
+    MdCurrentSegmentText.Empty();
+    MdCurrentSegmentState = EMarkdownStreamState::Text;
+    MdPendingSegments.Empty();
 }
 
 void FLlamaNative::GetPromptEmbeddings(const FString& Text, TFunction<void(const TArray<float>& Embeddings, const FString& SourceText)> OnEmbeddings)

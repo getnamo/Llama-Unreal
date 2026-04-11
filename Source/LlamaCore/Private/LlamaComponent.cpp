@@ -37,6 +37,10 @@ ULlamaComponent::ULlamaComponent(const FObjectInitializer &ObjectInitializer)
     {
         OnPartialGenerated.Broadcast(Partial);
     };
+    LlamaNative->OnMarkdownPartialGenerated = [this](const FString& Partial, EMarkdownStreamState State)
+    {
+        OnMarkdownPartialGenerated.Broadcast(Partial, State);
+    };
     LlamaNative->OnPromptProcessed = [this](int32 TokensProcessed, EChatTemplateRole Role, float Speed)
     {
         OnPromptProcessed.Broadcast(TokensProcessed, Role, Speed);

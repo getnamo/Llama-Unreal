@@ -26,6 +26,18 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE(FVoidEventSignature);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnEmbeddingsSignature, const TArray<float>&, Embeddings, const FString&, SourceText);
 
 UENUM(BlueprintType)
+enum class EMarkdownStreamState : uint8
+{
+    Text,
+    Italic,
+    Bold,
+    Heading,
+    Quote
+};
+
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnMarkdownPartialSignature, const FString&, Partial, EMarkdownStreamState, State);
+
+UENUM(BlueprintType)
 enum class ELlamaMediaType : uint8
 {
     Image,
@@ -200,6 +212,10 @@ struct FLLMModelAdvancedParams
     //usually . ? !
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
     TArray<FString> PartialsSeparators;
+
+    //When enabled, markdown formatting is parsed from the token stream and OnMarkdownPartialGenerated emits partials tagged with state (Text, Italic, Bold, Heading, Quote). Formatting chars are stripped.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params - Markdown")
+    bool bSplitMarkdown = false;
 
     //When enabled (default), thinking models (e.g. Qwen3) use chain-of-thought reasoning in <think> blocks.
     //When disabled, injects an empty think block to suppress reasoning entirely (faster, no thinking tokens).
