@@ -384,9 +384,10 @@ void FLlamaInternal::ResetContextHistory(bool bKeepSystemsPrompt)
 void FLlamaInternal::RollbackContextHistoryByTokens(int32 NTokensToErase)
 {
     // clear the last n_regen tokens from the KV cache and update n_past
-    int32 TokensUsed = llama_memory_seq_pos_max(llama_get_memory(Context), 0); //FilledContextCharLength
+    // seq_pos_max returns the max position (0-indexed), so token count = seq_pos_max + 1
+    int32 TokenCount = llama_memory_seq_pos_max(llama_get_memory(Context), 0) + 1;
 
-    llama_memory_seq_rm(llama_get_memory(Context), 0, TokensUsed - NTokensToErase, -1);
+    llama_memory_seq_rm(llama_get_memory(Context), 0, TokenCount - NTokensToErase, -1);
 
     //FilledContextCharLength -= NTokensToErase;
 
