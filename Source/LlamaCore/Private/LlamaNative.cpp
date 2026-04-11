@@ -1015,10 +1015,39 @@ void FLlamaNative::ProcessMarkdownChar(TCHAR Ch)
     {
         if (MdCurrentState == EMarkdownStreamState::Italic)
         {
-            // Closing * -> exit Italic
-            FinalizeCurrentMdSegment();
-            MdCurrentState = EMarkdownStreamState::Text;
-            MdCurrentSegmentState = MdCurrentState;
+            // Closing * -> exit Italic.
+            bool bIsSingleWord = !MdCurrentSegmentText.Contains(TEXT(" "));
+            bool bIsEmphasis = ModelParams.Advanced.bSingleWordItalicAsEmphasis && bIsSingleWord;
+
+            if (bIsEmphasis && ModelParams.Advanced.bCollectEmphasisInText)
+            {
+                // Fold emphasis back into the preceding Text segment: merge italic content
+                // into the last pending text segment or current text accumulator.
+                FString EmphasisWord = MoveTemp(MdCurrentSegmentText);
+                MdCurrentSegmentText.Empty();
+                MdCurrentState = EMarkdownStreamState::Text;
+                MdCurrentSegmentState = EMarkdownStreamState::Text;
+
+                // Append to the last pending Text segment if it exists, otherwise start fresh
+                if (MdPendingSegments.Num() > 0 && MdPendingSegments.Last().Value == EMarkdownStreamState::Text)
+                {
+                    MdPendingSegments.Last().Key += EmphasisWord;
+                }
+                else
+                {
+                    MdCurrentSegmentText = EmphasisWord;
+                }
+            }
+            else
+            {
+                if (bIsEmphasis)
+                {
+                    MdCurrentSegmentState = EMarkdownStreamState::Emphasis;
+                }
+                FinalizeCurrentMdSegment();
+                MdCurrentState = EMarkdownStreamState::Text;
+                MdCurrentSegmentState = MdCurrentState;
+            }
             bMdAtLineStart = false;
             return;
         }
@@ -1089,20 +1118,42 @@ void FLlamaNative::ProcessMarkdownChar(TCHAR Ch)
 
 void FLlamaNative::CollectMarkdownPartials(TArray<TPair<FString, EMarkdownStreamState>>& OutPartials)
 {
-    // Collect all pending segments + current segment
+    const bool bTrim = ModelParams.Advanced.bTrimMarkdownPartialWhitespace;
+
+    // Append current segment to pending list for uniform processing
+    if (!MdCurrentSegmentText.IsEmpty())
+    {
+        MdPendingSegments.Add(TPair<FString, EMarkdownStreamState>(MoveTemp(MdCurrentSegmentText), MdCurrentSegmentState));
+        MdCurrentSegmentText.Empty();
+    }
+
+    // Merge consecutive same-state segments (e.g. Text segments reunited by emphasis folding),
+    // then trim. Merging before trimming preserves natural whitespace between merged parts.
     for (auto& Seg : MdPendingSegments)
     {
-        if (!Seg.Key.IsEmpty())
+        if (OutPartials.Num() > 0 && OutPartials.Last().Value == Seg.Value)
+        {
+            // Same state as previous — merge raw (whitespace already present in content)
+            OutPartials.Last().Key += Seg.Key;
+        }
+        else if (!Seg.Key.IsEmpty())
         {
             OutPartials.Add(MoveTemp(Seg));
         }
     }
     MdPendingSegments.Empty();
 
-    if (!MdCurrentSegmentText.IsEmpty())
+    // Trim and remove empties after merging
+    if (bTrim)
     {
-        OutPartials.Add(TPair<FString, EMarkdownStreamState>(MoveTemp(MdCurrentSegmentText), MdCurrentSegmentState));
-        MdCurrentSegmentText.Empty();
+        for (int32 i = OutPartials.Num() - 1; i >= 0; --i)
+        {
+            OutPartials[i].Key.TrimStartAndEndInline();
+            if (OutPartials[i].Key.IsEmpty())
+            {
+                OutPartials.RemoveAt(i);
+            }
+        }
     }
 }
 

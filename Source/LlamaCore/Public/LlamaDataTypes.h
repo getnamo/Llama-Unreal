@@ -32,7 +32,8 @@ enum class EMarkdownStreamState : uint8
     Italic,
     Bold,
     Heading,
-    Quote
+    Quote,
+    Emphasis   //Single-word italic reclassified (e.g. *really* mid-sentence). Distinct from multi-word Italic actions.
 };
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnMarkdownPartialSignature, const FString&, Partial, EMarkdownStreamState, State);
@@ -216,6 +217,18 @@ struct FLLMModelAdvancedParams
     //When enabled, markdown formatting is parsed from the token stream and OnMarkdownPartialGenerated emits partials tagged with state (Text, Italic, Bold, Heading, Quote). Formatting chars are stripped.
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params - Markdown")
     bool bSplitMarkdown = false;
+
+    //When enabled, leading and trailing whitespace/newlines are trimmed from each emitted markdown partial.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params - Markdown")
+    bool bTrimMarkdownPartialWhitespace = true;
+
+    //When enabled, single-word italic blocks (e.g. *really*) are reclassified as Emphasis instead of Italic. Useful to distinguish mid-sentence emphasis from multi-word action descriptions like *He walks away.*
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params - Markdown")
+    bool bSingleWordItalicAsEmphasis = true;
+
+    //When enabled, emphasis words are folded into the surrounding Text segment instead of breaking it. e.g. "He looked *really* surprised." emits one Text partial "He looked really surprised." instead of three.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params - Markdown")
+    bool bCollectEmphasisInText = true;
 
     //When enabled (default), thinking models (e.g. Qwen3) use chain-of-thought reasoning in <think> blocks.
     //When disabled, injects an empty think block to suppress reasoning entirely (faster, no thinking tokens).
