@@ -22,7 +22,7 @@ class LLAMACORE_API ULlamaComponent : public UActorComponent
     GENERATED_BODY()
 public:
     ULlamaComponent(const FObjectInitializer &ObjectInitializer);
-    ~ULlamaComponent();
+    virtual ~ULlamaComponent();
 
     virtual void Activate(bool bReset) override;
     virtual void Deactivate() override;
@@ -86,41 +86,41 @@ public:
 
     //loads model from ModelParams. If bForceReload it will force the model to reload even if already loaded.
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
-    void LoadModel(bool bForceReload = true);
+    virtual void LoadModel(bool bForceReload = true);
 
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
-    void UnloadModel();
+    virtual void UnloadModel();
 
     UFUNCTION(BlueprintPure, Category = "LLM Model Component")
-    bool IsModelLoaded();
+    virtual bool IsModelLoaded();
 
 
     //Clears the prompt, allowing a new context - optionally keeping the initial system prompt
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
-    void ResetContextHistory(bool bKeepSystemPrompt = false);
+    virtual void ResetContextHistory(bool bKeepSystemPrompt = false);
 
     //removes what the LLM replied
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
-    void RemoveLastAssistantReply();
+    virtual void RemoveLastAssistantReply();
 
     //removes what you said and what the LLM replied
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
-    void RemoveLastUserInput();
+    virtual void RemoveLastUserInput();
 
     //fine-grained removal, may desync history
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
-    void RemoveLastNTokens(int32 TokenCount = 1);
+    virtual void RemoveLastNTokens(int32 TokenCount = 1);
 
     //Main input function
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
-    void InsertTemplatedPrompt(UPARAM(meta=(MultiLine=true)) const FString& Text, EChatTemplateRole Role = EChatTemplateRole::User, bool bAddAssistantBOS = false, bool bGenerateReply = true);
+    virtual void InsertTemplatedPrompt(UPARAM(meta=(MultiLine=true)) const FString& Text, EChatTemplateRole Role = EChatTemplateRole::User, bool bAddAssistantBOS = false, bool bGenerateReply = true);
 
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
-    void InsertTemplatedPromptStruct(const FLlamaChatPrompt& ChatPrompt);
+    virtual void InsertTemplatedPromptStruct(const FLlamaChatPrompt& ChatPrompt);
 
     //does not apply formatting before running inference
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
-    void InsertRawPrompt(UPARAM(meta = (MultiLine = true)) const FString& Text, bool bGenerateReply = true);
+    virtual void InsertRawPrompt(UPARAM(meta = (MultiLine = true)) const FString& Text, bool bGenerateReply = true);
 
     //Typically as user, this pretends the input was generated in history and all downstream functions should trigger. KV-cache won't be updated if no models are loaded.
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component - Impersonation via External API")
@@ -136,10 +136,10 @@ public:
 
     //Force stop generating new tokens
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
-    void StopGeneration();
+    virtual void StopGeneration();
 
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
-    void ResumeGeneration();
+    virtual void ResumeGeneration();
 
     //Obtain the currently formatted context
     UFUNCTION(BlueprintPure, Category = "LLM Model Component")
@@ -150,30 +150,30 @@ public:
 
     //Multimodal - Image
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component - Multimodal")
-    void InsertTemplateImagePrompt(UTexture2D* Image, const FString& Text, EChatTemplateRole Role = EChatTemplateRole::User, bool bAddAssistantBOS = false, bool bGenerateReply = true);
+    virtual void InsertTemplateImagePrompt(UTexture2D* Image, const FString& Text, EChatTemplateRole Role = EChatTemplateRole::User, bool bAddAssistantBOS = false, bool bGenerateReply = true);
 
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component - Multimodal")
-    void InsertTemplateImagePromptFromFile(const FString& ImagePath, const FString& Text, EChatTemplateRole Role = EChatTemplateRole::User, bool bAddAssistantBOS = false, bool bGenerateReply = true);
+    virtual void InsertTemplateImagePromptFromFile(const FString& ImagePath, const FString& Text, EChatTemplateRole Role = EChatTemplateRole::User, bool bAddAssistantBOS = false, bool bGenerateReply = true);
 
     //Multimodal - Audio
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component - Multimodal")
-    void InsertTemplateAudioPrompt(const TArray<float>& PCMAudio, const FString& Text, EChatTemplateRole Role = EChatTemplateRole::User, bool bAddAssistantBOS = false, bool bGenerateReply = true);
+    virtual void InsertTemplateAudioPrompt(const TArray<float>& PCMAudio, const FString& Text, EChatTemplateRole Role = EChatTemplateRole::User, bool bAddAssistantBOS = false, bool bGenerateReply = true);
 
     //Multimodal - Full control with multiple media entries in one message
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component - Multimodal")
-    void InsertMultimodalPrompt(const FLlamaMultimodalPrompt& Prompt);
+    virtual void InsertMultimodalPrompt(const FLlamaMultimodalPrompt& Prompt);
 
     UFUNCTION(BlueprintPure, Category = "LLM Model Component - Multimodal")
-    bool IsMultimodalLoaded() const;
+    virtual bool IsMultimodalLoaded() const;
 
     UFUNCTION(BlueprintPure, Category = "LLM Model Component - Multimodal")
-    bool SupportsVision() const;
+    virtual bool SupportsVision() const;
 
     UFUNCTION(BlueprintPure, Category = "LLM Model Component - Multimodal")
-    bool SupportsAudio() const;
+    virtual bool SupportsAudio() const;
 
     UFUNCTION(BlueprintPure, Category = "LLM Model Component - Multimodal")
-    int32 GetAudioSampleRate() const;
+    virtual int32 GetAudioSampleRate() const;
 
     // -----------------------------------------------------------------------
     // Audio Capture Source — zero GT hop consumer wiring
@@ -197,8 +197,12 @@ public:
 
     //This function requires embedding mode or it will not run
     UFUNCTION(BlueprintCallable, Category = "LLM Model Embedding Mode")
-    void GeneratePromptEmbeddingsForText(const FString& Text);
+    virtual void GeneratePromptEmbeddingsForText(const FString& Text);
 
-private:
-    class FLlamaNative* LlamaNative;
+protected:
+    // Factory for the native backend. Base returns `new FLlamaNative()`.
+    // Subclasses (e.g. ULlamaRemoteComponent) can return nullptr to opt out of local inference.
+    virtual class FLlamaNative* CreateNativeBackend();
+
+    class FLlamaNative* LlamaNative = nullptr;
 };
