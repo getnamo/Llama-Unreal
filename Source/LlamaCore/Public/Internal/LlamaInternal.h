@@ -71,6 +71,11 @@ public:
     //main function for structure insert and generation
     std::string InsertTemplatedPrompt(const std::string& Prompt, EChatTemplateRole Role = EChatTemplateRole::User, bool bAddAssistantBoS = true, bool bGenerateReply = true);
 
+    //Wipe KV + message state and re-ingest the supplied messages so the KV cache mirrors `Messages`.
+    //Each message is fed via InsertTemplatedPrompt(bGenerateReply=false) so the existing template+decode path runs.
+    //No reply generation. Caller is responsible for any GT-side state sync.
+    void RebuildContextFromHistory(const TArray<FStructuredChatMessage>& Messages);
+
     //continue generating from last stop
     std::string ResumeGeneration();
 

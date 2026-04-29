@@ -557,6 +557,32 @@ void FLlamaNative::InsertRawPrompt(const FString& Prompt, bool bGenerateReply, T
     });
 }
 
+void FLlamaNative::RebuildContextFromHistory(const FStructuredChatHistory& History, TFunction<void()> OnDone)
+{
+    if (!IsModelLoaded() && !bModelLoadInitiated)
+    {
+        UE_LOG(LlamaLog, Warning, TEXT("RebuildContextFromHistory: model not loaded, ignoring."));
+        return;
+    }
+
+    //Copy for thread safety (TArrays copy by value)
+    FStructuredChatHistory ThreadSafeHistory = History;
+
+    EnqueueBGTask([this, ThreadSafeHistory, OnDone](int64 TaskId)
+    {
+        Internal->RebuildContextFromHistory(ThreadSafeHistory.History);
+
+        //Sync GT model state, then dispatch user callback
+        SyncModelStateToInternal([this, OnDone]
+        {
+            if (OnDone)
+            {
+                OnDone();
+            }
+        });
+    });
+}
+
 void FLlamaNative::ImpersonateTemplatedPrompt(const FLlamaChatPrompt& Prompt)
 {
     //modify model state

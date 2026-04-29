@@ -15,8 +15,10 @@
  * streaming tokens, partials, rollback, multimodal prompts. Drop-in replacement: point `Endpoint.BaseUrl`
  * at your server and everything else behaves like a local ULlamaComponent.
  *
- * The local FLlamaNative backend is opted out (CreateNativeBackend returns nullptr), and
- * ModelParams.bRemoteMode is forced true so inherited rollback helpers manipulate state only.
+ * Both the local FLlamaNative backend and the remote HTTP client are allocated. SetUseRemote(bool)
+ * picks which one services the next inference call. When toggling, any active stream is cancelled
+ * and the chat history is lazily synced to the new backend on the next prompt insertion (going
+ * remote->local does a full KV rebuild via FLlamaNative::RebuildContextFromHistory).
  */
 UCLASS(ClassGroup = (LLM), meta = (BlueprintSpawnableComponent))
 class LLAMACORE_API ULlamaRemoteComponent : public ULlamaComponent
@@ -28,6 +30,21 @@ public:
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Remote")
     FLlamaRemoteEndpoint Endpoint;
+
+    /** True (default) = next inference call hits the remote endpoint. False = uses the local FLlamaNative backend.
+     *  Read-only in editor — mutate via SetUseRemote() so toggle side effects (stream cancel, slot erase, history sync) run. */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LLM Remote")
+    bool bUseRemote = true;
+
+    /** Toggle which backend services the next inference call. Cancels any active stream on the outgoing backend,
+     *  best-effort erases server slot if leaving remote, auto-loads the new backend if its config looks valid
+     *  (Endpoint.BaseUrl for remote, ModelParams.PathToModel for local), and marks history sync pending so the
+     *  next Insert* call rebuilds the destination's context from ModelState.ChatHistory. */
+    UFUNCTION(BlueprintCallable, Category = "LLM Remote")
+    void SetUseRemote(bool bNewUseRemote);
+
+    UFUNCTION(BlueprintPure, Category = "LLM Remote")
+    bool IsUsingRemote() const { return bUseRemote; }
 
     virtual void LoadModel(bool bForceReload = true) override;
     virtual void UnloadModel() override;
@@ -52,7 +69,6 @@ public:
     virtual int32 GetAudioSampleRate() const override;
 
 protected:
-    virtual class FLlamaNative* CreateNativeBackend() override { return nullptr; }
     virtual void BeginDestroy() override;
 
     /** Kick off a streaming chat completion from the current ModelState.ChatHistory. */
@@ -60,6 +76,11 @@ protected:
 
     /** Append a message to local state and fire OnPromptProcessed like the native backend does. */
     void AppendUserMessage(const FString& Content, EChatTemplateRole Role);
+
+    /** Called at the top of every Insert/StopGeneration override. If bPendingHistorySync is set
+     *  and we're routing local, calls LlamaNative->RebuildContextFromHistory(ModelState.ChatHistory)
+     *  so the local KV cache mirrors the conversation built up on the remote side. */
+    void FlushPendingHistorySyncIfNeeded();
 
     /** Simple sentence-level partial emitter matching native behavior (uses ModelParams.Advanced.Output.PartialsSeparators). */
     void HandleIncomingDelta(const FString& Delta);
@@ -86,4 +107,8 @@ private:
 
     /** Sentence-splitter buffer for OnPartialGenerated emulation. */
     FString PartialBuffer;
+
+    /** Set true on SetUseRemote() when there is non-empty history; cleared after FlushPendingHistorySyncIfNeeded
+     *  successfully syncs into the destination backend. */
+    bool bPendingHistorySync = false;
 };

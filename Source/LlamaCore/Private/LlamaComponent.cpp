@@ -186,6 +186,24 @@ void ULlamaComponent::ResetContextHistory(bool bKeepSystemPrompt)
     LlamaNative->ResetContextHistory(bKeepSystemPrompt);
 }
 
+void ULlamaComponent::RebuildContextFromHistory(const FStructuredChatHistory& History)
+{
+    if (LlamaNative && !ModelParams.bRemoteMode)
+    {
+        LlamaNative->RebuildContextFromHistory(History);
+        return;
+    }
+
+    //State-only fallback (no native backend, or running in remote/impersonation mode):
+    //overwrite ChatHistory and notify listeners. KV cache (if any) is not touched.
+    ModelState.ChatHistory = History;
+    if (ModelState.ChatHistory.History.Num() > 0)
+    {
+        ModelState.LastRole = ModelState.ChatHistory.History.Last().Role;
+    }
+    OnPromptProcessed.Broadcast(0, ModelState.LastRole, 0.f);
+}
+
 void ULlamaComponent::RemoveLastAssistantReply()
 {
     if (ModelParams.bRemoteMode || !LlamaNative)

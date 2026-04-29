@@ -99,6 +99,13 @@ public:
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
     virtual void ResetContextHistory(bool bKeepSystemPrompt = false);
 
+    /** Wipe state and re-ingest the supplied chat history so the local model's KV cache reflects
+     *  it. Useful for save-game restore, branching dialogue, and remote->local sync. No reply is
+     *  generated. If no native backend is allocated (remote-only), only ModelState.ChatHistory is
+     *  overwritten and OnPromptProcessed is fired. */
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
+    virtual void RebuildContextFromHistory(const FStructuredChatHistory& History);
+
     //removes what the LLM replied
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
     virtual void RemoveLastAssistantReply();

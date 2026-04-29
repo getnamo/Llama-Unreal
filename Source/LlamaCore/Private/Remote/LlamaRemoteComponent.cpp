@@ -2,6 +2,7 @@
 
 #include "Remote/LlamaRemoteComponent.h"
 #include "Remote/LlamaRemoteClient.h"
+#include "LlamaNative.h"
 #include "LlamaUtility.h"
 #include "Engine/Texture2D.h"
 #include "TextureResource.h"
@@ -15,7 +16,9 @@
 ULlamaRemoteComponent::ULlamaRemoteComponent(const FObjectInitializer& ObjectInitializer)
     : Super(ObjectInitializer)
 {
-    // Inherited rollback helpers in the base branch on this flag to mutate state only.
+    // Default to remote routing (preserves existing component contract).
+    bUseRemote = true;
+    // Keep base rollback dual-path (RemoveLastAssistantReply etc.) in lock-step with bUseRemote.
     ModelParams.bRemoteMode = true;
     Client = MakeUnique<FLlamaRemoteClient>();
 }
@@ -32,8 +35,83 @@ void ULlamaRemoteComponent::BeginDestroy()
     Super::BeginDestroy();
 }
 
-void ULlamaRemoteComponent::LoadModel(bool /*bForceReload*/)
+// ---------------- Backend toggle ----------------
+
+void ULlamaRemoteComponent::SetUseRemote(bool bNewUseRemote)
 {
+    if (bNewUseRemote == bUseRemote) return;
+
+    // Cancel any in-flight inference on the *outgoing* backend before flipping.
+    StopGeneration();
+
+    // If leaving remote with a server-side slot, fire-and-forget erase so the server frees its KV prefix.
+    if (bUseRemote && AssignedSlotId >= 0 && Client)
+    {
+        Client->EraseSlot(Endpoint.BaseUrl, AssignedSlotId, Endpoint.ConnectTimeoutSeconds, nullptr);
+        AssignedSlotId = -1;
+    }
+
+    bUseRemote = bNewUseRemote;
+    // Keep base-class rollback dual-path consistent.
+    ModelParams.bRemoteMode = bUseRemote;
+
+    // Auto-load the destination only if its config looks valid AND it isn't already loaded.
+    if (bUseRemote)
+    {
+        const bool bConfigOk = !Endpoint.BaseUrl.IsEmpty();
+        if (!bConfigOk)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("SetUseRemote(true): Endpoint.BaseUrl empty, skipping auto-load."));
+        }
+        else if (!bRemoteModelLoaded)
+        {
+            LoadModel(/*bForceReload=*/false);
+        }
+    }
+    else
+    {
+        const bool bConfigOk = !ModelParams.PathToModel.IsEmpty();
+        if (!bConfigOk)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("SetUseRemote(false): ModelParams.PathToModel empty, skipping auto-load."));
+        }
+        else if (!LlamaNative || !ModelState.bModelIsLoaded)
+        {
+            Super::LoadModel(/*bForceReload=*/false);
+        }
+    }
+
+    // Mark history sync pending; actual replay happens lazily on next Insert*. Back-to-back toggles cost nothing.
+    bPendingHistorySync = (ModelState.ChatHistory.History.Num() > 0);
+}
+
+void ULlamaRemoteComponent::FlushPendingHistorySyncIfNeeded()
+{
+    if (!bPendingHistorySync) return;
+
+    if (bUseRemote)
+    {
+        // Remote sends messages[] from ModelState.ChatHistory on every request anyway. Slot was reset
+        // in SetUseRemote, so cache_prompt:true rebuilds the server prefix on the next call.
+        bPendingHistorySync = false;
+        return;
+    }
+
+    // Local: need the model loaded to rebuild KV. If not loaded yet, keep flag set; will retry next call.
+    if (!LlamaNative || !ModelState.bModelIsLoaded) return;
+
+    LlamaNative->RebuildContextFromHistory(ModelState.ChatHistory);
+    bPendingHistorySync = false;
+}
+
+void ULlamaRemoteComponent::LoadModel(bool bForceReload)
+{
+    if (!bUseRemote)
+    {
+        Super::LoadModel(bForceReload);
+        return;
+    }
+
     TWeakObjectPtr<ULlamaRemoteComponent> Weak(this);
 
     Client->Health(Endpoint.BaseUrl, Endpoint.ConnectTimeoutSeconds,
@@ -121,6 +199,12 @@ void ULlamaRemoteComponent::LoadModel(bool /*bForceReload*/)
 
 void ULlamaRemoteComponent::UnloadModel()
 {
+    if (!bUseRemote)
+    {
+        Super::UnloadModel();
+        return;
+    }
+
     if (ActiveStream.IsValid())
     {
         FLlamaRemoteClient::CancelStream(ActiveStream);
@@ -133,11 +217,17 @@ void ULlamaRemoteComponent::UnloadModel()
 
 bool ULlamaRemoteComponent::IsModelLoaded()
 {
-    return bRemoteModelLoaded;
+    return bUseRemote ? bRemoteModelLoaded : Super::IsModelLoaded();
 }
 
-void ULlamaRemoteComponent::InsertTemplatedPrompt(const FString& Text, EChatTemplateRole Role, bool /*bAddAssistantBOS*/, bool bGenerateReply)
+void ULlamaRemoteComponent::InsertTemplatedPrompt(const FString& Text, EChatTemplateRole Role, bool bAddAssistantBOS, bool bGenerateReply)
 {
+    FlushPendingHistorySyncIfNeeded();
+    if (!bUseRemote)
+    {
+        Super::InsertTemplatedPrompt(Text, Role, bAddAssistantBOS, bGenerateReply);
+        return;
+    }
     AppendUserMessage(Text, Role);
     if (bGenerateReply)
     {
@@ -147,11 +237,23 @@ void ULlamaRemoteComponent::InsertTemplatedPrompt(const FString& Text, EChatTemp
 
 void ULlamaRemoteComponent::InsertTemplatedPromptStruct(const FLlamaChatPrompt& ChatPrompt)
 {
+    FlushPendingHistorySyncIfNeeded();
+    if (!bUseRemote)
+    {
+        Super::InsertTemplatedPromptStruct(ChatPrompt);
+        return;
+    }
     InsertTemplatedPrompt(ChatPrompt.Prompt, ChatPrompt.Role, ChatPrompt.bAddAssistantBOS, ChatPrompt.bGenerateReply);
 }
 
 void ULlamaRemoteComponent::InsertRawPrompt(const FString& Text, bool bGenerateReply)
 {
+    FlushPendingHistorySyncIfNeeded();
+    if (!bUseRemote)
+    {
+        Super::InsertRawPrompt(Text, bGenerateReply);
+        return;
+    }
     // Raw path uses /v1/completions — bypasses server chat template and local history.
     if (!bRemoteModelLoaded)
     {
@@ -203,6 +305,11 @@ void ULlamaRemoteComponent::InsertRawPrompt(const FString& Text, bool bGenerateR
 
 void ULlamaRemoteComponent::StopGeneration()
 {
+    if (!bUseRemote)
+    {
+        Super::StopGeneration();
+        return;
+    }
     if (ActiveStream.IsValid())
     {
         FLlamaRemoteClient::CancelStream(ActiveStream);
@@ -214,6 +321,11 @@ void ULlamaRemoteComponent::StopGeneration()
 
 void ULlamaRemoteComponent::ResumeGeneration()
 {
+    if (!bUseRemote)
+    {
+        Super::ResumeGeneration();
+        return;
+    }
     // Resuming a truncated remote stream would require server-side resume; not supported by OpenAI API.
     // Re-issue generation from current history instead.
     if (!ActiveStream.IsValid())
@@ -224,6 +336,11 @@ void ULlamaRemoteComponent::ResumeGeneration()
 
 void ULlamaRemoteComponent::ResetContextHistory(bool bKeepSystemPrompt)
 {
+    if (!bUseRemote)
+    {
+        Super::ResetContextHistory(bKeepSystemPrompt);
+        return;
+    }
     if (ActiveStream.IsValid())
     {
         FLlamaRemoteClient::CancelStream(ActiveStream);
@@ -255,8 +372,14 @@ void ULlamaRemoteComponent::ResetContextHistory(bool bKeepSystemPrompt)
 
 // ---------------- Multimodal ----------------
 
-void ULlamaRemoteComponent::InsertTemplateImagePrompt(UTexture2D* Image, const FString& Text, EChatTemplateRole Role, bool /*bAddAssistantBOS*/, bool bGenerateReply)
+void ULlamaRemoteComponent::InsertTemplateImagePrompt(UTexture2D* Image, const FString& Text, EChatTemplateRole Role, bool bAddAssistantBOS, bool bGenerateReply)
 {
+    FlushPendingHistorySyncIfNeeded();
+    if (!bUseRemote)
+    {
+        Super::InsertTemplateImagePrompt(Image, Text, Role, bAddAssistantBOS, bGenerateReply);
+        return;
+    }
     if (!Image)
     {
         OnError.Broadcast(TEXT("Invalid or null texture passed to InsertTemplateImagePrompt"), 52);
@@ -277,8 +400,14 @@ void ULlamaRemoteComponent::InsertTemplateImagePrompt(UTexture2D* Image, const F
     if (bGenerateReply) BeginStreamFromHistory(true);
 }
 
-void ULlamaRemoteComponent::InsertTemplateImagePromptFromFile(const FString& ImagePath, const FString& Text, EChatTemplateRole Role, bool /*bAddAssistantBOS*/, bool bGenerateReply)
+void ULlamaRemoteComponent::InsertTemplateImagePromptFromFile(const FString& ImagePath, const FString& Text, EChatTemplateRole Role, bool bAddAssistantBOS, bool bGenerateReply)
 {
+    FlushPendingHistorySyncIfNeeded();
+    if (!bUseRemote)
+    {
+        Super::InsertTemplateImagePromptFromFile(ImagePath, Text, Role, bAddAssistantBOS, bGenerateReply);
+        return;
+    }
     FLlamaRemoteMediaBlob Blob;
     Blob.bIsImage = true;
     if (!LoadImageFileAsPng(ImagePath, Blob.Bytes, Blob.Mime))
@@ -292,8 +421,14 @@ void ULlamaRemoteComponent::InsertTemplateImagePromptFromFile(const FString& Ima
     if (bGenerateReply) BeginStreamFromHistory(true);
 }
 
-void ULlamaRemoteComponent::InsertTemplateAudioPrompt(const TArray<float>& PCMAudio, const FString& Text, EChatTemplateRole Role, bool /*bAddAssistantBOS*/, bool bGenerateReply)
+void ULlamaRemoteComponent::InsertTemplateAudioPrompt(const TArray<float>& PCMAudio, const FString& Text, EChatTemplateRole Role, bool bAddAssistantBOS, bool bGenerateReply)
 {
+    FlushPendingHistorySyncIfNeeded();
+    if (!bUseRemote)
+    {
+        Super::InsertTemplateAudioPrompt(PCMAudio, Text, Role, bAddAssistantBOS, bGenerateReply);
+        return;
+    }
     FLlamaRemoteMediaBlob Blob;
     Blob.bIsImage = false;
     Blob.Mime = TEXT("audio/wav");
@@ -306,6 +441,12 @@ void ULlamaRemoteComponent::InsertTemplateAudioPrompt(const TArray<float>& PCMAu
 
 void ULlamaRemoteComponent::InsertMultimodalPrompt(const FLlamaMultimodalPrompt& Prompt)
 {
+    FlushPendingHistorySyncIfNeeded();
+    if (!bUseRemote)
+    {
+        Super::InsertMultimodalPrompt(Prompt);
+        return;
+    }
     for (const FLlamaMediaEntry& Entry : Prompt.MediaEntries)
     {
         FLlamaRemoteMediaBlob Blob;
@@ -378,10 +519,22 @@ void ULlamaRemoteComponent::InsertMultimodalPrompt(const FLlamaMultimodalPrompt&
     if (Prompt.bGenerateReply) BeginStreamFromHistory(true);
 }
 
-bool ULlamaRemoteComponent::IsMultimodalLoaded() const { return bRemoteVision || bRemoteAudio; }
-bool ULlamaRemoteComponent::SupportsVision() const     { return bRemoteVision; }
-bool ULlamaRemoteComponent::SupportsAudio() const      { return bRemoteAudio; }
-int32 ULlamaRemoteComponent::GetAudioSampleRate() const { return RemoteAudioSampleRate; }
+bool ULlamaRemoteComponent::IsMultimodalLoaded() const
+{
+    return bUseRemote ? (bRemoteVision || bRemoteAudio) : Super::IsMultimodalLoaded();
+}
+bool ULlamaRemoteComponent::SupportsVision() const
+{
+    return bUseRemote ? bRemoteVision : Super::SupportsVision();
+}
+bool ULlamaRemoteComponent::SupportsAudio() const
+{
+    return bUseRemote ? bRemoteAudio : Super::SupportsAudio();
+}
+int32 ULlamaRemoteComponent::GetAudioSampleRate() const
+{
+    return bUseRemote ? RemoteAudioSampleRate : Super::GetAudioSampleRate();
+}
 
 // ---------------- Internals ----------------
 

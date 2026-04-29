@@ -516,6 +516,33 @@ std::string FLlamaInternal::InsertTemplatedPrompt(const std::string& Prompt, ECh
     return Response;
 }
 
+void FLlamaInternal::RebuildContextFromHistory(const TArray<FStructuredChatMessage>& InMessages)
+{
+    if (!bIsModelLoaded)
+    {
+        UE_LOG(LlamaLog, Warning, TEXT("RebuildContextFromHistory: model not loaded, skipping."));
+        return;
+    }
+
+    if (IsGenerating())
+    {
+        StopGeneration();
+    }
+
+    //Cheap KV+state wipe (mirrors ResetContextHistory full-reset path)
+    ContextHistory.clear();
+    Messages.clear();
+    llama_memory_clear(llama_get_memory(Context), false);
+    FilledContextCharLength = 0;
+
+    //Replay each message through the existing template+decode pipeline without generating
+    for (const FStructuredChatMessage& Msg : InMessages)
+    {
+        const std::string Content = TCHAR_TO_UTF8(*Msg.Content);
+        InsertTemplatedPrompt(Content, Msg.Role, /*bAddAssistantBoS=*/false, /*bGenerateReply=*/false);
+    }
+}
+
 std::string FLlamaInternal::ResumeGeneration()
 {
     //Todo: erase last assistant message to merge the two messages if the last message was the assistant one.

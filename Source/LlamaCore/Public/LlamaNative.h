@@ -47,6 +47,13 @@ public:
 		TFunction<void(const FString& Response)>OnResponseFinished = nullptr);
 	void ImpersonateTemplatedPrompt(const FLlamaChatPrompt& Prompt);
 	void ImpersonateTemplatedToken(const FString& Token, EChatTemplateRole Role = EChatTemplateRole::Assistant, bool bEoS = false);
+
+	/** Wipe KV+message state and re-ingest the supplied chat history so the local model's KV cache
+	 *  reflects that conversation. No reply is generated. Useful for save-game restore, branching
+	 *  dialogue, and remote->local backend sync in ULlamaRemoteComponent.
+	 *  Runs on a BG task; OnDone fires on the game thread once GT model state has been synced. */
+	void RebuildContextFromHistory(const FStructuredChatHistory& History,
+		TFunction<void()> OnDone = nullptr);
 	bool IsGenerating();
 	void StopGeneration();
 	void ResumeGeneration();
