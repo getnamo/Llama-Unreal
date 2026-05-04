@@ -580,6 +580,7 @@ void ULlamaRemoteComponent::BeginStreamFromHistory(bool bAttachPendingMedia)
 
     TWeakObjectPtr<ULlamaRemoteComponent> Weak(this);
     PartialBuffer.Reset();
+    MdSplitter.Reset();
 
     ActiveStream = Client->StreamChat(Req,
         [Weak](const FString& Delta)
@@ -592,6 +593,21 @@ void ULlamaRemoteComponent::BeginStreamFromHistory(bool bAttachPendingMedia)
             if (!Self) return;
             if (SlotId >= 0) Self->AssignedSlotId = SlotId;
             Self->FlushPendingPartial(true);
+
+            // Flush any remaining markdown segments accumulated by the splitter.
+            if (Self->ModelParams.Advanced.Markdown.bSplitMarkdown)
+            {
+                TArray<TPair<FString, EMarkdownStreamState>> Final_;
+                Self->MdSplitter.Collect(Final_, Self->ModelParams.Advanced.Markdown);
+                Self->MdSplitter.Reset();
+                for (const auto& P : Final_)
+                {
+                    if (!P.Key.IsEmpty())
+                    {
+                        Self->OnMarkdownPartialGenerated.Broadcast(P.Key, P.Value);
+                    }
+                }
+            }
 
             // Replace the placeholder assistant message's content with the full final text.
             if (Self->ModelState.ChatHistory.History.Num() > 0)
@@ -637,6 +653,33 @@ void ULlamaRemoteComponent::HandleIncomingDelta(const FString& Delta)
         if (Last.Role == EChatTemplateRole::Assistant)
         {
             Last.Content += Delta;
+        }
+    }
+
+    // Markdown stream splitting — same emission cadence as native (per separator hit).
+    if (ModelParams.Advanced.Markdown.bSplitMarkdown)
+    {
+        for (int32 i = 0; i < Delta.Len(); ++i)
+        {
+            MdSplitter.ProcessChar(Delta[i], ModelParams.Advanced.Markdown);
+        }
+
+        bool bSplitFound = false;
+        for (const FString& Sep : ModelParams.Advanced.Output.PartialsSeparators)
+        {
+            if (!Sep.IsEmpty() && Delta.Contains(Sep)) { bSplitFound = true; break; }
+        }
+        if (bSplitFound)
+        {
+            TArray<TPair<FString, EMarkdownStreamState>> MdPartials;
+            MdSplitter.Collect(MdPartials, ModelParams.Advanced.Markdown);
+            for (const auto& P : MdPartials)
+            {
+                if (!P.Key.IsEmpty())
+                {
+                    OnMarkdownPartialGenerated.Broadcast(P.Key, P.Value);
+                }
+            }
         }
     }
 

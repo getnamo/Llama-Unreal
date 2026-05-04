@@ -3,6 +3,7 @@
 #pragma once
 
 #include "LlamaDataTypes.h"
+#include "LlamaMarkdownSplitter.h"
 #include "LlamaMediaCaptureTypes.h"
 #include "CoreMinimal.h"
 #include "Containers/Queue.h"
@@ -130,21 +131,8 @@ protected:
 	FString CombinedPieceText;	//accumulates tokens into full string during per-token inference.
 	FString CombinedTextOnPartialEmit; //state needed to check if on finish we've emitted all partials (broken grammar).
 
-	// Markdown stream splitter state (BG thread only)
-	EMarkdownStreamState MdCurrentState = EMarkdownStreamState::Text;
-	bool bMdAtLineStart = true;
-	int32 MdPendingStars = 0;
-	bool bMdClosingDelimiter = false;
-	bool bMdConsumingHeadingPrefix = false;
-
-	FString MdCurrentSegmentText;
-	EMarkdownStreamState MdCurrentSegmentState = EMarkdownStreamState::Text;
-	TArray<TPair<FString, EMarkdownStreamState>> MdPendingSegments;
-
-	void ProcessMarkdownChar(TCHAR Ch);
-	void FinalizeCurrentMdSegment();
-	void CollectMarkdownPartials(TArray<TPair<FString, EMarkdownStreamState>>& OutPartials);
-	void ResetMarkdownState();
+	// Markdown stream splitter state (BG thread only). Shared helper, also used by ULlamaRemoteComponent.
+	FLlamaMarkdownSplitter MdSplitter;
 
 	//Threading
 	void StartLLMThread();

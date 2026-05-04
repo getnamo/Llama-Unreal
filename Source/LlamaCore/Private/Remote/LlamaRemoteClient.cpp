@@ -8,6 +8,9 @@
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
 #include "Misc/Base64.h"
+#include "Logging/LogVerbosity.h"
+#include "Logging/LogScopedVerbosityOverride.h"
+#include "Http.h" // declares HTTP_API LogHttp; needed to scope-suppress its "Payload is incomplete" warning
 
 namespace
 {
@@ -127,6 +130,26 @@ namespace
         WriteSamplingFields(W, Req.Params);
         if (Req.Endpoint.bCachePromptOnServer) W->WriteValue(TEXT("cache_prompt"), true);
         if (Req.SlotId >= 0)                   W->WriteValue(TEXT("id_slot"), Req.SlotId);
+
+        // Thinking-mode overrides — only meaningful for /v1/chat/completions where the server
+        // applies the chat template. For /v1/completions the user's RawPrompt drives everything.
+        if (!Req.bUseRawCompletion)
+        {
+            const FLLMThinkingParams& T = Req.Params.Advanced.Thinking;
+
+            // Forward to the server's jinja chat template via chat_template_kwargs.
+            // llama-server / vLLM forward this dict as kwargs to the template — Qwen3, DeepSeek-R1
+            // and other thinking templates branch on `enable_thinking`.
+            W->WriteObjectStart(TEXT("chat_template_kwargs"));
+            W->WriteValue(TEXT("enable_thinking"), T.bEnableThinking);
+            W->WriteObjectEnd();
+
+            // llama-server `reasoning_format` controls how the server reports reasoning content
+            // back. `none` keeps it inline in `content` (matches our local Internal behavior so
+            // our markdown / partial pipelines see the raw stream including <think> tags).
+            // `deepseek` would put it in a separate `reasoning_content` field which we don't read.
+            W->WriteValue(TEXT("reasoning_format"), TEXT("none"));
+        }
 
         if (Req.bUseRawCompletion)
         {
@@ -361,6 +384,9 @@ TSharedPtr<IHttpRequest> FLlamaRemoteClient::StreamChat(
             if (!Request.IsValid() || State->bDone) return;
             FHttpResponsePtr Resp = Request->GetResponse();
             if (!Resp.IsValid()) return;
+            // GetContent() during in-progress streams logs LogHttp Warning "Payload is incomplete"
+            // every tick. Suppress it for this expected-incomplete read.
+            LOG_SCOPE_VERBOSITY_OVERRIDE(LogHttp, ELogVerbosity::Error);
             const TArray<uint8>& Raw = Resp->GetContent();
             FeedSseBytes(Raw, *State, OnDelta);
         });

@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "LlamaComponent.h"
 #include "Interfaces/IHttpRequest.h"
+#include "LlamaMarkdownSplitter.h"
 #include "Remote/LlamaRemoteTypes.h"
 #include "Remote/LlamaRemoteClient.h"
 #include "LlamaRemoteComponent.generated.h"
@@ -107,6 +108,9 @@ private:
 
     /** Sentence-splitter buffer for OnPartialGenerated emulation. */
     FString PartialBuffer;
+
+    /** Streaming markdown splitter — emits OnMarkdownPartialGenerated on separator hits, mirroring native behavior. */
+    FLlamaMarkdownSplitter MdSplitter;
 
     /** Set true on SetUseRemote() when there is non-empty history; cleared after FlushPendingHistorySyncIfNeeded
      *  successfully syncs into the destination backend. */
