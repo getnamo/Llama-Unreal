@@ -1,286 +1,242 @@
 // Copyright 2025-current Getnamo.
 
 #include "LlamaComponent.h"
+
+#include "LlamaDualBackend.h"
 #include "LlamaUtility.h"
-#include "LlamaNative.h"
 #include "LlamaAudioCaptureComponent.h"
-#include "Engine/Texture2D.h"
-#include "TextureResource.h"
 
-FLlamaNative* ULlamaComponent::CreateNativeBackend()
-{
-    return new FLlamaNative();
-}
-
-ULlamaComponent::ULlamaComponent(const FObjectInitializer &ObjectInitializer)
+ULlamaComponent::ULlamaComponent(const FObjectInitializer& ObjectInitializer)
     : UActorComponent(ObjectInitializer)
 {
-    LlamaNative = CreateNativeBackend();
+    Backend = new FLlamaDualBackend();
+    Backend->ModelParams = ModelParams;
+    Backend->Initialize();
+    WireBackendCallbacks();
 
-    if (LlamaNative)
-    {
-        // Register in consumer registry so Blueprint can wire us via AddConsumerComponent.
-        // Done in constructor because LlamaNative pointer is stable for the component's lifetime.
-        ILlamaAudioConsumer::RegisterComponent(this, LlamaNative);
-
-        //Hookup native callbacks
-        LlamaNative->OnModelStateChanged = [this](const FLLMModelState& UpdatedModelState)
-        {
-            ModelState = UpdatedModelState;
-        };
-
-        LlamaNative->OnTokenGenerated = [this](const FString& Token)
-        {
-            OnTokenGenerated.Broadcast(Token);
-        };
-
-        LlamaNative->OnResponseGenerated = [this](const FString& Response)
-        {
-            OnResponseGenerated.Broadcast(Response);
-            OnEndOfStream.Broadcast(true, ModelState.LastTokenGenerationSpeed);
-        };
-
-        LlamaNative->OnPartialGenerated = [this](const FString& Partial)
-        {
-            OnPartialGenerated.Broadcast(Partial);
-        };
-        LlamaNative->OnMarkdownPartialGenerated = [this](const FString& Partial, EMarkdownStreamState State)
-        {
-            OnMarkdownPartialGenerated.Broadcast(Partial, State);
-        };
-        LlamaNative->OnPromptProcessed = [this](int32 TokensProcessed, EChatTemplateRole Role, float Speed)
-        {
-            OnPromptProcessed.Broadcast(TokensProcessed, Role, Speed);
-        };
-        LlamaNative->OnError = [this](const FString& ErrorMessage, int32 ErrorCode)
-        {
-            OnError.Broadcast(ErrorMessage, ErrorCode);
-        };
-    }
+    // Backend implements ILlamaAudioConsumer so it can route audio segments to the active
+    // backend (local FLlamaNative or remote WAV-encode + chat-completion path).
+    ILlamaAudioConsumer::RegisterComponent(this, Backend);
 
     PrimaryComponentTick.bCanEverTick = true;
     PrimaryComponentTick.bStartWithTickEnabled = true;
-
-    //All sentence ending formatting.
-    ModelParams.Advanced.Output.PartialsSeparators.Add(TEXT("."));
-    ModelParams.Advanced.Output.PartialsSeparators.Add(TEXT("?"));
-    ModelParams.Advanced.Output.PartialsSeparators.Add(TEXT("!"));
 }
 
 ULlamaComponent::~ULlamaComponent()
 {
-	ILlamaAudioConsumer::UnregisterComponent(this);
+    ILlamaAudioConsumer::UnregisterComponent(this);
+    if (Backend)
+    {
+        delete Backend;
+        Backend = nullptr;
+    }
+}
 
-	if (LlamaNative)
-	{
-		delete LlamaNative;
-		LlamaNative = nullptr;
-	}
+void ULlamaComponent::WireBackendCallbacks()
+{
+    if (!Backend) return;
+
+    Backend->OnTokenGenerated = [this](const FString& Token)
+    {
+        OnTokenGenerated.Broadcast(Token);
+    };
+    Backend->OnPartialGenerated = [this](const FString& Partial)
+    {
+        OnPartialGenerated.Broadcast(Partial);
+    };
+    Backend->OnMarkdownPartialGenerated = [this](const FString& Partial, EMarkdownStreamState State)
+    {
+        OnMarkdownPartialGenerated.Broadcast(Partial, State);
+    };
+    Backend->OnResponseGenerated = [this](const FString& Response)
+    {
+        OnResponseGenerated.Broadcast(Response);
+    };
+    Backend->OnPromptProcessed = [this](int32 Tokens, EChatTemplateRole Role, float Speed)
+    {
+        OnPromptProcessed.Broadcast(Tokens, Role, Speed);
+    };
+    Backend->OnEndOfStream = [this](bool bStopSeq, float Tps)
+    {
+        OnEndOfStream.Broadcast(bStopSeq, Tps);
+    };
+    Backend->OnContextReset = [this]()
+    {
+        OnContextReset.Broadcast();
+    };
+    Backend->OnModelLoaded = [this](const FString& ModelName)
+    {
+        OnModelLoaded.Broadcast(ModelName);
+    };
+    Backend->OnError = [this](const FString& Err, int32 Code)
+    {
+        OnError.Broadcast(Err, Code);
+    };
+    Backend->OnEmbeddings = [this](const TArray<float>& Embeddings, const FString& Source)
+    {
+        OnEmbeddings.Broadcast(Embeddings, Source);
+    };
+    Backend->OnAllEmbeddingsGenerated = [this](const TArray<FString>& Sources)
+    {
+        OnAllEmbeddingsGenerated.Broadcast(Sources);
+    };
+    Backend->OnModelStateChanged = [this](const FLLMModelState& Updated)
+    {
+        ModelState = Updated;
+    };
 }
 
 void ULlamaComponent::Activate(bool bReset)
 {
     Super::Activate(bReset);
 
-    if (ModelParams.bAutoLoadModelOnStartup)
+    if (Backend)
     {
-        LoadModel(true);
-    }
-
-    if (LlamaNative)
-    {
-        //Always sync template in case audio source attaches later
-        LlamaNative->AudioPromptTemplate = AudioPromptTemplate;
+        Backend->ModelParams = ModelParams;
+        Backend->Endpoint = Endpoint;
+        Backend->bUseRemote = bUseRemote;
+        Backend->AudioPromptTemplate = AudioPromptTemplate;
 
         if (AudioSource)
         {
-            AudioSource->AddConsumer(LlamaNative);
+            AudioSource->AddConsumer(Backend);
         }
+    }
+
+    if (ModelParams.bAutoLoadModelOnStartup)
+    {
+        LoadModel(true);
     }
 }
 
 void ULlamaComponent::Deactivate()
 {
-    if (LlamaNative && AudioSource)
+    if (Backend && AudioSource)
     {
-        AudioSource->RemoveConsumer(LlamaNative);
+        AudioSource->RemoveConsumer(Backend);
     }
-
     Super::Deactivate();
 }
 
-void ULlamaComponent::TickComponent(float DeltaTime,
-                                    ELevelTick TickType,
+void ULlamaComponent::TickComponent(float DeltaTime, ELevelTick TickType,
                                     FActorComponentTickFunction* ThisTickFunction)
 {
     Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
-
-    //Forward tick to llama so it can process the game thread callbacks
-    if (LlamaNative)
+    if (Backend)
     {
-        LlamaNative->OnGameThreadTick(DeltaTime);
+        Backend->OnGameThreadTick(DeltaTime);
     }
 }
 
-void ULlamaComponent::InsertTemplatedPrompt(const FString& Text, EChatTemplateRole Role, bool bAddAssistantBOS, bool bGenerateReply)
-{
-    FLlamaChatPrompt ChatPrompt;
-    ChatPrompt.Prompt = Text;
-    ChatPrompt.Role = Role;
-    ChatPrompt.bAddAssistantBOS = bAddAssistantBOS;
-    ChatPrompt.bGenerateReply = bGenerateReply;
-    InsertTemplatedPromptStruct(ChatPrompt);
-}
-
-void ULlamaComponent::InsertTemplatedPromptStruct(const FLlamaChatPrompt& ChatPrompt)
-{
-    if (!LlamaNative) return;
-    LlamaNative->InsertTemplatedPrompt(ChatPrompt);
-}
-
-void ULlamaComponent::InsertRawPrompt(const FString& Text, bool bGenerateReply)
-{
-    if (!LlamaNative) return;
-    LlamaNative->InsertRawPrompt(Text, bGenerateReply);
-}
+// ── Loading ─────────────────────────────────────────────────────────────────
 
 void ULlamaComponent::LoadModel(bool bForceReload)
 {
-    if (!LlamaNative) return;
-    LlamaNative->SetModelParams(ModelParams);
-    LlamaNative->LoadModel(bForceReload, [this](const FString& ModelPath, int32 StatusCode)
-    {
-        //We errored, the emit will happen before we reach here so just exit
-        if (StatusCode !=0)
-        {
-            return;
-        }
-
-        OnModelLoaded.Broadcast(ModelPath);
-    });
+    if (!Backend) return;
+    Backend->ModelParams = ModelParams;
+    Backend->Endpoint = Endpoint;
+    Backend->bUseRemote = bUseRemote;
+    Backend->LoadModel(bForceReload);
 }
 
 void ULlamaComponent::UnloadModel()
 {
-    if (!LlamaNative) return;
-    LlamaNative->UnloadModel([this](int32 StatusCode)
-    {
-        //this pretty much should never get called, just in case: emit.
-        if (StatusCode != 0)
-        {
-            FString ErrorMessage = FString::Printf(TEXT("UnloadModel returned error code: %d"), StatusCode);
-            UE_LOG(LlamaLog, Warning, TEXT("%s"), *ErrorMessage);
-            OnError.Broadcast(ErrorMessage, StatusCode);
-        }
-    });
+    if (Backend) Backend->UnloadModel();
 }
 
-bool ULlamaComponent::IsModelLoaded()
+bool ULlamaComponent::IsModelLoaded() const
 {
-    return ModelState.bModelIsLoaded;
+    return Backend && Backend->IsModelLoaded();
 }
+
+void ULlamaComponent::SetUseRemote(bool bNewUseRemote)
+{
+    if (!Backend) { bUseRemote = bNewUseRemote; return; }
+    Backend->ModelParams = ModelParams;
+    Backend->Endpoint = Endpoint;
+    Backend->SetUseRemote(bNewUseRemote);
+    bUseRemote = Backend->bUseRemote;
+}
+
+// ── Chat ────────────────────────────────────────────────────────────────────
 
 void ULlamaComponent::ResetContextHistory(bool bKeepSystemPrompt)
 {
-    if (!LlamaNative) return;
-    LlamaNative->ResetContextHistory(bKeepSystemPrompt);
-}
-
-bool ULlamaComponent::ShouldBypassNativeKV() const
-{
-    return !LlamaNative || ModelParams.bImpersonationMode;
+    if (Backend) Backend->ResetContextHistory(bKeepSystemPrompt);
 }
 
 void ULlamaComponent::RebuildContextFromHistory(const FStructuredChatHistory& History)
 {
-    if (!ShouldBypassNativeKV())
-    {
-        LlamaNative->RebuildContextFromHistory(History);
-        return;
-    }
-
-    //State-only fallback (no native backend, impersonation mode, or remote routing in subclass):
-    //overwrite ChatHistory and notify listeners. KV cache (if any) is not touched.
-    ModelState.ChatHistory = History;
-    if (ModelState.ChatHistory.History.Num() > 0)
-    {
-        ModelState.LastRole = ModelState.ChatHistory.History.Last().Role;
-    }
-    OnPromptProcessed.Broadcast(0, ModelState.LastRole, 0.f);
+    if (Backend) Backend->RebuildContextFromHistory(History);
 }
 
 void ULlamaComponent::RemoveLastAssistantReply()
 {
-    if (ShouldBypassNativeKV())
-    {
-        //modify state only
-        int32 Count = ModelState.ChatHistory.History.Num();
-        if (Count >0)
-        {
-            ModelState.ChatHistory.History.RemoveAt(Count - 1);
-        }
-    }
-    else
-    {
-        LlamaNative->RemoveLastReply();
-    }
+    if (Backend) Backend->RemoveLastReply();
 }
 
 void ULlamaComponent::RemoveLastUserInput()
 {
-    if (ShouldBypassNativeKV())
-    {
-        //modify state only
-        int32 Count = ModelState.ChatHistory.History.Num();
-        if (Count > 1)
-        {
-            ModelState.ChatHistory.History.RemoveAt(Count - 1);
-            ModelState.ChatHistory.History.RemoveAt(Count - 2);
-        }
-    }
-    else
-    {
-        LlamaNative->RemoveLastUserInput();
-    }
+    if (Backend) Backend->RemoveLastUserInput();
 }
 
 void ULlamaComponent::RemoveLastNTokens(int32 TokenCount)
 {
-    if (!LlamaNative) return;
-    LlamaNative->RemoveLastNTokens(TokenCount);
+    if (Backend) Backend->RemoveLastNTokens(TokenCount);
 }
 
+void ULlamaComponent::InsertTemplatedPrompt(const FString& Text, EChatTemplateRole Role,
+                                            bool bAddAssistantBOS, bool bGenerateReply)
+{
+    FLlamaChatPrompt Prompt;
+    Prompt.Prompt = Text;
+    Prompt.Role = Role;
+    Prompt.bAddAssistantBOS = bAddAssistantBOS;
+    Prompt.bGenerateReply = bGenerateReply;
+    InsertTemplatedPromptStruct(Prompt);
+}
+
+void ULlamaComponent::InsertTemplatedPromptStruct(const FLlamaChatPrompt& ChatPrompt)
+{
+    if (!Backend) return;
+    Backend->ModelParams = ModelParams;
+    Backend->Endpoint = Endpoint;
+    Backend->InsertTemplatedPrompt(ChatPrompt);
+}
+
+void ULlamaComponent::InsertRawPrompt(const FString& Text, bool bGenerateReply)
+{
+    if (!Backend) return;
+    Backend->ModelParams = ModelParams;
+    Backend->Endpoint = Endpoint;
+    Backend->InsertRawPrompt(Text, bGenerateReply);
+}
 
 void ULlamaComponent::ImpersonateTemplatedPrompt(const FLlamaChatPrompt& ChatPrompt)
 {
-    if (!LlamaNative) return;
-    LlamaNative->SetModelParams(ModelParams);
-
-    LlamaNative->ImpersonateTemplatedPrompt(ChatPrompt);
+    if (!Backend) return;
+    Backend->ModelParams = ModelParams;
+    Backend->ImpersonateTemplatedPrompt(ChatPrompt);
 }
 
 void ULlamaComponent::ImpersonateTemplatedToken(const FString& Token, EChatTemplateRole Role, bool bEoS)
 {
-    if (!LlamaNative) return;
-    LlamaNative->ImpersonateTemplatedToken(Token, Role, bEoS);
+    if (Backend) Backend->ImpersonateTemplatedToken(Token, Role, bEoS);
 }
 
 FString ULlamaComponent::WrapPromptForRole(const FString& Text, EChatTemplateRole Role, const FString& Template)
 {
-    if (!LlamaNative) return Text;
-    return LlamaNative->WrapPromptForRole(Text, Role, Template);
+    return Backend ? Backend->WrapPromptForRole(Text, Role, Template) : Text;
 }
 
 void ULlamaComponent::StopGeneration()
 {
-    if (!LlamaNative) return;
-    LlamaNative->StopGeneration();
+    if (Backend) Backend->StopGeneration();
 }
 
 void ULlamaComponent::ResumeGeneration()
 {
-    if (!LlamaNative) return;
-    LlamaNative->ResumeGeneration();
+    if (Backend) Backend->ResumeGeneration();
 }
 
 FString ULlamaComponent::RawContextHistory()
@@ -293,233 +249,83 @@ FStructuredChatHistory ULlamaComponent::GetStructuredChatHistory()
     return ModelState.ChatHistory;
 }
 
-void ULlamaComponent::InsertTemplateImagePrompt(UTexture2D* Image, const FString& Text, EChatTemplateRole Role, bool bAddAssistantBOS, bool bGenerateReply)
+// ── Multimodal ──────────────────────────────────────────────────────────────
+
+void ULlamaComponent::InsertTemplateImagePrompt(UTexture2D* Image, const FString& Text,
+                                                EChatTemplateRole Role, bool bAddAssistantBOS, bool bGenerateReply)
 {
-    if (!LlamaNative)
-    {
-        OnError.Broadcast(TEXT("No native backend; override in subclass (e.g. ULlamaRemoteComponent)"), 60);
-        return;
-    }
-    if (!Image || !Image->GetPlatformData() || Image->GetPlatformData()->Mips.Num() == 0)
-    {
-        OnError.Broadcast(TEXT("Invalid or null texture passed to InsertTemplateImagePrompt"), 52);
-        return;
-    }
-    if (!LlamaNative->IsMultimodalLoaded())
-    {
-        OnError.Broadcast(TEXT("Multimodal projector not loaded. Set MmprojPath in ModelParams before calling LoadModel."), 50);
-        return;
-    }
-    if (!LlamaNative->SupportsVision())
-    {
-        OnError.Broadcast(TEXT("Vision not supported by loaded multimodal model"), 55);
-        return;
-    }
-
-    // Read pixels from texture on game thread
-    FTexturePlatformData* PlatformData = Image->GetPlatformData();
-    const int32 Width = PlatformData->SizeX;
-    const int32 Height = PlatformData->SizeY;
-
-    const void* RawData = PlatformData->Mips[0].BulkData.LockReadOnly();
-
-    TArray<uint8> RGBData;
-    RGBData.SetNum(Width * Height * 3);
-
-    // Convert BGRA -> RGB
-    const uint8* Src = static_cast<const uint8*>(RawData);
-    for (int32 i = 0; i < Width * Height; i++)
-    {
-        RGBData[i * 3 + 0] = Src[i * 4 + 2]; // R
-        RGBData[i * 3 + 1] = Src[i * 4 + 1]; // G
-        RGBData[i * 3 + 2] = Src[i * 4 + 0]; // B
-    }
-    PlatformData->Mips[0].BulkData.Unlock();
-
-    // Build multimodal prompt
-    FLlamaMultimodalPrompt Prompt;
-    Prompt.Prompt = Text.Contains(TEXT("<__media__>")) ? Text : FString::Printf(TEXT("<__media__>\n%s"), *Text);
-    Prompt.Role = Role;
-    Prompt.bAddAssistantBOS = bAddAssistantBOS;
-    Prompt.bGenerateReply = bGenerateReply;
-
-    FLlamaMediaEntry Entry;
-    Entry.MediaType = ELlamaMediaType::Image;
-    Entry.ImageRGBData = MoveTemp(RGBData);
-    Entry.ImageWidth = Width;
-    Entry.ImageHeight = Height;
-    Prompt.MediaEntries.Add(MoveTemp(Entry));
-
-    LlamaNative->InsertMultimodalPrompt(Prompt);
+    if (!Backend) return;
+    Backend->ModelParams = ModelParams;
+    Backend->Endpoint = Endpoint;
+    Backend->InsertTemplateImagePromptFromTexture(Image, Text, Role, bAddAssistantBOS, bGenerateReply);
 }
 
-void ULlamaComponent::InsertTemplateImagePromptFromFile(const FString& ImagePath, const FString& Text, EChatTemplateRole Role, bool bAddAssistantBOS, bool bGenerateReply)
+void ULlamaComponent::InsertTemplateImagePromptFromFile(const FString& ImagePath, const FString& Text,
+                                                        EChatTemplateRole Role, bool bAddAssistantBOS, bool bGenerateReply)
 {
-    if (!LlamaNative)
-    {
-        OnError.Broadcast(TEXT("No native backend; override in subclass (e.g. ULlamaRemoteComponent)"), 60);
-        return;
-    }
-    if (!LlamaNative->IsMultimodalLoaded())
-    {
-        OnError.Broadcast(TEXT("Multimodal projector not loaded. Set MmprojPath in ModelParams before calling LoadModel."), 50);
-        return;
-    }
-    if (!LlamaNative->SupportsVision())
-    {
-        OnError.Broadcast(TEXT("Vision not supported by loaded multimodal model"), 55);
-        return;
-    }
-
-    FLlamaMultimodalPrompt Prompt;
-    Prompt.Prompt = Text.Contains(TEXT("<__media__>")) ? Text : FString::Printf(TEXT("<__media__>\n%s"), *Text);
-    Prompt.Role = Role;
-    Prompt.bAddAssistantBOS = bAddAssistantBOS;
-    Prompt.bGenerateReply = bGenerateReply;
-
-    FLlamaMediaEntry Entry;
-    Entry.MediaType = ELlamaMediaType::Image;
-    Entry.FilePath = ImagePath;
-    Prompt.MediaEntries.Add(MoveTemp(Entry));
-
-    LlamaNative->InsertMultimodalPrompt(Prompt);
+    if (!Backend) return;
+    Backend->ModelParams = ModelParams;
+    Backend->Endpoint = Endpoint;
+    Backend->InsertTemplateImagePromptFromFile(ImagePath, Text, Role, bAddAssistantBOS, bGenerateReply);
 }
 
-void ULlamaComponent::InsertTemplateAudioPrompt(const TArray<float>& PCMAudio, const FString& Text, EChatTemplateRole Role, bool bAddAssistantBOS, bool bGenerateReply)
+void ULlamaComponent::InsertTemplateAudioPrompt(const TArray<float>& PCMAudio, const FString& Text,
+                                                EChatTemplateRole Role, bool bAddAssistantBOS, bool bGenerateReply)
 {
-    if (!LlamaNative)
-    {
-        OnError.Broadcast(TEXT("No native backend; override in subclass (e.g. ULlamaRemoteComponent)"), 60);
-        return;
-    }
-    if (!LlamaNative->IsMultimodalLoaded())
-    {
-        OnError.Broadcast(TEXT("Multimodal projector not loaded. Set MmprojPath in ModelParams before calling LoadModel."), 50);
-        return;
-    }
-    if (!LlamaNative->SupportsAudio())
-    {
-        OnError.Broadcast(TEXT("Audio not supported by loaded multimodal model"), 56);
-        return;
-    }
-
-    FLlamaMultimodalPrompt Prompt;
-    Prompt.Prompt = Text.Contains(TEXT("<__media__>")) ? Text : FString::Printf(TEXT("<__media__>\n%s"), *Text);
-    Prompt.Role = Role;
-    Prompt.bAddAssistantBOS = bAddAssistantBOS;
-    Prompt.bGenerateReply = bGenerateReply;
-
-    FLlamaMediaEntry Entry;
-    Entry.MediaType = ELlamaMediaType::Audio;
-    Entry.AudioPCMData = PCMAudio;
-    Prompt.MediaEntries.Add(MoveTemp(Entry));
-
-    LlamaNative->InsertMultimodalPrompt(Prompt);
+    if (!Backend) return;
+    Backend->ModelParams = ModelParams;
+    Backend->Endpoint = Endpoint;
+    Backend->InsertTemplateAudioPrompt(PCMAudio, Text, Role, bAddAssistantBOS, bGenerateReply);
 }
 
 void ULlamaComponent::InsertMultimodalPrompt(const FLlamaMultimodalPrompt& Prompt)
 {
-    if (!LlamaNative)
-    {
-        OnError.Broadcast(TEXT("No native backend; override in subclass (e.g. ULlamaRemoteComponent)"), 60);
-        return;
-    }
-    if (!LlamaNative->IsMultimodalLoaded())
-    {
-        OnError.Broadcast(TEXT("Multimodal projector not loaded. Set MmprojPath in ModelParams before calling LoadModel."), 50);
-        return;
-    }
-
-    LlamaNative->InsertMultimodalPrompt(Prompt);
+    if (!Backend) return;
+    Backend->ModelParams = ModelParams;
+    Backend->Endpoint = Endpoint;
+    Backend->InsertMultimodalPrompt(Prompt);
 }
 
-bool ULlamaComponent::IsMultimodalLoaded() const
-{
-    return LlamaNative ? LlamaNative->IsMultimodalLoaded() : false;
-}
-
-bool ULlamaComponent::SupportsVision() const
-{
-    return LlamaNative ? LlamaNative->SupportsVision() : false;
-}
-
-bool ULlamaComponent::SupportsAudio() const
-{
-    return LlamaNative ? LlamaNative->SupportsAudio() : false;
-}
-
-int32 ULlamaComponent::GetAudioSampleRate() const
-{
-    return LlamaNative ? LlamaNative->GetAudioSampleRate() : 16000;
-}
+bool ULlamaComponent::IsMultimodalLoaded() const { return Backend && Backend->IsMultimodalLoaded(); }
+bool ULlamaComponent::SupportsVision() const     { return Backend && Backend->SupportsVision(); }
+bool ULlamaComponent::SupportsAudio() const      { return Backend && Backend->SupportsAudio(); }
+int32 ULlamaComponent::GetAudioSampleRate() const { return Backend ? Backend->GetAudioSampleRate() : 16000; }
 
 void ULlamaComponent::SetAudioPromptTemplate(const FString& NewTemplate)
 {
     AudioPromptTemplate = NewTemplate;
-    if (LlamaNative)
-    {
-        LlamaNative->AudioPromptTemplate = NewTemplate;
-    }
+    if (Backend) Backend->AudioPromptTemplate = NewTemplate;
 }
+
+// ── Embedding ───────────────────────────────────────────────────────────────
 
 void ULlamaComponent::GeneratePromptEmbeddingsForText(const FString& Text)
 {
-    if (!LlamaNative) return;
-    if (!ModelParams.Advanced.bEmbeddingMode)
-    {
-        UE_LOG(LlamaLog, Warning, TEXT("Model is not in embedding mode, cannot generate embeddings."));
-        return;
-    }
-
-    LlamaNative->GetPromptEmbeddings(Text, [this](const TArray<float>& Embeddings, const FString& SourceText)
-    {
-        OnEmbeddings.Broadcast(Embeddings, SourceText);
-    });
+    if (!Backend) return;
+    Backend->ModelParams = ModelParams;
+    Backend->GeneratePromptEmbeddingsForText(Text);
 }
 
 void ULlamaComponent::GeneratePromptEmbeddingsForTexts(const TArray<FString>& Texts)
 {
-    if (!LlamaNative) return;
-    if (!ModelParams.Advanced.bEmbeddingMode)
-    {
-        UE_LOG(LlamaLog, Warning, TEXT("Model is not in embedding mode, cannot generate embeddings."));
-        return;
-    }
-
-    LlamaNative->GetPromptEmbeddingsBatch(
-        Texts,
-        [this](const TArray<float>& Embeddings, const FString& SourceText)
-        {
-            OnEmbeddings.Broadcast(Embeddings, SourceText);
-        },
-        [this](const TArray<TArray<float>>& /*All*/, const TArray<FString>& AllSourceTexts)
-        {
-            OnAllEmbeddingsGenerated.Broadcast(AllSourceTexts);
-        });
+    if (!Backend) return;
+    Backend->ModelParams = ModelParams;
+    Backend->GeneratePromptEmbeddingsForTexts(Texts);
 }
 
 int32 ULlamaComponent::GetEmbeddingDimension() const
 {
-    return LlamaNative ? LlamaNative->GetEmbeddingDimension() : 0;
+    return Backend ? Backend->GetEmbeddingDimension() : 0;
 }
 
 void ULlamaComponent::EmbedTextsAsync(const TArray<FString>& Texts,
     TFunction<void(const TArray<TArray<float>>&, const TArray<FString>&)> OnDone)
 {
-    if (!LlamaNative)
+    if (!Backend)
     {
         if (OnDone) OnDone(TArray<TArray<float>>(), TArray<FString>());
         return;
     }
-    if (!ModelParams.Advanced.bEmbeddingMode)
-    {
-        UE_LOG(LlamaLog, Warning, TEXT("EmbedTextsAsync: model not in embedding mode."));
-        if (OnDone) OnDone(TArray<TArray<float>>(), TArray<FString>());
-        return;
-    }
-    LlamaNative->GetPromptEmbeddingsBatch(Texts, /*per-item*/ nullptr,
-        [OnDone = MoveTemp(OnDone)](const TArray<TArray<float>>& All, const TArray<FString>& Sources)
-        {
-            if (OnDone) OnDone(All, Sources);
-        });
+    Backend->ModelParams = ModelParams;
+    Backend->EmbedTextsAsync(Texts, MoveTemp(OnDone));
 }

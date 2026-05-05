@@ -124,7 +124,7 @@ public class LlamaCore : ModuleRules
 				"Media",               // IMediaCaptureSupport, FMediaCaptureDeviceInfo
 				"MediaUtils",          // MediaCaptureSupport::EnumerateVideoCaptureDevices
 				"MediaAssets",         // UMediaPlayer, UMediaTexture for video capture pipeline
-				"HTTP",                // FHttpModule, IHttpRequest for ULlamaRemoteComponent
+				"HTTP",                // FHttpModule, IHttpRequest for FLlamaDualBackend remote routing
 				"Json",                // FJsonObject, request/response serialization for remote
 				"JsonUtilities",       // FJsonObjectConverter helpers
 				"ImageWrapper",        // PNG encode for remote multimodal image parts

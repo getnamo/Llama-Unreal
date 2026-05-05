@@ -1,208 +1,207 @@
 // Copyright 2025-current Getnamo.
 
 #include "LlamaSubsystem.h"
-#include "HAL/PlatformTime.h"
-#include "Tickable.h"
+
+#include "LlamaDualBackend.h"
 #include "LlamaNative.h"
 #include "LlamaUtility.h"
 #include "Embedding/VectorDatabase.h"
 
 void ULlamaSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
-	Super::Initialize(Collection);
-    LlamaNative = new FLlamaNative();
+    Super::Initialize(Collection);
 
-    //Hookup native callbacks
-    LlamaNative->OnModelStateChanged = [this](const FLLMModelState& UpdatedModelState)
-    {
-        ModelState = UpdatedModelState;
-    };
+    Backend = new FLlamaDualBackend();
+    Backend->ModelParams = ModelParams;
+    Backend->Initialize();
 
-    LlamaNative->OnTokenGenerated = [this](const FString& Token)
+    // Subsystems have no TickComponent — let FLlamaNative own its own ticker so native
+    // callbacks drain on the game thread without an outer pumping it.
+    if (Backend->GetLlamaNative())
     {
-        OnTokenGenerated.Broadcast(Token);
-    };
+        Backend->GetLlamaNative()->AddTicker();
+    }
 
-    LlamaNative->OnPartialGenerated = [this](const FString& Partial)
-    {
-        OnPartialGenerated.Broadcast(Partial);
-    };
-    LlamaNative->OnPromptProcessed = [this](int32 TokensProcessed, EChatTemplateRole Role, float Speed)
-    {
-        OnPromptProcessed.Broadcast(TokensProcessed, Role, Speed);
-    };
-    LlamaNative->OnResponseGenerated = [this](const FString& Response)
-    {
-        OnResponseGenerated.Broadcast(Response);
-        OnEndOfStream.Broadcast(true, ModelState.LastTokenGenerationSpeed);
-    };
-    LlamaNative->OnError = [this](const FString& ErrorMessage, int32 ErrorCode)
-    {
-        OnError.Broadcast(ErrorMessage, ErrorCode);
-    };
-
-    //All sentence ending formatting.
-    ModelParams.Advanced.Output.PartialsSeparators.Add(TEXT("."));
-    ModelParams.Advanced.Output.PartialsSeparators.Add(TEXT("?"));
-    ModelParams.Advanced.Output.PartialsSeparators.Add(TEXT("!"));
+    WireBackendCallbacks();
 }
 
 void ULlamaSubsystem::Deinitialize()
 {
-	if (LlamaNative)
-	{
-		delete LlamaNative;
-		LlamaNative = nullptr;
-	}
-
+    if (Backend)
+    {
+        if (Backend->GetLlamaNative())
+        {
+            Backend->GetLlamaNative()->RemoveTicker();
+        }
+        delete Backend;
+        Backend = nullptr;
+    }
     Super::Deinitialize();
 }
 
-void ULlamaSubsystem::InsertTemplatedPrompt(const FString& Text, EChatTemplateRole Role, bool bAddAssistantBOS, bool bGenerateReply)
+void ULlamaSubsystem::WireBackendCallbacks()
 {
-    FLlamaChatPrompt ChatPrompt;
-    ChatPrompt.Prompt = Text;
-    ChatPrompt.Role = Role;
-    ChatPrompt.bAddAssistantBOS = bAddAssistantBOS;
-    ChatPrompt.bGenerateReply = bGenerateReply;
-    InsertTemplatedPromptStruct(ChatPrompt);
+    if (!Backend) return;
+
+    Backend->OnTokenGenerated = [this](const FString& Token)
+    {
+        OnTokenGenerated.Broadcast(Token);
+    };
+    Backend->OnPartialGenerated = [this](const FString& Partial)
+    {
+        OnPartialGenerated.Broadcast(Partial);
+    };
+    Backend->OnMarkdownPartialGenerated = [this](const FString& Partial, EMarkdownStreamState State)
+    {
+        OnMarkdownPartialGenerated.Broadcast(Partial, State);
+    };
+    Backend->OnResponseGenerated = [this](const FString& Response)
+    {
+        OnResponseGenerated.Broadcast(Response);
+    };
+    Backend->OnPromptProcessed = [this](int32 Tokens, EChatTemplateRole Role, float Speed)
+    {
+        OnPromptProcessed.Broadcast(Tokens, Role, Speed);
+    };
+    Backend->OnEndOfStream = [this](bool bStopSeq, float Tps)
+    {
+        OnEndOfStream.Broadcast(bStopSeq, Tps);
+    };
+    Backend->OnContextReset = [this]()
+    {
+        OnContextReset.Broadcast();
+    };
+    Backend->OnModelLoaded = [this](const FString& ModelName)
+    {
+        OnModelLoaded.Broadcast(ModelName);
+    };
+    Backend->OnError = [this](const FString& Err, int32 Code)
+    {
+        OnError.Broadcast(Err, Code);
+    };
+    Backend->OnEmbeddings = [this](const TArray<float>& Embeddings, const FString& Source)
+    {
+        OnEmbeddings.Broadcast(Embeddings, Source);
+    };
+    Backend->OnAllEmbeddingsGenerated = [this](const TArray<FString>& Sources)
+    {
+        OnAllEmbeddingsGenerated.Broadcast(Sources);
+    };
+    Backend->OnModelStateChanged = [this](const FLLMModelState& Updated)
+    {
+        ModelState = Updated;
+    };
 }
 
-void ULlamaSubsystem::InsertTemplatedPromptStruct(const FLlamaChatPrompt& ChatPrompt)
-{
-    LlamaNative->InsertTemplatedPrompt(ChatPrompt);/*, [this, ChatPrompt](const FString& Response)
-    {
-        if (ChatPrompt.bGenerateReply)
-        {
-            OnResponseGenerated.Broadcast(Response);
-            OnEndOfStream.Broadcast(true, ModelState.LastTokenGenerationSpeed);
-        }
-    });*/
-}
-
-void ULlamaSubsystem::InsertRawPrompt(const FString& Text, bool bGenerateReply)
-{
-    LlamaNative->InsertRawPrompt(Text, bGenerateReply);/*, [this, bGenerateReply](const FString& Response)
-    {
-        if (bGenerateReply)
-        {
-            OnResponseGenerated.Broadcast(Response);
-            OnEndOfStream.Broadcast(true, ModelState.LastTokenGenerationSpeed);
-        }
-    })*/;
-}
+// ── Loading ─────────────────────────────────────────────────────────────────
 
 void ULlamaSubsystem::LoadModel(bool bForceReload)
 {
-    //Sync gt params
-    LlamaNative->SetModelParams(ModelParams);
-
-    //If ticker isn't active right now, start it. This will stay active until subsystem gets destroyed.
-    if (!LlamaNative->IsNativeTickerActive())
-    {
-        LlamaNative->AddTicker();
-    }
-
-    LlamaNative->LoadModel(bForceReload, [this](const FString& ModelPath, int32 StatusCode)
-    {
-        //We errored, the emit will happen before we reach here so just exit
-        if (StatusCode != 0)
-        {
-            return;
-        }
-
-        OnModelLoaded.Broadcast(ModelPath);
-    });
+    if (!Backend) return;
+    Backend->ModelParams = ModelParams;
+    Backend->Endpoint = Endpoint;
+    Backend->bUseRemote = bUseRemote;
+    Backend->LoadModel(bForceReload);
 }
 
 void ULlamaSubsystem::UnloadModel()
 {
-    LlamaNative->UnloadModel([this](int32 StatusCode)
-    {
-        if (StatusCode != 0)
-        {
-            FString ErrorMessage = FString::Printf(TEXT("UnloadModel return error code: %d"), StatusCode);
-            UE_LOG(LlamaLog, Warning, TEXT("%s"), *ErrorMessage);
-            OnError.Broadcast(ErrorMessage, StatusCode);
-        }
-    });
+    if (Backend) Backend->UnloadModel();
 }
 
-bool ULlamaSubsystem::IsModelLoaded()
+bool ULlamaSubsystem::IsModelLoaded() const
 {
-    return ModelState.bModelIsLoaded;
+    return Backend && Backend->IsModelLoaded();
 }
+
+void ULlamaSubsystem::SetUseRemote(bool bNewUseRemote)
+{
+    if (!Backend) { bUseRemote = bNewUseRemote; return; }
+    Backend->ModelParams = ModelParams;
+    Backend->Endpoint = Endpoint;
+    Backend->SetUseRemote(bNewUseRemote);
+    bUseRemote = Backend->bUseRemote;
+}
+
+// ── Chat ────────────────────────────────────────────────────────────────────
 
 void ULlamaSubsystem::ResetContextHistory(bool bKeepSystemPrompt)
 {
-    LlamaNative->ResetContextHistory(bKeepSystemPrompt);
+    if (Backend) Backend->ResetContextHistory(bKeepSystemPrompt);
+}
+
+void ULlamaSubsystem::RebuildContextFromHistory(const FStructuredChatHistory& History)
+{
+    if (Backend) Backend->RebuildContextFromHistory(History);
 }
 
 void ULlamaSubsystem::RemoveLastAssistantReply()
 {
-    LlamaNative->RemoveLastReply();
+    if (Backend) Backend->RemoveLastReply();
 }
 
 void ULlamaSubsystem::RemoveLastUserInput()
 {
-    LlamaNative->RemoveLastUserInput();
+    if (Backend) Backend->RemoveLastUserInput();
+}
+
+void ULlamaSubsystem::RemoveLastNTokens(int32 TokenCount)
+{
+    if (Backend) Backend->RemoveLastNTokens(TokenCount);
+}
+
+void ULlamaSubsystem::InsertTemplatedPrompt(const FString& Text, EChatTemplateRole Role,
+                                            bool bAddAssistantBOS, bool bGenerateReply)
+{
+    FLlamaChatPrompt Prompt;
+    Prompt.Prompt = Text;
+    Prompt.Role = Role;
+    Prompt.bAddAssistantBOS = bAddAssistantBOS;
+    Prompt.bGenerateReply = bGenerateReply;
+    InsertTemplatedPromptStruct(Prompt);
+}
+
+void ULlamaSubsystem::InsertTemplatedPromptStruct(const FLlamaChatPrompt& ChatPrompt)
+{
+    if (!Backend) return;
+    Backend->ModelParams = ModelParams;
+    Backend->Endpoint = Endpoint;
+    Backend->InsertTemplatedPrompt(ChatPrompt);
+}
+
+void ULlamaSubsystem::InsertRawPrompt(const FString& Text, bool bGenerateReply)
+{
+    if (!Backend) return;
+    Backend->ModelParams = ModelParams;
+    Backend->Endpoint = Endpoint;
+    Backend->InsertRawPrompt(Text, bGenerateReply);
+}
+
+void ULlamaSubsystem::ImpersonateTemplatedPrompt(const FLlamaChatPrompt& ChatPrompt)
+{
+    if (!Backend) return;
+    Backend->ModelParams = ModelParams;
+    Backend->ImpersonateTemplatedPrompt(ChatPrompt);
+}
+
+void ULlamaSubsystem::ImpersonateTemplatedToken(const FString& Token, EChatTemplateRole Role, bool bEoS)
+{
+    if (Backend) Backend->ImpersonateTemplatedToken(Token, Role, bEoS);
+}
+
+FString ULlamaSubsystem::WrapPromptForRole(const FString& Text, EChatTemplateRole Role, const FString& Template)
+{
+    return Backend ? Backend->WrapPromptForRole(Text, Role, Template) : Text;
 }
 
 void ULlamaSubsystem::StopGeneration()
 {
-    LlamaNative->StopGeneration();
+    if (Backend) Backend->StopGeneration();
 }
 
 void ULlamaSubsystem::ResumeGeneration()
 {
-    LlamaNative->ResumeGeneration();
-}
-
-void ULlamaSubsystem::GeneratePromptEmbeddingsForText(const FString& Text)
-{
-    if (!LlamaNative) return;
-    if (!ModelParams.Advanced.bEmbeddingMode)
-    {
-        UE_LOG(LlamaLog, Warning, TEXT("Model is not in embedding mode, cannot generate embeddings."));
-        return;
-    }
-    LlamaNative->GetPromptEmbeddings(Text, [this](const TArray<float>& Embeddings, const FString& SourceText)
-    {
-        OnEmbeddings.Broadcast(Embeddings, SourceText);
-    });
-}
-
-void ULlamaSubsystem::GeneratePromptEmbeddingsForTexts(const TArray<FString>& Texts)
-{
-    if (!LlamaNative) return;
-    if (!ModelParams.Advanced.bEmbeddingMode)
-    {
-        UE_LOG(LlamaLog, Warning, TEXT("Model is not in embedding mode, cannot generate embeddings."));
-        return;
-    }
-    LlamaNative->GetPromptEmbeddingsBatch(Texts,
-        [this](const TArray<float>& Embeddings, const FString& SourceText)
-        {
-            OnEmbeddings.Broadcast(Embeddings, SourceText);
-        },
-        [this](const TArray<TArray<float>>& /*All*/, const TArray<FString>& AllSourceTexts)
-        {
-            OnAllEmbeddingsGenerated.Broadcast(AllSourceTexts);
-        });
-}
-
-int32 ULlamaSubsystem::GetEmbeddingDimension() const
-{
-    return LlamaNative ? LlamaNative->GetEmbeddingDimension() : 0;
-}
-
-float ULlamaSubsystem::TestVectorSearch()
-{
-    FVectorDatabase VectorDb;
-    VectorDb.Params.Dimensions = 16;
-    VectorDb.Params.MaxElements = 200;
-    const float Recall = VectorDb.BasicsTest();
-    return Recall;
+    if (Backend) Backend->ResumeGeneration();
 }
 
 FString ULlamaSubsystem::RawContextHistory()
@@ -213,4 +212,89 @@ FString ULlamaSubsystem::RawContextHistory()
 FStructuredChatHistory ULlamaSubsystem::GetStructuredChatHistory()
 {
     return ModelState.ChatHistory;
+}
+
+// ── Multimodal ──────────────────────────────────────────────────────────────
+
+void ULlamaSubsystem::InsertTemplateImagePrompt(UTexture2D* Image, const FString& Text,
+                                                EChatTemplateRole Role, bool bAddAssistantBOS, bool bGenerateReply)
+{
+    if (!Backend) return;
+    Backend->ModelParams = ModelParams;
+    Backend->Endpoint = Endpoint;
+    Backend->InsertTemplateImagePromptFromTexture(Image, Text, Role, bAddAssistantBOS, bGenerateReply);
+}
+
+void ULlamaSubsystem::InsertTemplateImagePromptFromFile(const FString& ImagePath, const FString& Text,
+                                                        EChatTemplateRole Role, bool bAddAssistantBOS, bool bGenerateReply)
+{
+    if (!Backend) return;
+    Backend->ModelParams = ModelParams;
+    Backend->Endpoint = Endpoint;
+    Backend->InsertTemplateImagePromptFromFile(ImagePath, Text, Role, bAddAssistantBOS, bGenerateReply);
+}
+
+void ULlamaSubsystem::InsertTemplateAudioPrompt(const TArray<float>& PCMAudio, const FString& Text,
+                                                EChatTemplateRole Role, bool bAddAssistantBOS, bool bGenerateReply)
+{
+    if (!Backend) return;
+    Backend->ModelParams = ModelParams;
+    Backend->Endpoint = Endpoint;
+    Backend->InsertTemplateAudioPrompt(PCMAudio, Text, Role, bAddAssistantBOS, bGenerateReply);
+}
+
+void ULlamaSubsystem::InsertMultimodalPrompt(const FLlamaMultimodalPrompt& Prompt)
+{
+    if (!Backend) return;
+    Backend->ModelParams = ModelParams;
+    Backend->Endpoint = Endpoint;
+    Backend->InsertMultimodalPrompt(Prompt);
+}
+
+bool ULlamaSubsystem::IsMultimodalLoaded() const { return Backend && Backend->IsMultimodalLoaded(); }
+bool ULlamaSubsystem::SupportsVision() const     { return Backend && Backend->SupportsVision(); }
+bool ULlamaSubsystem::SupportsAudio() const      { return Backend && Backend->SupportsAudio(); }
+int32 ULlamaSubsystem::GetAudioSampleRate() const { return Backend ? Backend->GetAudioSampleRate() : 16000; }
+
+// ── Embedding ───────────────────────────────────────────────────────────────
+
+void ULlamaSubsystem::GeneratePromptEmbeddingsForText(const FString& Text)
+{
+    if (!Backend) return;
+    Backend->ModelParams = ModelParams;
+    Backend->GeneratePromptEmbeddingsForText(Text);
+}
+
+void ULlamaSubsystem::GeneratePromptEmbeddingsForTexts(const TArray<FString>& Texts)
+{
+    if (!Backend) return;
+    Backend->ModelParams = ModelParams;
+    Backend->GeneratePromptEmbeddingsForTexts(Texts);
+}
+
+int32 ULlamaSubsystem::GetEmbeddingDimension() const
+{
+    return Backend ? Backend->GetEmbeddingDimension() : 0;
+}
+
+void ULlamaSubsystem::EmbedTextsAsync(const TArray<FString>& Texts,
+    TFunction<void(const TArray<TArray<float>>&, const TArray<FString>&)> OnDone)
+{
+    if (!Backend)
+    {
+        if (OnDone) OnDone(TArray<TArray<float>>(), TArray<FString>());
+        return;
+    }
+    Backend->ModelParams = ModelParams;
+    Backend->EmbedTextsAsync(Texts, MoveTemp(OnDone));
+}
+
+// ── Diagnostics ─────────────────────────────────────────────────────────────
+
+float ULlamaSubsystem::TestVectorSearch()
+{
+    FVectorDatabase VectorDb;
+    VectorDb.Params.Dimensions = 16;
+    VectorDb.Params.MaxElements = 200;
+    return VectorDb.BasicsTest();
 }

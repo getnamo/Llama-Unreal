@@ -27,7 +27,7 @@ Fork is modern re-write from [upstream](https://github.com/mika314/UELlama) to s
 
 # How to use - Basics
 
-Everything is wrapped inside a [`ULlamaComponent`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaComponent.h#L17), [`ULlamaSubsystem`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaSubsystem.h#L16), or [`ULlamaRemoteComponent`](#remote-component) (subclass of `ULlamaComponent` that routes to an OpenAI-compatible HTTP endpoint — see Remote Component below) which interfaces in a threadsafe manner to llama.cpp code internally via [`FLlamaNative`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaNative.h#L14). All core functionality is available both in C++ and in blueprint.
+Everything is wrapped inside a [`ULlamaComponent`](Source/LlamaCore/Public/LlamaComponent.h) (per-actor lifetime) or [`ULlamaSubsystem`](Source/LlamaCore/Public/LlamaSubsystem.h) (engine-wide singleton, survives level transitions). Both expose the *same* Blueprint surface: chat, multimodal, embeddings, rollback, impersonation, audio capture wiring. Both can run inference locally via the bundled llama.cpp ([`FLlamaNative`](Source/LlamaCore/Public/LlamaNative.h)) **or** route through an OpenAI-compatible HTTP endpoint by flipping `bUseRemote = true` and configuring `Endpoint.BaseUrl` — see [Remote routing](#remote-routing) below. The shared dual-backend core lives in [`FLlamaDualBackend`](Source/LlamaCore/Public/LlamaDualBackend.h).
 
 1) In your component or subsystem, adjust your [`ModelParams`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaComponent.h#L62) of type [`FLLMModelParams`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaDataTypes.h#L208). The most important settings are:
   - `PathToModel` - where your [*.gguf](https://huggingface.co/docs/hub/en/gguf) is placed. If path begins with a . it's considered relative to Saved/Models path, otherwise it's an absolute path.
@@ -48,19 +48,20 @@ Explore [LlamaComponent.h](https://github.com/getnamo/Llama-Unreal/blob/ae243df8
 Call `RebuildContextFromHistory(FStructuredChatHistory)` to wipe the model's KV cache and re-ingest a saved conversation. The model's KV state is rebuilt so the next prompt continues correctly. State-only fallback is used when no native backend is available (e.g. running purely remote).
 
 
-# Remote Component
+# Remote routing
 
-`ULlamaRemoteComponent` is a drop-in subclass of `ULlamaComponent` that routes inference through an OpenAI-compatible HTTP endpoint (e.g. [llama-server](https://github.com/ggml-org/llama.cpp/tree/master/tools/server), LM Studio, vLLM, or anything exposing `/v1/chat/completions`). It preserves the full Blueprint/C++ surface — same delegates (`OnTokenGenerated`, `OnResponseGenerated`, `OnPartialGenerated`, `OnMarkdownPartialGenerated`), same chat history, same multimodal entry points, same rollback helpers.
+The plugin is local-first, but every `ULlamaComponent` and `ULlamaSubsystem` can route inference through an OpenAI-compatible HTTP endpoint (e.g. [llama-server](https://github.com/ggml-org/llama.cpp/tree/master/tools/server), LM Studio, Ollama, vLLM, OpenAI itself) by setting `bUseRemote = true`. The shared dual-backend ([`FLlamaDualBackend`](Source/LlamaCore/Public/LlamaDualBackend.h)) keeps a local `FLlamaNative` and a remote HTTP client side-by-side and routes each call to whichever is active. All delegates (`OnTokenGenerated`, `OnResponseGenerated`, `OnPartialGenerated`, `OnMarkdownPartialGenerated`, `OnEndOfStream`) fire on both paths; same chat history, same multimodal entry points, same rollback helpers.
 
 ## Setup
 
-1. Add a `ULlamaRemoteComponent` to your actor (in place of `ULlamaComponent`).
-2. Set `Endpoint.BaseUrl` to your server (e.g. `http://127.0.0.1:8080`). The server must expose `/v1/chat/completions`, `/health`, and `/props`.
-3. Call `LoadModel` — runs a `/health` probe and `/props` fetch (model id, chat template, modality capabilities). Fires `OnModelLoaded` on success.
+1. Set `Endpoint.BaseUrl` to your server (e.g. `http://127.0.0.1:8080`). The server must expose `/v1/chat/completions`, `/health`, and `/props`.
+2. Call `SetUseRemote(true)` (or tick the `bUseRemote` checkbox before `LoadModel`).
+3. `LoadModel` runs a `/health` probe and `/props` fetch (model id, chat template, modality capabilities). Fires `OnModelLoaded` on success.
 4. Use the same API as local: `InsertTemplatedPrompt`, `InsertMultimodalPrompt`, `StopGeneration`, `ResetContextHistory`, `RemoveLastAssistantReply`, etc.
 
-```
+```cpp
 Component->Endpoint.BaseUrl = TEXT("http://127.0.0.1:8080");
+Component->SetUseRemote(true);
 Component->LoadModel();
 Component->InsertTemplatedPrompt(TEXT("Hello"), EChatTemplateRole::User);
 ```
@@ -69,13 +70,13 @@ The plugin auto-translates `ModelParams` into the request JSON: `Advanced.Sampli
 
 ## Toggling between local and remote at runtime
 
-Both backends can coexist on the same component. Call `SetUseRemote(bool)` to flip routing — any active stream is cancelled cleanly, the destination backend auto-loads if its config is valid (`Endpoint.BaseUrl` for remote, `ModelParams.PathToModel` for local), and the chat history is lazily synced on the next prompt insertion. Going remote → local replays the conversation through `RebuildContextFromHistory` so the local KV cache reflects the same context that was built up remotely.
+Both backends coexist. `SetUseRemote(bool)` flips routing live — any active stream is cancelled cleanly, the destination backend auto-loads if its config is valid (`Endpoint.BaseUrl` for remote, `ModelParams.PathToModel` for local), and the chat history is lazily synced on the next prompt insertion. Going remote → local replays the conversation through `RebuildContextFromHistory` so the local KV cache reflects the same context built up remotely.
 
-```
-RemoteComp->SetUseRemote(false);  // switch to local FLlamaNative for the next prompt
+```cpp
+Component->SetUseRemote(false);  // switch to local FLlamaNative for the next prompt
 ```
 
-`bUseRemote` defaults to `true` so an existing `ULlamaRemoteComponent` placed via Blueprints behaves exactly as before.
+`bUseRemote` defaults to `false` (local-first). The remote-side properties (`Endpoint`, etc.) are hidden in the editor until the toggle is on.
 
 ## Multimodal over HTTP
 

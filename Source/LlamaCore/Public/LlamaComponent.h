@@ -6,55 +6,63 @@
 #include "Components/ActorComponent.h"
 #include "Engine/Texture2D.h"
 #include "LlamaDataTypes.h"
+#include "Remote/LlamaRemoteTypes.h"
 
 class ULlamaAudioCaptureComponent;
+class FLlamaDualBackend;
 
 #include "LlamaComponent.generated.h"
 
-/** 
-* Actor component API access to LLM. Each component wraps its own Model and context state, allows for multiple parallel LLMs.
-* Inherits lifetime from parent, typically in a system-type actor that means it will unload on level exit. If you wish to have
-* an LLM that survives level transitions, consider using LlamaSubsystem.
-*/
+/**
+ * Unified actor-component LLM API. Drives a local FLlamaNative backend by default; flip
+ * `bUseRemote` (or call SetUseRemote(true)) to route the same Blueprint surface through an
+ * OpenAI-compatible HTTP endpoint (e.g. llama-server, LM Studio, Ollama, vLLM, OpenAI).
+ *
+ * The local and remote backends share state (chat history, model params, multimodal blobs)
+ * via FLlamaDualBackend, so toggling at runtime preserves the conversation — going local
+ * ↔ remote rebuilds the destination's KV cache (or chat-message replay) lazily on the next
+ * Insert*. Same delegates fire on both paths: OnTokenGenerated, OnPartialGenerated,
+ * OnMarkdownPartialGenerated, OnResponseGenerated, OnEmbeddings, etc.
+ *
+ * Lifetime is the actor's. For a level-spanning singleton, use ULlamaSubsystem instead —
+ * it exposes the same Blueprint surface backed by the same FLlamaDualBackend.
+ */
 UCLASS(Category = "LLM", BlueprintType, meta = (BlueprintSpawnableComponent))
 class LLAMACORE_API ULlamaComponent : public UActorComponent
 {
     GENERATED_BODY()
 public:
-    ULlamaComponent(const FObjectInitializer &ObjectInitializer);
+    ULlamaComponent(const FObjectInitializer& ObjectInitializer);
     virtual ~ULlamaComponent();
 
     virtual void Activate(bool bReset) override;
     virtual void Deactivate() override;
-    virtual void TickComponent(float DeltaTime,
-                                ELevelTick TickType,
-                                FActorComponentTickFunction* ThisTickFunction) override;
+    virtual void TickComponent(float DeltaTime, ELevelTick TickType,
+                               FActorComponentTickFunction* ThisTickFunction) override;
 
-    //Main callback, updates for each token generated
+    // ── Streaming + lifecycle delegates ──────────────────────────────────────
+
     UPROPERTY(BlueprintAssignable)
     FOnTokenGeneratedSignature OnTokenGenerated;
 
-    //Only called when full response has been received (EOS/etc). Usually bandwidth bound operation, TPS given for TGS.
     UPROPERTY(BlueprintAssignable)
     FOnResponseGeneratedSignature OnResponseGenerated;
 
-    //Response split by punctuation emit e.g. sentence level emits. Useful for speech generation type tasks.
     UPROPERTY(BlueprintAssignable)
     FOnPartialSignature OnPartialGenerated;
 
-    //Markdown-aware partials: content stripped of formatting chars, tagged with markdown state (Text, Italic, Bold, Heading, Quote). Enable bSplitMarkdown in Advanced params.
     UPROPERTY(BlueprintAssignable)
     FOnMarkdownPartialSignature OnMarkdownPartialGenerated;
 
-    //Usually processing bound operation; TPS given for PPS
     UPROPERTY(BlueprintAssignable)
     FOnPromptProcessedSignature OnPromptProcessed;
 
-    //Requires embedding mode, results are suitable for RAG type ops
     UPROPERTY(BlueprintAssignable)
     FOnEmbeddingsSignature OnEmbeddings;
 
-    //Whenever the model stops generating
+    UPROPERTY(BlueprintAssignable)
+    FOnEmbeddingsBatchSignature OnAllEmbeddingsGenerated;
+
     UPROPERTY(BlueprintAssignable)
     FOnEndOfStreamSignature OnEndOfStream;
 
@@ -64,176 +72,171 @@ public:
     UPROPERTY(BlueprintAssignable)
     FModelNameSignature OnModelLoaded;
 
-    //Catch internal errors
     UPROPERTY(BlueprintAssignable)
     FOnErrorSignature OnError;
 
-    //Modify these before loading model to apply settings
+    // ── Shared params / state ────────────────────────────────────────────────
+
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Component")
     FLLMModelParams ModelParams;
 
-    //This state gets updated typically after every response
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Component")
     FLLMModelState ModelState;
 
-    //Settings
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Component")
     bool bDebugLogModelOutput = false;
 
-    //toggle to pay copy cost or not, default true
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Component")
     bool bSyncPromptHistory = true;
 
-    //loads model from ModelParams. If bForceReload it will force the model to reload even if already loaded.
-    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
-    virtual void LoadModel(bool bForceReload = true);
+    // ── Remote routing (defaults to false; local-first) ──────────────────────
+
+    /** When true, inference is routed through the remote HTTP endpoint defined in `Endpoint`.
+     *  Read-only in editor — flip via SetUseRemote() so toggle side effects (stream cancel,
+     *  slot erase, history sync) run. */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LLM Remote")
+    bool bUseRemote = false;
+
+    /** OpenAI-compatible HTTP endpoint config. Used only when bUseRemote is true. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Remote",
+              meta = (EditCondition = "bUseRemote", EditConditionHides))
+    FLlamaRemoteEndpoint Endpoint;
+
+    // ── Loading ──────────────────────────────────────────────────────────────
 
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
-    virtual void UnloadModel();
+    void LoadModel(bool bForceReload = true);
+
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
+    void UnloadModel();
 
     UFUNCTION(BlueprintPure, Category = "LLM Model Component")
-    virtual bool IsModelLoaded();
+    bool IsModelLoaded() const;
 
+    /** Toggle local↔remote at runtime. See FLlamaDualBackend::SetUseRemote for semantics. */
+    UFUNCTION(BlueprintCallable, Category = "LLM Remote")
+    void SetUseRemote(bool bNewUseRemote);
 
-    //Clears the prompt, allowing a new context - optionally keeping the initial system prompt
-    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
-    virtual void ResetContextHistory(bool bKeepSystemPrompt = false);
+    UFUNCTION(BlueprintPure, Category = "LLM Remote")
+    bool IsUsingRemote() const { return bUseRemote; }
 
-    /** Wipe state and re-ingest the supplied chat history so the local model's KV cache reflects
-     *  it. Useful for save-game restore, branching dialogue, and remote->local sync. No reply is
-     *  generated. If no native backend is allocated (remote-only), only ModelState.ChatHistory is
-     *  overwritten and OnPromptProcessed is fired. */
-    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
-    virtual void RebuildContextFromHistory(const FStructuredChatHistory& History);
-
-    //removes what the LLM replied
-    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
-    virtual void RemoveLastAssistantReply();
-
-    //removes what you said and what the LLM replied
-    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
-    virtual void RemoveLastUserInput();
-
-    //fine-grained removal, may desync history
-    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
-    virtual void RemoveLastNTokens(int32 TokenCount = 1);
-
-    //Main input function
-    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
-    virtual void InsertTemplatedPrompt(UPARAM(meta=(MultiLine=true)) const FString& Text, EChatTemplateRole Role = EChatTemplateRole::User, bool bAddAssistantBOS = false, bool bGenerateReply = true);
+    // ── Chat / inference ─────────────────────────────────────────────────────
 
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
-    virtual void InsertTemplatedPromptStruct(const FLlamaChatPrompt& ChatPrompt);
+    void ResetContextHistory(bool bKeepSystemPrompt = false);
 
-    //does not apply formatting before running inference
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
-    virtual void InsertRawPrompt(UPARAM(meta = (MultiLine = true)) const FString& Text, bool bGenerateReply = true);
+    void RebuildContextFromHistory(const FStructuredChatHistory& History);
 
-    //Typically as user, this pretends the input was generated in history and all downstream functions should trigger. KV-cache won't be updated if no models are loaded.
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
+    void RemoveLastAssistantReply();
+
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
+    void RemoveLastUserInput();
+
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
+    void RemoveLastNTokens(int32 TokenCount = 1);
+
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
+    void InsertTemplatedPrompt(UPARAM(meta=(MultiLine=true)) const FString& Text,
+                               EChatTemplateRole Role = EChatTemplateRole::User,
+                               bool bAddAssistantBOS = false, bool bGenerateReply = true);
+
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
+    void InsertTemplatedPromptStruct(const FLlamaChatPrompt& ChatPrompt);
+
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
+    void InsertRawPrompt(UPARAM(meta = (MultiLine = true)) const FString& Text, bool bGenerateReply = true);
+
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component - Impersonation via External API")
     void ImpersonateTemplatedPrompt(const FLlamaChatPrompt& ChatPrompt);
 
-    //Use this to feed external model inference through our loop (e.g. as assistant tokens are generated), it will pretend the output was generated locally downstream.
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component - Impersonation via External API")
-    void ImpersonateTemplatedToken(const FString& Token, EChatTemplateRole Role = EChatTemplateRole::Assistant, bool bIsEndOfStream = false);
+    void ImpersonateTemplatedToken(const FString& Token, EChatTemplateRole Role = EChatTemplateRole::Assistant,
+                                   bool bIsEndOfStream = false);
 
-    //if you want to manually wrap prompt, if template is empty string, default model template is applied. NB: this function should be thread safe, but this has not be thoroughly tested.
     UFUNCTION(BlueprintPure, Category = "LLM Model Component")
     FString WrapPromptForRole(const FString& Text, EChatTemplateRole Role, const FString& OverrideTemplate);
 
-    //Force stop generating new tokens
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
-    virtual void StopGeneration();
+    void StopGeneration();
 
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
-    virtual void ResumeGeneration();
+    void ResumeGeneration();
 
-    //Obtain the currently formatted context
     UFUNCTION(BlueprintPure, Category = "LLM Model Component")
     FString RawContextHistory();
 
     UFUNCTION(BlueprintPure, Category = "LLM Model Component")
     FStructuredChatHistory GetStructuredChatHistory();
 
-    //Multimodal - Image
-    UFUNCTION(BlueprintCallable, Category = "LLM Model Component - Multimodal")
-    virtual void InsertTemplateImagePrompt(UTexture2D* Image, const FString& Text, EChatTemplateRole Role = EChatTemplateRole::User, bool bAddAssistantBOS = false, bool bGenerateReply = true);
+    // ── Multimodal ───────────────────────────────────────────────────────────
 
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component - Multimodal")
-    virtual void InsertTemplateImagePromptFromFile(const FString& ImagePath, const FString& Text, EChatTemplateRole Role = EChatTemplateRole::User, bool bAddAssistantBOS = false, bool bGenerateReply = true);
+    void InsertTemplateImagePrompt(UTexture2D* Image, const FString& Text,
+                                   EChatTemplateRole Role = EChatTemplateRole::User,
+                                   bool bAddAssistantBOS = false, bool bGenerateReply = true);
 
-    //Multimodal - Audio
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component - Multimodal")
-    virtual void InsertTemplateAudioPrompt(const TArray<float>& PCMAudio, const FString& Text, EChatTemplateRole Role = EChatTemplateRole::User, bool bAddAssistantBOS = false, bool bGenerateReply = true);
+    void InsertTemplateImagePromptFromFile(const FString& ImagePath, const FString& Text,
+                                           EChatTemplateRole Role = EChatTemplateRole::User,
+                                           bool bAddAssistantBOS = false, bool bGenerateReply = true);
 
-    //Multimodal - Full control with multiple media entries in one message
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component - Multimodal")
-    virtual void InsertMultimodalPrompt(const FLlamaMultimodalPrompt& Prompt);
+    void InsertTemplateAudioPrompt(const TArray<float>& PCMAudio, const FString& Text,
+                                   EChatTemplateRole Role = EChatTemplateRole::User,
+                                   bool bAddAssistantBOS = false, bool bGenerateReply = true);
+
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Component - Multimodal")
+    void InsertMultimodalPrompt(const FLlamaMultimodalPrompt& Prompt);
 
     UFUNCTION(BlueprintPure, Category = "LLM Model Component - Multimodal")
-    virtual bool IsMultimodalLoaded() const;
+    bool IsMultimodalLoaded() const;
 
     UFUNCTION(BlueprintPure, Category = "LLM Model Component - Multimodal")
-    virtual bool SupportsVision() const;
+    bool SupportsVision() const;
 
     UFUNCTION(BlueprintPure, Category = "LLM Model Component - Multimodal")
-    virtual bool SupportsAudio() const;
+    bool SupportsAudio() const;
 
     UFUNCTION(BlueprintPure, Category = "LLM Model Component - Multimodal")
-    virtual int32 GetAudioSampleRate() const;
+    int32 GetAudioSampleRate() const;
 
-    // -----------------------------------------------------------------------
-    // Audio Capture Source — zero GT hop consumer wiring
-    // -----------------------------------------------------------------------
+    // ── Audio capture wiring ─────────────────────────────────────────────────
 
-    /** Optional audio capture source. When set, this component auto-registers as a consumer
-     *  and receives audio segments directly on the BG thread for multimodal inference.
-     *  Set AudioPromptTemplate on the underlying FLlamaNative to customize the prompt. */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Component - Audio Capture")
     ULlamaAudioCaptureComponent* AudioSource = nullptr;
 
-    /** Text template for audio prompts from the audio capture source.
-     *  Must contain <__media__> marker. Defaults to "<__media__>\nRespond to what was said." */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Component - Audio Capture")
     FString AudioPromptTemplate = TEXT("<__media__>\nRespond to what was said.");
 
-    /** Update the audio prompt template at runtime (e.g. between segments).
-     *  Takes effect on the next audio segment received. */
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component - Audio Capture")
     void SetAudioPromptTemplate(const FString& NewTemplate);
 
-    //This function requires embedding mode or it will not run
-    UFUNCTION(BlueprintCallable, Category = "LLM Model Embedding Mode")
-    virtual void GeneratePromptEmbeddingsForText(const FString& Text);
+    // ── Embedding ────────────────────────────────────────────────────────────
 
-    //Sequentially embeds N texts; OnEmbeddings fires once per item, then OnAllEmbeddingsGenerated fires once.
     UFUNCTION(BlueprintCallable, Category = "LLM Model Embedding Mode")
-    virtual void GeneratePromptEmbeddingsForTexts(const TArray<FString>& Texts);
+    void GeneratePromptEmbeddingsForText(const FString& Text);
 
-    //Embedding dimension of the loaded model. 0 if not loaded or not in embedding mode.
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Embedding Mode")
+    void GeneratePromptEmbeddingsForTexts(const TArray<FString>& Texts);
+
     UFUNCTION(BlueprintPure, Category = "LLM Model Embedding Mode")
-    virtual int32 GetEmbeddingDimension() const;
+    int32 GetEmbeddingDimension() const;
 
-    /** C++ helper for tools (URagStore etc.) that need exclusive callbacks instead of the
-     *  BP-broadcast OnEmbeddings/OnAllEmbeddingsGenerated multicast events. */
+    /** C++ helper for tools (URagStore etc.) that need exclusive callbacks. */
     void EmbedTextsAsync(const TArray<FString>& Texts,
         TFunction<void(const TArray<TArray<float>>&, const TArray<FString>&)> OnDone);
 
-    //Fires once when GeneratePromptEmbeddingsForTexts has finished processing every input.
-    UPROPERTY(BlueprintAssignable)
-    FOnEmbeddingsBatchSignature OnAllEmbeddingsGenerated;
+    // ── Native escape hatch (advanced) ───────────────────────────────────────
+
+    /** Direct access to the underlying dual-backend for advanced consumers. */
+    FLlamaDualBackend* GetBackend() const { return Backend; }
 
 protected:
-    // Factory for the native backend. Base returns `new FLlamaNative()`.
-    // Subclasses (e.g. ULlamaRemoteComponent) can return nullptr to opt out of local inference.
-    virtual class FLlamaNative* CreateNativeBackend();
+    /** Owns the FLlamaNative + remote client and contains every dual-routing state machine.
+     *  Created in the component constructor; deleted in the destructor. */
+    FLlamaDualBackend* Backend = nullptr;
 
-    /** Returns true when state-affecting calls (rollback, history rebuild) should bypass
-     *  FLlamaNative's KV cache and only mutate ModelState. Default: no native backend OR
-     *  ModelParams.bImpersonationMode (impersonation/external KV management).
-     *  Subclasses override to plug in alternative routing decisions (ULlamaRemoteComponent
-     *  returns true when bUseRemote is set). */
-    virtual bool ShouldBypassNativeKV() const;
-
-    class FLlamaNative* LlamaNative = nullptr;
+    void WireBackendCallbacks();
 };

@@ -388,7 +388,7 @@ struct FLLMModelParams
     //When true, this component's local model KV cache is being driven externally (e.g. via
     //ImpersonateTemplatedPrompt / ImpersonateTemplatedToken). Rollback helpers (RemoveLastAssistantReply,
     //RemoveLastUserInput) and RebuildContextFromHistory mutate ModelState only — they will NOT call
-    //into FLlamaNative. Note: this flag has no effect on ULlamaRemoteComponent's local/remote routing,
+    //into FLlamaNative. Note: this flag has no effect on FLlamaDualBackend's local/remote routing,
     //which is controlled separately via SetUseRemote().
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
     bool bImpersonationMode = false;

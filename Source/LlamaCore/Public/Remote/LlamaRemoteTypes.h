@@ -6,7 +6,7 @@
 #include "LlamaRemoteTypes.generated.h"
 
 /**
- * Endpoint configuration for ULlamaRemoteComponent.
+ * Endpoint configuration for FLlamaDualBackend (used by ULlamaComponent / ULlamaSubsystem).
  * Targets an OpenAI-compatible HTTP API (e.g. llama-server from llama.cpp,
  * LM Studio, Ollama openai-compat, vLLM, or OpenAI itself).
  */
