@@ -41,6 +41,8 @@ Everything is wrapped inside a [`ULlamaComponent`](Source/LlamaCore/Public/Llama
 
 3) You should receive replies via [`OnResponseGenerated`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaComponent.h#L36) when full response has been generated. If you need streaming information, listen to [`OnNewTokenGenerated`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaComponent.h#L32) and optionally `OnPartialGenerated` (sentence-level) or `OnMarkdownPartialGenerated` (formatting-aware partials tagged with `EMarkdownStreamState`: Text, Italic, Bold, Heading, Quote, Emphasis, **Thinking**). Markdown emission requires `Advanced.Markdown.bSplitMarkdown = true`. Thinking-capable models (Qwen3, DeepSeek-R1) auto-route content between `<think>...</think>` tags into the `Thinking` category — tag chars are stripped, content is delivered separately so you can route it to a "thinking" UI panel.
 
+`OnPartialGenerated` fires per-sentence using `Advanced.Output.PartialsSeparators`, which by default covers `.` `?` `!` `\n` `…` plus CJK (`。 ？ ！`), Devanagari danda (`।`), and Arabic question mark (`؟`). The matcher reads `Sep[0]` so only single-character entries are effective — replace or extend the array if your content needs different break points (clauses on `;` `:` etc.).
+
 Explore [LlamaComponent.h](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaComponent.h) for detailed API. Also if you need to modify sampling properties you find them in [`FLLMModelAdvancedParams`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaDataTypes.h#L49).
 
 ### Restoring history (save-game / external state)
@@ -70,13 +72,19 @@ The plugin auto-translates `ModelParams` into the request JSON: `Advanced.Sampli
 
 ## Toggling between local and remote at runtime
 
-Both backends coexist. `SetUseRemote(bool)` flips routing live — any active stream is cancelled cleanly, the destination backend auto-loads if its config is valid (`Endpoint.BaseUrl` for remote, `ModelParams.PathToModel` for local), and the chat history is lazily synced on the next prompt insertion. Going remote → local replays the conversation through `RebuildContextFromHistory` so the local KV cache reflects the same context built up remotely.
+Both backends coexist. `SetUseRemote(bool)` flips routing live — any active stream is cancelled cleanly, the destination backend auto-loads if its config is valid (`Endpoint.BaseUrl` for remote, `ModelParams.PathToModel` for local), and the chat history is lazily synced on the next prompt insertion.
 
 ```cpp
 Component->SetUseRemote(false);  // switch to local FLlamaNative for the next prompt
 ```
 
 `bUseRemote` defaults to `false` (local-first). The remote-side properties (`Endpoint`, etc.) are hidden in the editor until the toggle is on.
+
+**Smart KV sync on remote → local handoff.** When you swap back to local with messages added during the remote excursion, the plugin tracks how many messages the local KV last decoded and hashes that prefix. If the prefix still matches the current chat history, only the new messages are appended via `InsertTemplatedPrompt(bGenerateReply=false)` — no full replay. If the prefix has diverged (e.g. you reset history while remote, or rolled back a turn), it falls back to a full `RebuildContextFromHistory`. Toggle via `bUseIncrementalKVSyncOnToggle` (default `true`); flip to `false` for the bulletproof full-rebuild path on every sync if the smart path ever surfaces a KV bug in your environment.
+
+**Model file is *not* reloaded** on toggle. Once the local backend's model file is in VRAM it stays resident across remote excursions, and `IsModelLoaded()` correctly reports per-backend so the lazy-load on swap-back skips reload when the local is already warm. KV cache rebuild (above) is the only cost. To free local VRAM during long remote sessions, call `UnloadModel()` explicitly before `SetUseRemote(true)`.
+
+**Warm-loading the local backend.** If you want zero handoff cost — i.e. instant local takeover on `SetUseRemote(false)` — set `bPreloadLocalWhenRemote = true` (default `false`). When `LoadModel` runs in remote mode this also kicks off a silent local model load in the background. Trade: full model resident from startup. Useful when you expect to swap mid-session and can't tolerate the multi-second initial load latency.
 
 ## Multimodal over HTTP
 
