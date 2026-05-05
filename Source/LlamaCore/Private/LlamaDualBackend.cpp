@@ -324,6 +324,27 @@ void FLlamaDualBackend::LoadModel(bool bForceReload)
                     if (OnModelLoaded) OnModelLoaded(RemoteModelName);
                 });
         });
+
+    // Optional warm-load of the local backend so it's ready to take over a future
+    // SetUseRemote(false) without paying the multi-second model-load cost at swap time.
+    // Silent — doesn't fire OnModelLoaded (that's reserved for the active backend).
+    if (bPreloadLocalWhenRemote &&
+        LlamaNative &&
+        !ModelState.bModelIsLoaded &&
+        !ModelParams.PathToModel.IsEmpty())
+    {
+        UE_LOG(LlamaLog, Log, TEXT("Preloading local backend (remote is active) for fast SetUseRemote(false) handoff"));
+        LlamaNative->SetModelParams(ModelParams);
+        LlamaNative->LoadModel(/*bForceReload=*/false, [](const FString& /*Path*/, int32 StatusCode)
+        {
+            if (StatusCode != 0)
+            {
+                UE_LOG(LlamaLog, Warning, TEXT("Preload of local backend failed (status=%d)"), StatusCode);
+            }
+            // Success path is silent — OnModelStateChanged from FLlamaNative will flip
+            // ModelState.bModelIsLoaded to true and re-anchor LocalKVMessageCount.
+        });
+    }
 }
 
 void FLlamaDualBackend::UnloadModel()

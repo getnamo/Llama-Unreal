@@ -60,6 +60,7 @@ void ULlamaSubsystem::SyncBackendConfig()
     Backend->Endpoint = Endpoint;
     Backend->bUseRemote = bUseRemote;
     Backend->bUseIncrementalKVSyncOnToggle = bUseIncrementalKVSyncOnToggle;
+    Backend->bPreloadLocalWhenRemote = bPreloadLocalWhenRemote;
 }
 
 void ULlamaSubsystem::WireBackendCallbacks()

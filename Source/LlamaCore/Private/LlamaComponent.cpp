@@ -109,6 +109,7 @@ void ULlamaComponent::SyncBackendConfig()
     Backend->bUseRemote = bUseRemote;
     Backend->AudioPromptTemplate = AudioPromptTemplate;
     Backend->bUseIncrementalKVSyncOnToggle = bUseIncrementalKVSyncOnToggle;
+    Backend->bPreloadLocalWhenRemote = bPreloadLocalWhenRemote;
 }
 
 void ULlamaComponent::Activate(bool bReset)

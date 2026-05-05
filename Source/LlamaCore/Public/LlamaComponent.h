@@ -96,6 +96,14 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Component")
     bool bUseIncrementalKVSyncOnToggle = true;
 
+    /** When true AND bUseRemote is on at LoadModel time, also silently warm-load the local
+     *  backend so SetUseRemote(false) doesn't pay the multi-second model-load cost later.
+     *  Default false (don't burn VRAM unless you specifically expect to swap). Only used in
+     *  remote-active configurations — local-active always loads the local model as normal. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Remote",
+              meta = (EditCondition = "bUseRemote", EditConditionHides))
+    bool bPreloadLocalWhenRemote = false;
+
     // ── Remote routing (defaults to false; local-first) ──────────────────────
 
     /** When true, inference is routed through the remote HTTP endpoint defined in `Endpoint`.

@@ -50,6 +50,14 @@ public:
      *  every sync (useful if the smart path ever surfaces a KV-state bug). */
     bool bUseIncrementalKVSyncOnToggle = true;
 
+    /** When true and `bUseRemote` is the active backend at LoadModel() time, ALSO kick off a
+     *  silent local model load so the local FLlamaNative is warm and ready to take over the
+     *  moment the user calls SetUseRemote(false). Default false (don't pay VRAM cost upfront).
+     *  Has no effect when local is already the active backend (local always loads as normal).
+     *  The local load runs through FLlamaNative's BG queue and does NOT fire OnModelLoaded —
+     *  that delegate stays anchored to the *active* backend's load completion. */
+    bool bPreloadLocalWhenRemote = false;
+
     // --- Callback hooks (host wires to Blueprint multicasts) ---------------
 
     TFunction<void(const FString& Token)>                    OnTokenGenerated;
