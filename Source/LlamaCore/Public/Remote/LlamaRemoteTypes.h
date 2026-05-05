@@ -15,7 +15,8 @@ struct FLlamaRemoteEndpoint
 {
     GENERATED_USTRUCT_BODY();
 
-    /** Base URL without trailing slash. e.g. http://127.0.0.1:8080 */
+    /** OpenAI-compatible API endpoint, no trailing slash. The server must expose /v1/chat/completions
+     *  (and /v1/models, /health, /props for capability discovery). e.g. http://127.0.0.1:8080 */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Llama Remote Endpoint")
     FString BaseUrl = TEXT("http://127.0.0.1:8080");
 
