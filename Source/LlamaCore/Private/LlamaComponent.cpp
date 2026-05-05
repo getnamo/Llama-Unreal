@@ -502,3 +502,24 @@ int32 ULlamaComponent::GetEmbeddingDimension() const
 {
     return LlamaNative ? LlamaNative->GetEmbeddingDimension() : 0;
 }
+
+void ULlamaComponent::EmbedTextsAsync(const TArray<FString>& Texts,
+    TFunction<void(const TArray<TArray<float>>&, const TArray<FString>&)> OnDone)
+{
+    if (!LlamaNative)
+    {
+        if (OnDone) OnDone(TArray<TArray<float>>(), TArray<FString>());
+        return;
+    }
+    if (!ModelParams.Advanced.bEmbeddingMode)
+    {
+        UE_LOG(LlamaLog, Warning, TEXT("EmbedTextsAsync: model not in embedding mode."));
+        if (OnDone) OnDone(TArray<TArray<float>>(), TArray<FString>());
+        return;
+    }
+    LlamaNative->GetPromptEmbeddingsBatch(Texts, /*per-item*/ nullptr,
+        [OnDone = MoveTemp(OnDone)](const TArray<TArray<float>>& All, const TArray<FString>& Sources)
+        {
+            if (OnDone) OnDone(All, Sources);
+        });
+}

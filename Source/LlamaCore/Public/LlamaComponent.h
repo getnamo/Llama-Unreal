@@ -214,6 +214,11 @@ public:
     UFUNCTION(BlueprintPure, Category = "LLM Model Embedding Mode")
     virtual int32 GetEmbeddingDimension() const;
 
+    /** C++ helper for tools (URagStore etc.) that need exclusive callbacks instead of the
+     *  BP-broadcast OnEmbeddings/OnAllEmbeddingsGenerated multicast events. */
+    void EmbedTextsAsync(const TArray<FString>& Texts,
+        TFunction<void(const TArray<TArray<float>>&, const TArray<FString>&)> OnDone);
+
     //Fires once when GeneratePromptEmbeddingsForTexts has finished processing every input.
     UPROPERTY(BlueprintAssignable)
     FOnEmbeddingsBatchSignature OnAllEmbeddingsGenerated;
