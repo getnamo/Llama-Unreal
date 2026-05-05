@@ -134,6 +134,7 @@ void ULlamaRemoteComponent::LoadModel(bool bForceReload)
                     S->RemoteModelName = TEXT("remote");
                     S->bRemoteVision = false;
                     S->bRemoteAudio = false;
+                    S->bRemoteSupportsThinking = false;
                     S->RemoteAudioSampleRate = 16000;
 
                     if (bPropsOk && Root.IsValid())
@@ -149,6 +150,12 @@ void ULlamaRemoteComponent::LoadModel(bool bForceReload)
                         if (Root->TryGetStringField(TEXT("chat_template"), ChatTemplate))
                         {
                             S->ModelState.ChatTemplateInUse.TemplateSource = ChatTemplate;
+
+                            // Mirror FLlamaInternal's auto-detection: Qwen3 / DeepSeek-R1 / etc.
+                            // expose <think> in their chat template, or branch on enable_thinking.
+                            S->bRemoteSupportsThinking =
+                                ChatTemplate.Contains(TEXT("<think>")) ||
+                                ChatTemplate.Contains(TEXT("enable_thinking"));
                         }
 
                         const TArray<TSharedPtr<FJsonValue>>* Modalities = nullptr;
@@ -609,7 +616,9 @@ void ULlamaRemoteComponent::BeginStreamFromHistory(bool bAttachPendingMedia)
                 }
             }
 
-            // Replace the placeholder assistant message's content with the full final text.
+            // Replace the placeholder assistant message's content with the **raw** final text
+            // (history retains thinking blocks for context, mirroring local FLlamaInternal::Generate
+            // which pushes the unstripped Response into Messages on line 828).
             if (Self->ModelState.ChatHistory.History.Num() > 0)
             {
                 FStructuredChatMessage& Last = Self->ModelState.ChatHistory.History.Last();
@@ -618,8 +627,35 @@ void ULlamaRemoteComponent::BeginStreamFromHistory(bool bAttachPendingMedia)
                     Last.Content = Final;
                 }
             }
+
+            // Apply bStripThinkingFromResponse to the broadcast value only — same behavior as
+            // FLlamaInternal::Generate (cpp:836-850): drop everything up to and including </think>
+            // plus any trailing newlines.
+            FString Emitted = Final;
+            if (Self->ModelParams.Advanced.Thinking.bStripThinkingFromResponse &&
+                Self->bRemoteSupportsThinking)
+            {
+                const FString CloseTag = TEXT("</think>");
+                int32 ClosePos = INDEX_NONE;
+                if (Emitted.FindLastChar(TEXT('>'), ClosePos))
+                {
+                    // Scan for substring; FString::Find is fine but FindLastChar gave us a fast bail.
+                    ClosePos = Emitted.Find(CloseTag, ESearchCase::CaseSensitive, ESearchDir::FromStart);
+                }
+                if (ClosePos != INDEX_NONE)
+                {
+                    int32 ContentStart = ClosePos + CloseTag.Len();
+                    while (ContentStart < Emitted.Len() &&
+                           (Emitted[ContentStart] == TEXT('\n') || Emitted[ContentStart] == TEXT('\r')))
+                    {
+                        ++ContentStart;
+                    }
+                    Emitted.RightChopInline(ContentStart, EAllowShrinking::No);
+                }
+            }
+
             Self->ModelState.LastTokenGenerationSpeed = Tps;
-            Self->OnResponseGenerated.Broadcast(Final);
+            Self->OnResponseGenerated.Broadcast(Emitted);
             Self->OnEndOfStream.Broadcast(true, Tps);
             Self->ActiveStream.Reset();
         },

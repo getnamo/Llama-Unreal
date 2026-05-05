@@ -98,6 +98,10 @@ private:
     bool bRemoteModelLoaded = false;
     bool bRemoteVision = false;
     bool bRemoteAudio = false;
+    /** Auto-detected from /props chat_template (mirrors FLlamaInternal::bModelSupportsThinking).
+     *  When true and ModelParams.Advanced.Thinking.bStripThinkingFromResponse, the final response
+     *  broadcast strips the <think>...</think> block. Streaming tokens/partials see the raw stream. */
+    bool bRemoteSupportsThinking = false;
     int32 RemoteAudioSampleRate = 16000;
     int32 AssignedSlotId = -1;
 
