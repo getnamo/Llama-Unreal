@@ -18,13 +18,11 @@
 
 // ─── Lifecycle ───────────────────────────────────────────────────────────────
 
-FLlamaDualBackend::FLlamaDualBackend()
-{
-    // Sentence-ending separators by default (matches ULlamaComponent's historical defaults).
-    ModelParams.Advanced.Output.PartialsSeparators.Add(TEXT("."));
-    ModelParams.Advanced.Output.PartialsSeparators.Add(TEXT("?"));
-    ModelParams.Advanced.Output.PartialsSeparators.Add(TEXT("!"));
-}
+FLlamaDualBackend::FLlamaDualBackend() = default;
+// Note: PartialsSeparators are intentionally NOT defaulted here — the host
+// (ULlamaComponent / ULlamaSubsystem) populates them on its own ModelParams so the
+// per-Insert sync `Backend->ModelParams = ModelParams` carries valid defaults instead
+// of clobbering them.
 
 FLlamaDualBackend::~FLlamaDualBackend()
 {

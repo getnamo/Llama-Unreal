@@ -9,6 +9,21 @@
 ULlamaComponent::ULlamaComponent(const FObjectInitializer& ObjectInitializer)
     : UActorComponent(ObjectInitializer)
 {
+    // Sentence-ending separators so OnPartialGenerated fires per-sentence during streaming
+    // (every per-token sync of ModelParams to the backend carries these forward).
+    // Note: matcher uses Sep[0], so only single-character entries are effective.
+    auto& Seps = ModelParams.Advanced.Output.PartialsSeparators;
+    Seps.Add(TEXT("."));
+    Seps.Add(TEXT("?"));
+    Seps.Add(TEXT("!"));
+    Seps.Add(TEXT("\n"));     // paragraph / line break (lists, headings, multi-line output)
+    Seps.Add(TEXT("…")); // … horizontal ellipsis
+    Seps.Add(TEXT("。")); // 。 CJK full stop
+    Seps.Add(TEXT("？")); // ？ fullwidth question mark
+    Seps.Add(TEXT("！")); // ！ fullwidth exclamation mark
+    Seps.Add(TEXT("।")); // ।  Devanagari danda
+    Seps.Add(TEXT("؟")); // ؟ Arabic question mark
+
     Backend = new FLlamaDualBackend();
     Backend->ModelParams = ModelParams;
     Backend->Initialize();
