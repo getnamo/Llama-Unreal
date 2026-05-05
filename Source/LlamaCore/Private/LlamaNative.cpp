@@ -873,9 +873,11 @@ int32 FLlamaNative::RawContextHistory(FString& OutContextString)
         }
     }
 
-    // Convert only the valid part to an FString
-    OutContextString = FString(ValidLength, ANSI_TO_TCHAR(Internal->ContextHistory.data()));
-
+    // ContextHistory is a UTF-8 byte stream. Convert via UTF8_TO_TCHAR (was ANSI_TO_TCHAR,
+    // which double-encoded non-ASCII into mojibake). Return value is byte count (callers
+    // use it for raw-buffer accounting, not char count).
+    const std::string Trimmed(Internal->ContextHistory.data(), ValidLength);
+    OutContextString = FLlamaString::ToUE(Trimmed);
     return ValidLength;
 }
 
@@ -894,8 +896,8 @@ void FLlamaNative::GetStructuredChatHistory(FStructuredChatHistory& OutChatHisto
     {
         FStructuredChatMessage StructuredMsg;
 
-        // Convert role
-        FString RoleStr = FString(ANSI_TO_TCHAR(Msg.role));
+        // Convert role (ASCII in practice, but UTF-8 decode is the safe canonical choice).
+        FString RoleStr = FString(UTF8_TO_TCHAR(Msg.role));
         if (RoleStr.Equals(TEXT("system"), ESearchCase::IgnoreCase))
         {
             StructuredMsg.Role = EChatTemplateRole::System;
@@ -914,8 +916,9 @@ void FLlamaNative::GetStructuredChatHistory(FStructuredChatHistory& OutChatHisto
             StructuredMsg.Role = EChatTemplateRole::Assistant;
         }
 
-        // Convert content
-        StructuredMsg.Content = FString(ANSI_TO_TCHAR(Msg.content));
+        // Convert content. Msg.content is UTF-8 (llama.cpp + chat-template apply both produce
+        // UTF-8 byte streams). ANSI_TO_TCHAR was double-encoding non-ASCII into mojibake.
+        StructuredMsg.Content = FString(UTF8_TO_TCHAR(Msg.content));
 
         // Add to history
         OutChatHistory.History.Add(StructuredMsg);
