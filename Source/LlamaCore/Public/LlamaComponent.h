@@ -206,6 +206,18 @@ public:
     UFUNCTION(BlueprintCallable, Category = "LLM Model Embedding Mode")
     virtual void GeneratePromptEmbeddingsForText(const FString& Text);
 
+    //Sequentially embeds N texts; OnEmbeddings fires once per item, then OnAllEmbeddingsGenerated fires once.
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Embedding Mode")
+    virtual void GeneratePromptEmbeddingsForTexts(const TArray<FString>& Texts);
+
+    //Embedding dimension of the loaded model. 0 if not loaded or not in embedding mode.
+    UFUNCTION(BlueprintPure, Category = "LLM Model Embedding Mode")
+    virtual int32 GetEmbeddingDimension() const;
+
+    //Fires once when GeneratePromptEmbeddingsForTexts has finished processing every input.
+    UPROPERTY(BlueprintAssignable)
+    FOnEmbeddingsBatchSignature OnAllEmbeddingsGenerated;
+
 protected:
     // Factory for the native backend. Base returns `new FLlamaNative()`.
     // Subclasses (e.g. ULlamaRemoteComponent) can return nullptr to opt out of local inference.

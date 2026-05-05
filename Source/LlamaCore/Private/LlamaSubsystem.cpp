@@ -158,16 +158,51 @@ void ULlamaSubsystem::ResumeGeneration()
     LlamaNative->ResumeGeneration();
 }
 
-void ULlamaSubsystem::TestVectorSearch()
+void ULlamaSubsystem::GeneratePromptEmbeddingsForText(const FString& Text)
 {
-    FVectorDatabase* VectorDb = new FVectorDatabase();;
+    if (!LlamaNative) return;
+    if (!ModelParams.Advanced.bEmbeddingMode)
+    {
+        UE_LOG(LlamaLog, Warning, TEXT("Model is not in embedding mode, cannot generate embeddings."));
+        return;
+    }
+    LlamaNative->GetPromptEmbeddings(Text, [this](const TArray<float>& Embeddings, const FString& SourceText)
+    {
+        OnEmbeddings.Broadcast(Embeddings, SourceText);
+    });
+}
 
-    UE_LOG(LogTemp, Log, TEXT("VectorDB Pre"));
-    VectorDb->BasicsTest();
-    UE_LOG(LogTemp, Log, TEXT("VectorDB Post"));
+void ULlamaSubsystem::GeneratePromptEmbeddingsForTexts(const TArray<FString>& Texts)
+{
+    if (!LlamaNative) return;
+    if (!ModelParams.Advanced.bEmbeddingMode)
+    {
+        UE_LOG(LlamaLog, Warning, TEXT("Model is not in embedding mode, cannot generate embeddings."));
+        return;
+    }
+    LlamaNative->GetPromptEmbeddingsBatch(Texts,
+        [this](const TArray<float>& Embeddings, const FString& SourceText)
+        {
+            OnEmbeddings.Broadcast(Embeddings, SourceText);
+        },
+        [this](const TArray<TArray<float>>& /*All*/, const TArray<FString>& AllSourceTexts)
+        {
+            OnAllEmbeddingsGenerated.Broadcast(AllSourceTexts);
+        });
+}
 
-    delete VectorDb;
-    VectorDb = nullptr;
+int32 ULlamaSubsystem::GetEmbeddingDimension() const
+{
+    return LlamaNative ? LlamaNative->GetEmbeddingDimension() : 0;
+}
+
+float ULlamaSubsystem::TestVectorSearch()
+{
+    FVectorDatabase VectorDb;
+    VectorDb.Params.Dimensions = 16;
+    VectorDb.Params.MaxElements = 200;
+    const float Recall = VectorDb.BasicsTest();
+    return Recall;
 }
 
 FString ULlamaSubsystem::RawContextHistory()

@@ -595,15 +595,49 @@ void FLlamaInternal::GetPromptEmbeddings(const std::string& Text, std::vector<fl
     
     int32 NEmbd = llama_model_n_embd(LlamaModel);
 
-    //allocate
-    Embeddings = std::vector<float>(EmbeddingCount * NEmbd, 0);
-
-    float* EmbeddingsPtr = Embeddings.data();
+    //allocate raw output buffer
+    std::vector<float> Raw(EmbeddingCount * NEmbd, 0.f);
 
     //decode
-    BatchDecodeEmbedding(Context, Batch, EmbeddingsPtr, 0, NEmbd, 2);
+    BatchDecodeEmbedding(Context, Batch, Raw.data(), 0, NEmbd, 2);
 
-    UE_LOG(LogTemp, Log, TEXT("Embeddings count: %d"), Embeddings.size());
+    //Always return a single pooled vector. For NONE pooling, mean-pool per-token rows then re-normalize L2.
+    if (EmbeddingCount > 1)
+    {
+        Embeddings.assign(NEmbd, 0.f);
+        for (int32 t = 0; t < EmbeddingCount; ++t)
+        {
+            const float* Row = Raw.data() + t * NEmbd;
+            for (int32 d = 0; d < NEmbd; ++d)
+            {
+                Embeddings[d] += Row[d];
+            }
+        }
+        const float Inv = 1.f / static_cast<float>(EmbeddingCount);
+        for (int32 d = 0; d < NEmbd; ++d) { Embeddings[d] *= Inv; }
+
+        //L2 renormalize after pooling
+        double SumSq = 0.0;
+        for (int32 d = 0; d < NEmbd; ++d) { SumSq += static_cast<double>(Embeddings[d]) * Embeddings[d]; }
+        const float Norm = SumSq > 0.0 ? static_cast<float>(1.0 / sqrt(SumSq)) : 1.f;
+        for (int32 d = 0; d < NEmbd; ++d) { Embeddings[d] *= Norm; }
+    }
+    else
+    {
+        Embeddings = std::move(Raw);
+    }
+
+    llama_batch_free(Batch);
+
+    UE_LOG(LlamaLog, Verbose, TEXT("FLlamaInternal::GetPromptEmbeddings: %d floats (pooling=%d, tokens=%d)"),
+           static_cast<int32>(Embeddings.size()),
+           static_cast<int32>(PoolingType),
+           static_cast<int32>(Input.size()));
+}
+
+int32 FLlamaInternal::GetEmbeddingDimension() const
+{
+    return LlamaModel ? llama_model_n_embd(LlamaModel) : 0;
 }
 
 int32 FLlamaInternal::ProcessPrompt(const std::string& Prompt, EChatTemplateRole Role)

@@ -109,8 +109,13 @@ public:
 
     //for embedding models
 
-    //take a prompt and return an array of floats signifying the embeddings
+    //take a prompt and return an array of floats signifying the embeddings.
+    //Always returns a single pooled vector of length GetEmbeddingDimension() — for models
+    //with LLAMA_POOLING_TYPE_NONE, per-token embeddings are mean-pooled and re-L2-normalized.
     void GetPromptEmbeddings(const std::string& Text, std::vector<float>& Embeddings);
+
+    //Per-vector embedding dimension of the loaded embedding model. 0 if not loaded.
+    int32 GetEmbeddingDimension() const;
 
 protected:
     //Wrapper for user<->assistant templated conversation

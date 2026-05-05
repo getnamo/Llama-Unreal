@@ -984,3 +984,55 @@ void FLlamaNative::GetPromptEmbeddings(const FString& Text, TFunction<void(const
         });
     });
 }
+
+void FLlamaNative::GetPromptEmbeddingsBatch(const TArray<FString>& Texts,
+    TFunction<void(const TArray<float>& Embeddings, const FString& SourceText)> OnEmbeddings,
+    TFunction<void(const TArray<TArray<float>>& AllEmbeddings, const TArray<FString>& AllSourceTexts)> OnAllEmbeddings)
+{
+    if (Texts.Num() == 0)
+    {
+        if (OnAllEmbeddings)
+        {
+            EnqueueGTTask([OnAllEmbeddings] { OnAllEmbeddings(TArray<TArray<float>>(), TArray<FString>()); });
+        }
+        return;
+    }
+
+    //Copy inputs so the BG closure owns them.
+    TArray<FString> SourceTexts = Texts;
+
+    EnqueueBGTask([this, SourceTexts = MoveTemp(SourceTexts), OnEmbeddings, OnAllEmbeddings](int64 TaskId)
+    {
+        TArray<TArray<float>> AllEmbeddings;
+        AllEmbeddings.Reserve(SourceTexts.Num());
+
+        for (const FString& Text : SourceTexts)
+        {
+            std::string TextStd = FLlamaString::ToStd(Text);
+            std::vector<float> Vec;
+            Internal->GetPromptEmbeddings(TextStd, Vec);
+
+            TArray<float> Emb;
+            Emb.Append(Vec.data(), Vec.size());
+            AllEmbeddings.Add(Emb);
+
+            if (OnEmbeddings)
+            {
+                EnqueueGTTask([OnEmbeddings, Emb, Text] { OnEmbeddings(Emb, Text); });
+            }
+        }
+
+        if (OnAllEmbeddings)
+        {
+            EnqueueGTTask([OnAllEmbeddings, AllEmbeddings = MoveTemp(AllEmbeddings), SourceTexts]
+            {
+                OnAllEmbeddings(AllEmbeddings, SourceTexts);
+            });
+        }
+    });
+}
+
+int32 FLlamaNative::GetEmbeddingDimension() const
+{
+    return Internal ? Internal->GetEmbeddingDimension() : 0;
+}

@@ -108,9 +108,26 @@ public:
     UFUNCTION(BlueprintCallable, Category = "LLM Model Subsystem")
     void ResumeGeneration();
 
-    //Temporary for testing purposes
+    //Embedding mode
+
+    UPROPERTY(BlueprintAssignable)
+    FOnEmbeddingsSignature OnEmbeddings;
+
+    UPROPERTY(BlueprintAssignable)
+    FOnEmbeddingsBatchSignature OnAllEmbeddingsGenerated;
+
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Embedding Mode")
+    void GeneratePromptEmbeddingsForText(const FString& Text);
+
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Embedding Mode")
+    void GeneratePromptEmbeddingsForTexts(const TArray<FString>& Texts);
+
+    UFUNCTION(BlueprintPure, Category = "LLM Model Embedding Mode")
+    int32 GetEmbeddingDimension() const;
+
+    //Self-recall sanity check on the FVectorDatabase implementation. Returns the recall fraction.
     UFUNCTION(BlueprintCallable, Category = "TESTING")
-    void TestVectorSearch();
+    float TestVectorSearch();
 
     //Obtain the currently formatted context
     UFUNCTION(BlueprintPure, Category = "LLM Model Subsystem")

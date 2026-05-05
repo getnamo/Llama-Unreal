@@ -476,3 +476,29 @@ void ULlamaComponent::GeneratePromptEmbeddingsForText(const FString& Text)
         OnEmbeddings.Broadcast(Embeddings, SourceText);
     });
 }
+
+void ULlamaComponent::GeneratePromptEmbeddingsForTexts(const TArray<FString>& Texts)
+{
+    if (!LlamaNative) return;
+    if (!ModelParams.Advanced.bEmbeddingMode)
+    {
+        UE_LOG(LlamaLog, Warning, TEXT("Model is not in embedding mode, cannot generate embeddings."));
+        return;
+    }
+
+    LlamaNative->GetPromptEmbeddingsBatch(
+        Texts,
+        [this](const TArray<float>& Embeddings, const FString& SourceText)
+        {
+            OnEmbeddings.Broadcast(Embeddings, SourceText);
+        },
+        [this](const TArray<TArray<float>>& /*All*/, const TArray<FString>& AllSourceTexts)
+        {
+            OnAllEmbeddingsGenerated.Broadcast(AllSourceTexts);
+        });
+}
+
+int32 ULlamaComponent::GetEmbeddingDimension() const
+{
+    return LlamaNative ? LlamaNative->GetEmbeddingDimension() : 0;
+}

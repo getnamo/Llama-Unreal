@@ -92,8 +92,18 @@ public:
 
 	//Embedding mode
 
-	//Embed a prompt and return the embeddings
+	//Embed a prompt and return the embeddings (single pooled vector of length GetEmbeddingDimension()).
 	void GetPromptEmbeddings(const FString& Text, TFunction<void(const TArray<float>& Embeddings, const FString& SourceText)>OnEmbeddings = nullptr);
+
+	//Sequentially embed N prompts on the BG thread, emitting once per text. The OnAllEmbeddings
+	//callback (if provided) fires once on the GT after every input has been processed, with results
+	//in input order. Useful for ingesting a corpus into a vector store.
+	void GetPromptEmbeddingsBatch(const TArray<FString>& Texts,
+		TFunction<void(const TArray<float>& Embeddings, const FString& SourceText)>OnEmbeddings = nullptr,
+		TFunction<void(const TArray<TArray<float>>& AllEmbeddings, const TArray<FString>& AllSourceTexts)>OnAllEmbeddings = nullptr);
+
+	//Embedding dimension of the loaded model. 0 if no embedding model is loaded. Safe to call from GT.
+	int32 GetEmbeddingDimension() const;
 
 	// ILlamaAudioConsumer — segments arrive directly on capture BG thread
 	virtual void OnAudioSegment(const FLlamaAudioSegment& Segment) override;
