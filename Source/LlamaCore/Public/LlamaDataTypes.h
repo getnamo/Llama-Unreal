@@ -33,7 +33,8 @@ enum class EMarkdownStreamState : uint8
     Bold,
     Heading,
     Quote,
-    Emphasis   //Single-word italic reclassified (e.g. *really* mid-sentence). Distinct from multi-word Italic actions.
+    Emphasis,  //Single-word italic reclassified (e.g. *really* mid-sentence). Distinct from multi-word Italic actions.
+    Thinking   //Content inside <think>...</think> blocks (Qwen3, DeepSeek-R1, etc). Tags themselves are stripped.
 };
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnMarkdownPartialSignature, const FString&, Partial, EMarkdownStreamState, State);

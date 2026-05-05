@@ -25,6 +25,12 @@ struct FLlamaMarkdownSplitter
     EMarkdownStreamState CurrentSegmentState = EMarkdownStreamState::Text;
     TArray<TPair<FString, EMarkdownStreamState>> PendingSegments;
 
+    /** When non-empty, we're tentatively matching a `<think>` (outside Thinking state) or
+     *  `</think>` (inside Thinking state). On full match, we transition state and drop the tag.
+     *  On mismatch, the buffered chars are flushed to CurrentSegmentText as literal content,
+     *  and the breaking char is reprocessed normally. */
+    FString TagMatchBuffer;
+
     void Reset()
     {
         CurrentState = EMarkdownStreamState::Text;
@@ -35,6 +41,7 @@ struct FLlamaMarkdownSplitter
         CurrentSegmentText.Empty();
         CurrentSegmentState = EMarkdownStreamState::Text;
         PendingSegments.Empty();
+        TagMatchBuffer.Empty();
     }
 
     void FinalizeCurrentSegment()
@@ -47,8 +54,68 @@ struct FLlamaMarkdownSplitter
         CurrentSegmentState = CurrentState;
     }
 
+    /** Returns the tag we're currently trying to match given CurrentState. */
+    static const TCHAR* ExpectedThinkingTag(EMarkdownStreamState State)
+    {
+        return (State == EMarkdownStreamState::Thinking) ? TEXT("</think>") : TEXT("<think>");
+    }
+
     void ProcessChar(TCHAR Ch, const FLLMMarkdownStreamParams& Cfg)
     {
+        // Thinking-tag detection takes precedence. Tag chars never reach the markdown sub-parser.
+        if (!TagMatchBuffer.IsEmpty())
+        {
+            const TCHAR* Expected = ExpectedThinkingTag(CurrentState);
+            const int32 ExpectedLen = FCString::Strlen(Expected);
+            const int32 NextLen = TagMatchBuffer.Len() + 1;
+
+            // Still a valid prefix of Expected?
+            const bool bStillMatches = (NextLen <= ExpectedLen) && (Ch == Expected[TagMatchBuffer.Len()]);
+            if (bStillMatches)
+            {
+                TagMatchBuffer.AppendChar(Ch);
+                if (TagMatchBuffer.Len() == ExpectedLen)
+                {
+                    // Full tag matched — transition state, drop the tag chars entirely.
+                    if (CurrentState == EMarkdownStreamState::Thinking)
+                    {
+                        FinalizeCurrentSegment();
+                        CurrentState = EMarkdownStreamState::Text;
+                        CurrentSegmentState = CurrentState;
+                    }
+                    else
+                    {
+                        FinalizeCurrentSegment();
+                        CurrentState = EMarkdownStreamState::Thinking;
+                        CurrentSegmentState = CurrentState;
+                    }
+                    TagMatchBuffer.Empty();
+                }
+                return;
+            }
+
+            // Mismatch — flush buffered prefix as literal text in the current segment, then fall
+            // through to process Ch from a clean state. (The buffered chars are emitted raw —
+            // no markdown re-parsing of the buffer; they are extremely unlikely to be markdown-meaningful.)
+            CurrentSegmentText += TagMatchBuffer;
+            TagMatchBuffer.Empty();
+            // continue to normal processing below
+        }
+
+        if (Ch == TEXT('<'))
+        {
+            // Begin tentative tag match. We may either complete <think> / </think> or fall back to literal.
+            TagMatchBuffer.AppendChar(Ch);
+            return;
+        }
+
+        // Inside Thinking state, all non-tag chars are plain text. Skip markdown parsing.
+        if (CurrentState == EMarkdownStreamState::Thinking)
+        {
+            CurrentSegmentText += Ch;
+            return;
+        }
+
         // Resolve pending stars first
         if (PendingStars > 0)
         {
@@ -204,6 +271,14 @@ struct FLlamaMarkdownSplitter
     void Collect(TArray<TPair<FString, EMarkdownStreamState>>& OutPartials, const FLLMMarkdownStreamParams& Cfg)
     {
         const bool bTrim = Cfg.bTrimMarkdownPartialWhitespace;
+
+        // Flush any partial tag-match buffer as literal text (the stream ended mid-tag, so it
+        // wasn't actually a tag — emit what we have).
+        if (!TagMatchBuffer.IsEmpty())
+        {
+            CurrentSegmentText += TagMatchBuffer;
+            TagMatchBuffer.Empty();
+        }
 
         if (!CurrentSegmentText.IsEmpty())
         {
