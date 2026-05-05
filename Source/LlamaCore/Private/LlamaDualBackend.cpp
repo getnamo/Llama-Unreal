@@ -254,8 +254,10 @@ void FLlamaDualBackend::LoadModel(bool bForceReload)
                         }
                     }
 
+                    // Note: ModelState.bModelIsLoaded is authoritatively owned by FLlamaNative
+                    // (synced via OnModelStateChanged) — don't touch it from the remote path or
+                    // a remote→local toggle will see a stale "loaded" flag and skip the auto-load.
                     bRemoteModelLoaded = true;
-                    ModelState.bModelIsLoaded = true;
                     if (OnModelLoaded) OnModelLoaded(RemoteModelName);
                 });
         });
@@ -283,8 +285,8 @@ void FLlamaDualBackend::UnloadModel()
         ActiveStream.Reset();
     }
     bRemoteModelLoaded = false;
-    ModelState.bModelIsLoaded = false;
     AssignedSlotId = -1;
+    // Do NOT touch ModelState.bModelIsLoaded — that's the local backend's authoritative flag.
 }
 
 bool FLlamaDualBackend::IsModelLoaded() const
