@@ -186,15 +186,20 @@ void ULlamaComponent::ResetContextHistory(bool bKeepSystemPrompt)
     LlamaNative->ResetContextHistory(bKeepSystemPrompt);
 }
 
+bool ULlamaComponent::ShouldBypassNativeKV() const
+{
+    return !LlamaNative || ModelParams.bImpersonationMode;
+}
+
 void ULlamaComponent::RebuildContextFromHistory(const FStructuredChatHistory& History)
 {
-    if (LlamaNative && !ModelParams.bRemoteMode)
+    if (!ShouldBypassNativeKV())
     {
         LlamaNative->RebuildContextFromHistory(History);
         return;
     }
 
-    //State-only fallback (no native backend, or running in remote/impersonation mode):
+    //State-only fallback (no native backend, impersonation mode, or remote routing in subclass):
     //overwrite ChatHistory and notify listeners. KV cache (if any) is not touched.
     ModelState.ChatHistory = History;
     if (ModelState.ChatHistory.History.Num() > 0)
@@ -206,7 +211,7 @@ void ULlamaComponent::RebuildContextFromHistory(const FStructuredChatHistory& Hi
 
 void ULlamaComponent::RemoveLastAssistantReply()
 {
-    if (ModelParams.bRemoteMode || !LlamaNative)
+    if (ShouldBypassNativeKV())
     {
         //modify state only
         int32 Count = ModelState.ChatHistory.History.Num();
@@ -223,7 +228,7 @@ void ULlamaComponent::RemoveLastAssistantReply()
 
 void ULlamaComponent::RemoveLastUserInput()
 {
-    if (ModelParams.bRemoteMode || !LlamaNative)
+    if (ShouldBypassNativeKV())
     {
         //modify state only
         int32 Count = ModelState.ChatHistory.History.Num();

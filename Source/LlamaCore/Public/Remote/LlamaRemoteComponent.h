@@ -72,6 +72,14 @@ public:
 protected:
     virtual void BeginDestroy() override;
 
+    /** Bypass native KV when remote routing is active OR no native backend allocated.
+     *  Note: ModelParams.bImpersonationMode is intentionally not consulted here — the remote
+     *  subclass owns its own routing decision via bUseRemote. */
+    virtual bool ShouldBypassNativeKV() const override
+    {
+        return !LlamaNative || bUseRemote;
+    }
+
     /** Kick off a streaming chat completion from the current ModelState.ChatHistory. */
     void BeginStreamFromHistory(bool bAttachPendingMedia);
 

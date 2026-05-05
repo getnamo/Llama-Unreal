@@ -384,9 +384,13 @@ struct FLLMModelParams
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
     bool bAutoLoadModelOnStartup = true;
 
-    //If true, all prompt inserts/rollbacks only modify modelstate and do not forward to llama component (see impersonation)
+    //When true, this component's local model KV cache is being driven externally (e.g. via
+    //ImpersonateTemplatedPrompt / ImpersonateTemplatedToken). Rollback helpers (RemoveLastAssistantReply,
+    //RemoveLastUserInput) and RebuildContextFromHistory mutate ModelState only — they will NOT call
+    //into FLlamaNative. Note: this flag has no effect on ULlamaRemoteComponent's local/remote routing,
+    //which is controlled separately via SetUseRemote().
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
-    bool bRemoteMode = false;
+    bool bImpersonationMode = false;
 
     //If not different than default empty, no template will be applied
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")

@@ -211,5 +211,12 @@ protected:
     // Subclasses (e.g. ULlamaRemoteComponent) can return nullptr to opt out of local inference.
     virtual class FLlamaNative* CreateNativeBackend();
 
+    /** Returns true when state-affecting calls (rollback, history rebuild) should bypass
+     *  FLlamaNative's KV cache and only mutate ModelState. Default: no native backend OR
+     *  ModelParams.bImpersonationMode (impersonation/external KV management).
+     *  Subclasses override to plug in alternative routing decisions (ULlamaRemoteComponent
+     *  returns true when bUseRemote is set). */
+    virtual bool ShouldBypassNativeKV() const;
+
     class FLlamaNative* LlamaNative = nullptr;
 };

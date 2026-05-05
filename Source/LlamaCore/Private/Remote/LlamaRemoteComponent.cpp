@@ -16,10 +16,10 @@
 ULlamaRemoteComponent::ULlamaRemoteComponent(const FObjectInitializer& ObjectInitializer)
     : Super(ObjectInitializer)
 {
-    // Default to remote routing (preserves existing component contract).
+    // Default to remote routing (preserves existing component contract). The base-class rollback
+    // dual-path consults the virtual ShouldBypassNativeKV() predicate (which we override above),
+    // so no need to mirror this into ModelParams.bImpersonationMode.
     bUseRemote = true;
-    // Keep base rollback dual-path (RemoveLastAssistantReply etc.) in lock-step with bUseRemote.
-    ModelParams.bRemoteMode = true;
     Client = MakeUnique<FLlamaRemoteClient>();
 }
 
@@ -52,8 +52,8 @@ void ULlamaRemoteComponent::SetUseRemote(bool bNewUseRemote)
     }
 
     bUseRemote = bNewUseRemote;
-    // Keep base-class rollback dual-path consistent.
-    ModelParams.bRemoteMode = bUseRemote;
+    // No need to sync ModelParams.bImpersonationMode — the base class consults
+    // ShouldBypassNativeKV() (overridden above to read bUseRemote).
 
     // Auto-load the destination only if its config looks valid AND it isn't already loaded.
     if (bUseRemote)
