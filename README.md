@@ -235,6 +235,46 @@ Multimodal errors are delivered through the existing `OnError` delegate:
 
 ---
 
+# RAG: Embeddings, Vector DB & Hybrid Search
+
+The plugin ships with a complete local RAG stack: an embedding pipeline, an HNSW vector index, a model-free BM25 inverted index, and an RRF hybrid retriever — all running in-process, no external services.
+
+## Quick start
+
+1. Load an embedding model (e.g. `bge-small-en-v1.5-q4_k_m.gguf`) on a `ULlamaComponent` with `Advanced.bEmbeddingMode = true`. This component is your *embedder*; you typically run it alongside a separate chat component.
+2. Spawn a `URagStore`, set `Embedder` to your embedding component, set `VectorParams.Dimensions` to match the model (call `GetEmbeddingDimension()` after load), then call `Initialize()`.
+3. Ingest content with `IngestText(Text, Source)` or `IngestFile(Path)`. Chunks are produced by `FLlamaCorpusChunker` (paragraph-first, sliding-window with overlap). `OnIngestComplete(int32 Added)` fires when the embedding round-trip finishes.
+4. Retrieve with `RetrieveAsync(Query, Params, OnDone)`. `Params.Mode` = `Vector`, `BM25`, or `Hybrid` (default). For prompt augmentation, pass the resulting chunks through `FormatChunksAsContext(Chunks, Header)` and prepend the result to your chat prompt.
+5. Persist with `SaveToFile(Path)` / `LoadFromFile(Path)`. A single `.rag` file bundles the vector index, BM25 inverted index, and chunk metadata.
+
+## Components
+
+- **`FVectorDatabase`** ([VectorDatabase.h](Source/LlamaCore/Public/Embedding/VectorDatabase.h)) — HNSW (hnswlib) ANN with L2 metric. Works as cosine when input is L2-normalized, which `GetPromptEmbeddings` does by default. `UVectorDatabase` is the Blueprint-callable wrapper.
+- **`FBM25Index`** ([BM25Index.h](Source/LlamaCore/Public/Embedding/BM25Index.h)) — Lexical retrieval with BM25+ IDF; tokenizer is model-free (Unicode-aware lowercase + alphanumeric split + ASCII stopword filter).
+- **`FHybridRetriever`** ([HybridRetriever.h](Source/LlamaCore/Public/Embedding/HybridRetriever.h)) — Reciprocal Rank Fusion (k=60) of the dense and sparse ranks; parameter-free across heterogeneous score scales.
+- **`FLlamaCorpusChunker`** ([CorpusChunker.h](Source/LlamaCore/Public/Embedding/CorpusChunker.h)) — Deterministic paragraph + sliding-window chunker with sentence-boundary snapping.
+- **`URagStore`** ([RagStore.h](Source/LlamaCore/Public/Embedding/RagStore.h)) — Composes the above; owns ingest + retrieve workflow.
+
+## Recommended embedding models (GGUF)
+
+| Model | Dim | Size | Use case |
+|---|---|---|---|
+| `bge-small-en-v1.5-q4_k_m` | 384 | ~33 MB | CI/test fixture; tiny, strong on English MTEB |
+| `nomic-embed-text-v1.5-q4_k_m` | 768 | ~85 MB | General-purpose default |
+| `Qwen3-Embedding-0.6B-q8_0` | 1024 | ~600 MB | Multilingual, modern |
+
+A fetch script for the test fixture lives at [`Source/LlamaCore/Private/Tests/fetch_models.ps1`](Source/LlamaCore/Private/Tests/fetch_models.ps1).
+
+## Tests
+
+Automation tests cover HNSW round-trip + ordering + persistence + dimension guards, BM25 query/save/load, hybrid RRF fusion across three topical clusters, and chunker determinism. Run headless with:
+
+```
+UnrealEditor-Cmd.exe LlamaUnrealWork.uproject -ExecCmds="Automation RunTests LlamaCore;Quit" -unattended -nullrhi -nopause -log
+```
+
+---
+
 # LlamaWhisper Module
 
 Whisper.cpp embedded into the plugin, using the same ggml backend. 
