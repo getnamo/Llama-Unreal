@@ -27,7 +27,7 @@ Fork is modern re-write from [upstream](https://github.com/mika314/UELlama) to s
 
 # How to use - Basics
 
-Everything is wrapped inside a [`ULlamaComponent`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaComponent.h#L17) or [`ULlamaSubsystem`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaSubsystem.h#L16) which interfaces in a threadsafe manner to llama.cpp code internally via [`FLlamaNative`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaNative.h#L14). All core functionality is available both in C++ and in blueprint.
+Everything is wrapped inside a [`ULlamaComponent`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaComponent.h#L17), [`ULlamaSubsystem`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaSubsystem.h#L16), or [`ULlamaRemoteComponent`](#remote-component) (subclass of `ULlamaComponent` that routes to an OpenAI-compatible HTTP endpoint — see Remote Component below) which interfaces in a threadsafe manner to llama.cpp code internally via [`FLlamaNative`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaNative.h#L14). All core functionality is available both in C++ and in blueprint.
 
 1) In your component or subsystem, adjust your [`ModelParams`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaComponent.h#L62) of type [`FLLMModelParams`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaDataTypes.h#L208). The most important settings are:
   - `PathToModel` - where your [*.gguf](https://huggingface.co/docs/hub/en/gguf) is placed. If path begins with a . it's considered relative to Saved/Models path, otherwise it's an absolute path.
@@ -39,10 +39,51 @@ Everything is wrapped inside a [`ULlamaComponent`](https://github.com/getnamo/Ll
 
 2) Call [`InsertTemplatedPrompt`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaComponent.h#L101) with your message and role (typically User) along with whether you want your prompt to generate a response or not. Optionally use [`InsertRawPrompt`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaComponent.h#L108) if you're doing raw input style without chat formatting. Note that you can safely chain requests and they will queue up one after another, responses will return in order.
 
-3) You should receive replies via [`OnResponseGenerated`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaComponent.h#L36) when full response has been generated. If you need streaming information, listen to [`OnNewTokenGenerated`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaComponent.h#L32) and optionally [`OnPartialGenerated`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaComponent.h#L40) which will provide token and sentance level streams respectively.
+3) You should receive replies via [`OnResponseGenerated`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaComponent.h#L36) when full response has been generated. If you need streaming information, listen to [`OnNewTokenGenerated`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaComponent.h#L32) and optionally `OnPartialGenerated` (sentence-level) or `OnMarkdownPartialGenerated` (formatting-aware partials tagged with `EMarkdownStreamState`: Text, Italic, Bold, Heading, Quote, Emphasis, **Thinking**). Markdown emission requires `Advanced.Markdown.bSplitMarkdown = true`. Thinking-capable models (Qwen3, DeepSeek-R1) auto-route content between `<think>...</think>` tags into the `Thinking` category — tag chars are stripped, content is delivered separately so you can route it to a "thinking" UI panel.
 
 Explore [LlamaComponent.h](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaComponent.h) for detailed API. Also if you need to modify sampling properties you find them in [`FLLMModelAdvancedParams`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaDataTypes.h#L49).
 
+### Restoring history (save-game / external state)
+
+Call `RebuildContextFromHistory(FStructuredChatHistory)` to wipe the model's KV cache and re-ingest a saved conversation. The model's KV state is rebuilt so the next prompt continues correctly. State-only fallback is used when no native backend is available (e.g. running purely remote).
+
+
+# Remote Component
+
+`ULlamaRemoteComponent` is a drop-in subclass of `ULlamaComponent` that routes inference through an OpenAI-compatible HTTP endpoint (e.g. [llama-server](https://github.com/ggml-org/llama.cpp/tree/master/tools/server), LM Studio, vLLM, or anything exposing `/v1/chat/completions`). It preserves the full Blueprint/C++ surface — same delegates (`OnTokenGenerated`, `OnResponseGenerated`, `OnPartialGenerated`, `OnMarkdownPartialGenerated`), same chat history, same multimodal entry points, same rollback helpers.
+
+## Setup
+
+1. Add a `ULlamaRemoteComponent` to your actor (in place of `ULlamaComponent`).
+2. Set `Endpoint.BaseUrl` to your server (e.g. `http://127.0.0.1:8080`). The server must expose `/v1/chat/completions`, `/health`, and `/props`.
+3. Call `LoadModel` — runs a `/health` probe and `/props` fetch (model id, chat template, modality capabilities). Fires `OnModelLoaded` on success.
+4. Use the same API as local: `InsertTemplatedPrompt`, `InsertMultimodalPrompt`, `StopGeneration`, `ResetContextHistory`, `RemoveLastAssistantReply`, etc.
+
+```
+Component->Endpoint.BaseUrl = TEXT("http://127.0.0.1:8080");
+Component->LoadModel();
+Component->InsertTemplatedPrompt(TEXT("Hello"), EChatTemplateRole::User);
+```
+
+The plugin auto-translates `ModelParams` into the request JSON: `Advanced.Sampling.*` → `temperature` / `top_p` / `top_k` / `min_p` / `repeat_penalty` / `mirostat*` / etc., `StopSequences` → `stop`, `Seed` → `seed`. Llama-server extensions used: `cache_prompt: true` (KV prefix reuse via stateful slots), `id_slot` for slot reuse, `chat_template_kwargs.enable_thinking` for Qwen3-style thinking control.
+
+## Toggling between local and remote at runtime
+
+Both backends can coexist on the same component. Call `SetUseRemote(bool)` to flip routing — any active stream is cancelled cleanly, the destination backend auto-loads if its config is valid (`Endpoint.BaseUrl` for remote, `ModelParams.PathToModel` for local), and the chat history is lazily synced on the next prompt insertion. Going remote → local replays the conversation through `RebuildContextFromHistory` so the local KV cache reflects the same context that was built up remotely.
+
+```
+RemoteComp->SetUseRemote(false);  // switch to local FLlamaNative for the next prompt
+```
+
+`bUseRemote` defaults to `true` so an existing `ULlamaRemoteComponent` placed via Blueprints behaves exactly as before.
+
+## Multimodal over HTTP
+
+Image and audio prompts use the same `InsertTemplateImagePrompt` / `InsertTemplateAudioPrompt` / `InsertMultimodalPrompt` calls. The remote path encodes media as data-URLs in OpenAI content parts (`image_url` for images, `input_audio` for audio). The server must have an mmproj loaded and report the modality in `/props`.
+
+## Slot caching & stateless fallback
+
+The first request lets the server auto-assign a slot; subsequent requests reuse `AssignedSlotId` so only the incremental delta is reprocessed. `ResetContextHistory` issues a best-effort `/slots/{id}?action=erase`. If the server doesn't support slot ops (vanilla OpenAI API), the component silently downgrades to stateless mode (full `messages[]` per request).
 
 # Multimodal (Vision & Audio)
 
@@ -207,7 +248,7 @@ Exposed via `UWhisperComponent` wrapping `FWhisperNative` which can be optionall
    - **Energy-Based (RMS)** *(default)* - lightweight onset/offset detection using an RMS energy threshold. Configurable via `VADThreshold`, `VADHoldTimeSec`, and `VADPreRollSec`. Fast, zero extra model files, works best in quiet environments.
    - **Silero Neural VAD** - neural VAD using a ggml-converted Silero model. More robust in noisy environments. Requires a separate model file pointed to by `StreamParams.PathToVADModel` (default `./ggml-silero-v6.2.0.bin`). The model loads automatically after the whisper model loads. Silero-specific stream params:
      - `SileroThreshold` (default 0.5) - speech probability threshold per window. Lower values are more sensitive; raise to reduce false positives in noisy environments.
-     - `SileroHoldTimeSec` (default 0Z.2s) - silence duration before speech offset. Shorter than the EnergyBased default (0.8s) because Silero's neural detection is more precise.
+     - `SileroHoldTimeSec` (default 0.2s) - silence duration before speech offset. Shorter than the EnergyBased default (0.8s) because Silero's neural detection is more precise.
 
    Download Silero VAD models from:
      - v6: https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v6.2.0.bin
