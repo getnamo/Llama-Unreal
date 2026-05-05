@@ -242,9 +242,9 @@ The plugin ships with a complete local RAG stack: an embedding pipeline, an HNSW
 ## Quick start
 
 1. Load an embedding model (e.g. `bge-small-en-v1.5-q4_k_m.gguf`) on a `ULlamaComponent` with `Advanced.bEmbeddingMode = true`. This component is your *embedder*; you typically run it alongside a separate chat component.
-2. Spawn a `URagStore`, set `Embedder` to your embedding component, set `VectorParams.Dimensions` to match the model (call `GetEmbeddingDimension()` after load), then call `Initialize()`.
-3. Ingest content with `IngestText(Text, Source)` or `IngestFile(Path)`. Chunks are produced by `FLlamaCorpusChunker` (paragraph-first, sliding-window with overlap). `OnIngestComplete(int32 Added)` fires when the embedding round-trip finishes.
-4. Retrieve with `RetrieveAsync(Query, Params, OnDone)`. `Params.Mode` = `Vector`, `BM25`, or `Hybrid` (default). For prompt augmentation, pass the resulting chunks through `FormatChunksAsContext(Chunks, Header)` and prepend the result to your chat prompt.
+2. Add a `URagStoreComponent` to the same actor (BP-friendly path) — it auto-discovers an embedding-mode `ULlamaComponent` on the actor and auto-Initializes once the model reports its embedding dimension. Or use `URagStore` directly as a UObject for non-actor flows.
+3. Ingest content with `IngestText(Text, Source)`, `IngestFile(Path)`, `IngestDocuments(Texts, Sources)` for batched in-memory corpora, or `IngestDirectory(Folder, "txt,md", recursive)` to walk a directory and ingest everything in one embedding round. `OnIngestComplete(int32 Added)` fires once when the round-trip finishes.
+4. Retrieve with `RetrieveAsync(Query, Params)` (or `RetrieveAsyncDefault(Query)`). `Params.Mode` = `Vector`, `BM25`, or `Hybrid` (default). On the component variant, results arrive via the `OnRetrievalComplete` multicast. For prompt augmentation, pass the chunks through `FormatChunksAsContext(Chunks, Header)` and prepend to your chat prompt.
 5. Persist with `SaveToFile(Path)` / `LoadFromFile(Path)`. A single `.rag` file bundles the vector index, BM25 inverted index, and chunk metadata.
 
 ## Components
@@ -254,6 +254,7 @@ The plugin ships with a complete local RAG stack: an embedding pipeline, an HNSW
 - **`FHybridRetriever`** ([HybridRetriever.h](Source/LlamaCore/Public/Embedding/HybridRetriever.h)) — Reciprocal Rank Fusion (k=60) of the dense and sparse ranks; parameter-free across heterogeneous score scales.
 - **`FLlamaCorpusChunker`** ([CorpusChunker.h](Source/LlamaCore/Public/Embedding/CorpusChunker.h)) — Deterministic paragraph + sliding-window chunker with sentence-boundary snapping.
 - **`URagStore`** ([RagStore.h](Source/LlamaCore/Public/Embedding/RagStore.h)) — Composes the above; owns ingest + retrieve workflow.
+- **`URagStoreComponent`** ([RagStoreComponent.h](Source/LlamaCore/Public/Embedding/RagStoreComponent.h)) — Actor-component variant. Drop on an actor next to your embedding `ULlamaComponent`; auto-resolves the embedder, auto-initializes when the model dim is known, and re-broadcasts ingest/retrieval events as multicast delegates for easy BP wiring.
 
 ## Recommended embedding models (GGUF)
 

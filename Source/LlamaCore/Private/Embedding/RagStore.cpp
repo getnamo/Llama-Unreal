@@ -95,6 +95,158 @@ bool URagStore::IngestFile(const FString& FilePath)
     return true;
 }
 
+void URagStore::IngestDocuments(const TArray<FString>& Texts, const TArray<FString>& Sources)
+{
+    if (!bInitialized)
+    {
+        UE_LOG(LlamaLog, Warning, TEXT("URagStore::IngestDocuments called before Initialize"));
+        return;
+    }
+    if (!Embedder)
+    {
+        UE_LOG(LlamaLog, Warning, TEXT("URagStore::IngestDocuments: Embedder is null"));
+        return;
+    }
+    if (Texts.Num() != Sources.Num())
+    {
+        UE_LOG(LlamaLog, Warning, TEXT("URagStore::IngestDocuments: Texts/Sources length mismatch (%d vs %d)"),
+            Texts.Num(), Sources.Num());
+        return;
+    }
+
+    TArray<FLlamaChunk> AllChunks;
+    AllChunks.Reserve(Texts.Num() * 4);
+    for (int32 i = 0; i < Texts.Num(); ++i)
+    {
+        TArray<FLlamaChunk> Local;
+        FLlamaCorpusChunker::ChunkText(Texts[i], Sources[i], ChunkerParams, Local);
+        AllChunks.Append(MoveTemp(Local));
+    }
+
+    if (AllChunks.Num() == 0)
+    {
+        OnIngestComplete.Broadcast(0);
+        return;
+    }
+
+    TArray<FString> ChunkTexts;
+    ChunkTexts.Reserve(AllChunks.Num());
+    for (const FLlamaChunk& C : AllChunks) { ChunkTexts.Add(C.Text); }
+
+    TWeakObjectPtr<URagStore> WeakThis(this);
+    Embedder->EmbedTextsAsync(ChunkTexts,
+        [WeakThis, AllChunks](const TArray<TArray<float>>& All, const TArray<FString>& /*Sources*/) mutable
+        {
+            URagStore* Self = WeakThis.Get();
+            if (!Self) { return; }
+            Self->IngestChunksWithEmbeddings(AllChunks, All);
+        });
+}
+
+int32 URagStore::IngestDirectory(const FString& FolderPath, const FString& ExtensionsCsv, bool bRecursive)
+{
+    if (!bInitialized)
+    {
+        UE_LOG(LlamaLog, Warning, TEXT("URagStore::IngestDirectory called before Initialize"));
+        return 0;
+    }
+
+    // ConvertRelativePathToFull resolves both absolute paths (no-op) and relative paths
+    // (relative to CWD, typically the engine binary dir). Pass already-anchored paths in.
+    const FString FullPath = FPaths::ConvertRelativePathToFull(FolderPath);
+
+    if (!IFileManager::Get().DirectoryExists(*FullPath))
+    {
+        UE_LOG(LlamaLog, Warning, TEXT("URagStore::IngestDirectory: not a directory: %s"), *FullPath);
+        return 0;
+    }
+
+    // Parse CSV of extensions (no dots, lowercase).
+    TArray<FString> Extensions;
+    {
+        TArray<FString> Raw;
+        ExtensionsCsv.ParseIntoArray(Raw, TEXT(","), /*CullEmpty*/ true);
+        for (FString E : Raw)
+        {
+            E.TrimStartAndEndInline();
+            if (E.StartsWith(TEXT("."))) { E.RightChopInline(1); }
+            Extensions.Add(E.ToLower());
+        }
+    }
+
+    TArray<FString> FilesFound;
+    if (Extensions.Num() == 0)
+    {
+        // No filter — match everything.
+        if (bRecursive)
+        {
+            IFileManager::Get().FindFilesRecursive(FilesFound, *FullPath, TEXT("*.*"), /*Files*/ true, /*Dirs*/ false);
+        }
+        else
+        {
+            TArray<FString> Names;
+            IFileManager::Get().FindFiles(Names, *(FullPath / TEXT("*.*")), /*Files*/ true, /*Dirs*/ false);
+            for (const FString& N : Names) { FilesFound.Add(FullPath / N); }
+        }
+    }
+    else
+    {
+        // One pass per extension; FindFilesRecursive only takes one wildcard.
+        for (const FString& Ext : Extensions)
+        {
+            const FString Pattern = FString::Printf(TEXT("*.%s"), *Ext);
+            if (bRecursive)
+            {
+                TArray<FString> Match;
+                IFileManager::Get().FindFilesRecursive(Match, *FullPath, *Pattern, /*Files*/ true, /*Dirs*/ false);
+                FilesFound.Append(MoveTemp(Match));
+            }
+            else
+            {
+                TArray<FString> Names;
+                IFileManager::Get().FindFiles(Names, *(FullPath / Pattern), /*Files*/ true, /*Dirs*/ false);
+                for (const FString& N : Names) { FilesFound.Add(FullPath / N); }
+            }
+        }
+    }
+
+    if (FilesFound.Num() == 0)
+    {
+        UE_LOG(LlamaLog, Log, TEXT("URagStore::IngestDirectory: no matching files in %s"), *FullPath);
+        OnIngestComplete.Broadcast(0);
+        return 0;
+    }
+
+    TArray<FString> Texts;
+    TArray<FString> Sources;
+    Texts.Reserve(FilesFound.Num());
+    Sources.Reserve(FilesFound.Num());
+
+    for (const FString& File : FilesFound)
+    {
+        FString Body;
+        if (FFileHelper::LoadFileToString(Body, *File))
+        {
+            // Use the path relative to the scanned folder as the source label so duplicate
+            // filenames in different subfolders stay distinguishable.
+            FString RelLabel = File;
+            FPaths::MakePathRelativeTo(RelLabel, *(FullPath + TEXT("/")));
+            Texts.Add(MoveTemp(Body));
+            Sources.Add(MoveTemp(RelLabel));
+        }
+        else
+        {
+            UE_LOG(LlamaLog, Warning, TEXT("URagStore::IngestDirectory: failed to read %s"), *File);
+        }
+    }
+
+    UE_LOG(LlamaLog, Log, TEXT("URagStore::IngestDirectory: queueing %d files from %s"),
+        Texts.Num(), *FullPath);
+
+    IngestDocuments(Texts, Sources);
+    return Texts.Num();
+}
+
 void URagStore::IngestChunksWithEmbeddings(const TArray<FLlamaChunk>& NewChunks,
                                            const TArray<TArray<float>>& Embeddings)
 {
