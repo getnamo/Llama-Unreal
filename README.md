@@ -272,7 +272,7 @@ A fetch script for the test fixture lives at [`Source/LlamaCore/Private/Tests/fe
 Automation tests cover HNSW round-trip + ordering + persistence + dimension guards, BM25 query/save/load, hybrid RRF fusion across three topical clusters, and chunker determinism. Run headless with:
 
 ```
-UnrealEditor-Cmd.exe LlamaUnrealWork.uproject -ExecCmds="Automation RunTests LlamaCore;Quit" -unattended -nullrhi -nopause -log
+UnrealEditor-Cmd.exe <your project>.uproject -ExecCmds="Automation RunTests LlamaCore;Quit" -unattended -nullrhi -nopause -log
 ```
 
 ---
