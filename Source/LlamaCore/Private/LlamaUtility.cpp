@@ -27,17 +27,21 @@ FString FLlamaPaths::ParsePathIntoFullPath(const FString& InRelativeOrAbsolutePa
 {
     FString FinalPath;
 
-    //Is it a relative path?
-    if (InRelativeOrAbsolutePath.StartsWith(TEXT(".")))
+    // Saved/Models-relative iff the path begins with `./` or `.\`. Plain `..`-prefixed paths
+    // (e.g. `../../Saved/...` produced by FPaths::ProjectSavedDir() in some contexts) are
+    // ordinary CWD-relative paths and must NOT be prefixed with the Models root — let UE
+    // resolve them directly.
+    const bool bModelsRelative =
+        InRelativeOrAbsolutePath.StartsWith(TEXT("./")) ||
+        InRelativeOrAbsolutePath.StartsWith(TEXT(".\\"));
+
+    if (bModelsRelative)
     {
-        //relative path
-        //UE_LOG(LogTemp, Log, TEXT("model returning relative path"));
         FinalPath = FPaths::ConvertRelativePathToFull(FLlamaPaths::ModelsRelativeRootPath() + InRelativeOrAbsolutePath);
     }
     else
     {
-        //Already an absolute path
-        //UE_LOG(LogTemp, Log, TEXT("model returning absolute path"));
+        // Absolute path or CWD-relative — UE resolves it.
         FinalPath = FPaths::ConvertRelativePathToFull(InRelativeOrAbsolutePath);
     }
 

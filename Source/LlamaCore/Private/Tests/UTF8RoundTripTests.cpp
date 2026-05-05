@@ -102,9 +102,10 @@ namespace
             const FString Full = Root / F;
             if (FPaths::FileExists(Full))
             {
-                // Convert to absolute so FLlamaPaths::ParsePathIntoFullPath doesn't treat the
-                // leading `..` as the Saved/Models-relative `.` prefix.
-                return FPaths::ConvertRelativePathToFull(Full);
+                // Returns the path as-is (`../../Saved/Models/foo.gguf`). FLlamaPaths::
+                // ParsePathIntoFullPath now correctly treats this as a CWD-relative path
+                // and not as a Saved/Models-relative `.` prefix.
+                return Full;
             }
         }
         return FString();
