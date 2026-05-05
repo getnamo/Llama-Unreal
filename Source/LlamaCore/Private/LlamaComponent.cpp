@@ -25,7 +25,7 @@ ULlamaComponent::ULlamaComponent(const FObjectInitializer& ObjectInitializer)
     Seps.Add(TEXT("؟")); // ؟ Arabic question mark
 
     Backend = new FLlamaDualBackend();
-    Backend->ModelParams = ModelParams;
+    SyncBackendConfig();
     Backend->Initialize();
     WireBackendCallbacks();
 
@@ -101,21 +101,25 @@ void ULlamaComponent::WireBackendCallbacks()
     };
 }
 
+void ULlamaComponent::SyncBackendConfig()
+{
+    if (!Backend) return;
+    Backend->ModelParams = ModelParams;
+    Backend->Endpoint = Endpoint;
+    Backend->bUseRemote = bUseRemote;
+    Backend->AudioPromptTemplate = AudioPromptTemplate;
+    Backend->bUseIncrementalKVSyncOnToggle = bUseIncrementalKVSyncOnToggle;
+}
+
 void ULlamaComponent::Activate(bool bReset)
 {
     Super::Activate(bReset);
 
-    if (Backend)
-    {
-        Backend->ModelParams = ModelParams;
-        Backend->Endpoint = Endpoint;
-        Backend->bUseRemote = bUseRemote;
-        Backend->AudioPromptTemplate = AudioPromptTemplate;
+    SyncBackendConfig();
 
-        if (AudioSource)
-        {
-            AudioSource->AddConsumer(Backend);
-        }
+    if (Backend && AudioSource)
+    {
+        AudioSource->AddConsumer(Backend);
     }
 
     if (ModelParams.bAutoLoadModelOnStartup)
@@ -148,9 +152,7 @@ void ULlamaComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 void ULlamaComponent::LoadModel(bool bForceReload)
 {
     if (!Backend) return;
-    Backend->ModelParams = ModelParams;
-    Backend->Endpoint = Endpoint;
-    Backend->bUseRemote = bUseRemote;
+    SyncBackendConfig();
     Backend->LoadModel(bForceReload);
 }
 
@@ -167,8 +169,7 @@ bool ULlamaComponent::IsModelLoaded() const
 void ULlamaComponent::SetUseRemote(bool bNewUseRemote)
 {
     if (!Backend) { bUseRemote = bNewUseRemote; return; }
-    Backend->ModelParams = ModelParams;
-    Backend->Endpoint = Endpoint;
+    SyncBackendConfig();
     Backend->SetUseRemote(bNewUseRemote);
     bUseRemote = Backend->bUseRemote;
 }
@@ -214,23 +215,21 @@ void ULlamaComponent::InsertTemplatedPrompt(const FString& Text, EChatTemplateRo
 void ULlamaComponent::InsertTemplatedPromptStruct(const FLlamaChatPrompt& ChatPrompt)
 {
     if (!Backend) return;
-    Backend->ModelParams = ModelParams;
-    Backend->Endpoint = Endpoint;
+    SyncBackendConfig();
     Backend->InsertTemplatedPrompt(ChatPrompt);
 }
 
 void ULlamaComponent::InsertRawPrompt(const FString& Text, bool bGenerateReply)
 {
     if (!Backend) return;
-    Backend->ModelParams = ModelParams;
-    Backend->Endpoint = Endpoint;
+    SyncBackendConfig();
     Backend->InsertRawPrompt(Text, bGenerateReply);
 }
 
 void ULlamaComponent::ImpersonateTemplatedPrompt(const FLlamaChatPrompt& ChatPrompt)
 {
     if (!Backend) return;
-    Backend->ModelParams = ModelParams;
+    SyncBackendConfig();
     Backend->ImpersonateTemplatedPrompt(ChatPrompt);
 }
 
@@ -270,8 +269,7 @@ void ULlamaComponent::InsertTemplateImagePrompt(UTexture2D* Image, const FString
                                                 EChatTemplateRole Role, bool bAddAssistantBOS, bool bGenerateReply)
 {
     if (!Backend) return;
-    Backend->ModelParams = ModelParams;
-    Backend->Endpoint = Endpoint;
+    SyncBackendConfig();
     Backend->InsertTemplateImagePromptFromTexture(Image, Text, Role, bAddAssistantBOS, bGenerateReply);
 }
 
@@ -279,8 +277,7 @@ void ULlamaComponent::InsertTemplateImagePromptFromFile(const FString& ImagePath
                                                         EChatTemplateRole Role, bool bAddAssistantBOS, bool bGenerateReply)
 {
     if (!Backend) return;
-    Backend->ModelParams = ModelParams;
-    Backend->Endpoint = Endpoint;
+    SyncBackendConfig();
     Backend->InsertTemplateImagePromptFromFile(ImagePath, Text, Role, bAddAssistantBOS, bGenerateReply);
 }
 
@@ -288,16 +285,14 @@ void ULlamaComponent::InsertTemplateAudioPrompt(const TArray<float>& PCMAudio, c
                                                 EChatTemplateRole Role, bool bAddAssistantBOS, bool bGenerateReply)
 {
     if (!Backend) return;
-    Backend->ModelParams = ModelParams;
-    Backend->Endpoint = Endpoint;
+    SyncBackendConfig();
     Backend->InsertTemplateAudioPrompt(PCMAudio, Text, Role, bAddAssistantBOS, bGenerateReply);
 }
 
 void ULlamaComponent::InsertMultimodalPrompt(const FLlamaMultimodalPrompt& Prompt)
 {
     if (!Backend) return;
-    Backend->ModelParams = ModelParams;
-    Backend->Endpoint = Endpoint;
+    SyncBackendConfig();
     Backend->InsertMultimodalPrompt(Prompt);
 }
 
@@ -317,14 +312,14 @@ void ULlamaComponent::SetAudioPromptTemplate(const FString& NewTemplate)
 void ULlamaComponent::GeneratePromptEmbeddingsForText(const FString& Text)
 {
     if (!Backend) return;
-    Backend->ModelParams = ModelParams;
+    SyncBackendConfig();
     Backend->GeneratePromptEmbeddingsForText(Text);
 }
 
 void ULlamaComponent::GeneratePromptEmbeddingsForTexts(const TArray<FString>& Texts)
 {
     if (!Backend) return;
-    Backend->ModelParams = ModelParams;
+    SyncBackendConfig();
     Backend->GeneratePromptEmbeddingsForTexts(Texts);
 }
 
@@ -341,6 +336,6 @@ void ULlamaComponent::EmbedTextsAsync(const TArray<FString>& Texts,
         if (OnDone) OnDone(TArray<TArray<float>>(), TArray<FString>());
         return;
     }
-    Backend->ModelParams = ModelParams;
+    SyncBackendConfig();
     Backend->EmbedTextsAsync(Texts, MoveTemp(OnDone));
 }

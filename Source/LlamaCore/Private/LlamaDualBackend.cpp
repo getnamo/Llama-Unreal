@@ -65,6 +65,18 @@ void FLlamaDualBackend::OnGameThreadTick(float DeltaTime)
     }
 }
 
+uint32 FLlamaDualBackend::ComputePrefixHash(const TArray<FStructuredChatMessage>& History, int32 Count)
+{
+    uint32 Hash = 0;
+    const int32 Cap = FMath::Min(Count, History.Num());
+    for (int32 i = 0; i < Cap; ++i)
+    {
+        Hash = HashCombine(Hash, GetTypeHash(static_cast<uint8>(History[i].Role)));
+        Hash = HashCombine(Hash, GetTypeHash(History[i].Content));
+    }
+    return Hash;
+}
+
 void FLlamaDualBackend::HookNativeCallbacks()
 {
     if (!LlamaNative) return;
@@ -72,6 +84,13 @@ void FLlamaDualBackend::HookNativeCallbacks()
     LlamaNative->OnModelStateChanged = [this](const FLLMModelState& Updated)
     {
         ModelState = Updated;
+
+        // Authoritative anchor: every state change from the local backend re-anchors our
+        // frontier. Remote-mode mutations don't fire this, so the frontier correctly stays
+        // pinned to whatever the local KV last decoded.
+        LocalKVMessageCount = Updated.ChatHistory.History.Num();
+        LocalKVPrefixHash   = ComputePrefixHash(Updated.ChatHistory.History, LocalKVMessageCount);
+
         if (OnModelStateChanged) OnModelStateChanged(Updated);
     };
     LlamaNative->OnTokenGenerated = [this](const FString& Token)
@@ -150,12 +169,56 @@ void FLlamaDualBackend::FlushPendingHistorySyncIfNeeded()
 
     if (bUseRemote)
     {
+        // Remote sends full messages[] every request; nothing to replay into a local KV.
         bPendingHistorySync = false;
         return;
     }
     if (!LlamaNative || !ModelState.bModelIsLoaded) return;
 
-    LlamaNative->RebuildContextFromHistory(ModelState.ChatHistory);
+    const TArray<FStructuredChatMessage>& History = ModelState.ChatHistory.History;
+    const int32 Total = History.Num();
+
+    // Decide between incremental append vs full rebuild. The append path is only valid when
+    // the local KV's last-synced prefix [0..LocalKVMessageCount) is byte-identical to the
+    // current ChatHistory's first LocalKVMessageCount messages — otherwise the KV reflects a
+    // diverged branch and appending would corrupt the conversation.
+    bool bCanAppend = false;
+    if (bUseIncrementalKVSyncOnToggle &&
+        LocalKVMessageCount > 0 &&
+        LocalKVMessageCount <= Total)
+    {
+        const uint32 CurrentPrefixHash = ComputePrefixHash(History, LocalKVMessageCount);
+        bCanAppend = (CurrentPrefixHash == LocalKVPrefixHash);
+    }
+
+    if (!bCanAppend)
+    {
+        UE_LOG(LlamaLog, Verbose, TEXT("FlushPendingHistorySyncIfNeeded: full rebuild (frontier=%d total=%d incremental=%s)"),
+            LocalKVMessageCount, Total,
+            bUseIncrementalKVSyncOnToggle ? TEXT("true") : TEXT("false"));
+        LlamaNative->RebuildContextFromHistory(ModelState.ChatHistory);
+        // OnModelStateChanged will re-anchor LocalKVMessageCount + Hash post-rebuild.
+    }
+    else if (LocalKVMessageCount < Total)
+    {
+        UE_LOG(LlamaLog, Verbose, TEXT("FlushPendingHistorySyncIfNeeded: appending %d new message(s) (frontier=%d total=%d)"),
+            Total - LocalKVMessageCount, LocalKVMessageCount, Total);
+
+        // Feed each new message through InsertTemplatedPrompt(bGenerateReply=false). Each call
+        // enqueues to the BG queue in-order, so they arrive at the KV in sequence. After every
+        // one, FLlamaNative fires OnModelStateChanged → frontier + hash auto-update.
+        for (int32 i = LocalKVMessageCount; i < Total; ++i)
+        {
+            FLlamaChatPrompt P;
+            P.Prompt = History[i].Content;
+            P.Role = History[i].Role;
+            P.bAddAssistantBOS = false;
+            P.bGenerateReply = false;
+            LlamaNative->InsertTemplatedPrompt(P);
+        }
+    }
+    // else: LocalKVMessageCount == Total — already in sync, no-op.
+
     bPendingHistorySync = false;
 }
 
@@ -413,6 +476,11 @@ void FLlamaDualBackend::ResetContextHistory(bool bKeepSystemPrompt)
     ModelState.ContextHistory.Reset();
     ModelState.ContextUsed = 0;
 
+    // Remote-path wipe: local KV (if loaded) still holds the pre-reset prefix, which now
+    // disagrees with our cleared ChatHistory. Force full rebuild on next remote→local toggle.
+    LocalKVMessageCount = 0;
+    LocalKVPrefixHash = 0;
+
     if (AssignedSlotId >= 0 && Client.IsValid())
     {
         const int32 OldSlot = AssignedSlotId;
@@ -437,6 +505,11 @@ void FLlamaDualBackend::RebuildContextFromHistory(const FStructuredChatHistory& 
     }
     if (OnPromptProcessed) OnPromptProcessed(0, ModelState.LastRole, 0.f);
 
+    // History wholesale-replaced via the bypass path → local KV's frontier no longer
+    // refers to anything in the new history. Force full rebuild on the next sync.
+    LocalKVMessageCount = 0;
+    LocalKVPrefixHash = 0;
+
     // Remote doesn't need a KV rebuild — chat history is sent in every request.
     // Mark the slot stale so cache_prompt rebuilds from scratch on next call.
     if (bUseRemote && AssignedSlotId >= 0 && Client.IsValid())
@@ -456,6 +529,12 @@ void FLlamaDualBackend::RemoveLastReply()
         {
             ModelState.ChatHistory.History.RemoveAt(Count - 1);
         }
+        // Bypass-path edit may have shrunk past the frontier — force rebuild on next sync.
+        if (LocalKVMessageCount > ModelState.ChatHistory.History.Num())
+        {
+            LocalKVMessageCount = 0;
+            LocalKVPrefixHash = 0;
+        }
         return;
     }
     LlamaNative->RemoveLastReply();
@@ -470,6 +549,11 @@ void FLlamaDualBackend::RemoveLastUserInput()
         {
             ModelState.ChatHistory.History.RemoveAt(Count - 1);
             ModelState.ChatHistory.History.RemoveAt(Count - 2);
+        }
+        if (LocalKVMessageCount > ModelState.ChatHistory.History.Num())
+        {
+            LocalKVMessageCount = 0;
+            LocalKVPrefixHash = 0;
         }
         return;
     }

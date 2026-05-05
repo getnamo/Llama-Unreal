@@ -43,6 +43,13 @@ public:
     FString AudioPromptTemplate = TEXT("<__media__>\nRespond to what was said.");
     EChatTemplateRole AudioPromptRole = EChatTemplateRole::User;
 
+    /** When true (default), a remote→local toggle whose chat-history prefix matches the local
+     *  KV cache's last-synced prefix appends only the *new* messages instead of wiping and
+     *  replaying the entire history. Hash-verified — falls back to a full rebuild whenever the
+     *  prefix has diverged. Flip to false to force the slower-but-bulletproof rebuild path on
+     *  every sync (useful if the smart path ever surfaces a KV-state bug). */
+    bool bUseIncrementalKVSyncOnToggle = true;
+
     // --- Callback hooks (host wires to Blueprint multicasts) ---------------
 
     TFunction<void(const FString& Token)>                    OnTokenGenerated;
@@ -140,6 +147,9 @@ public:
 
     bool ShouldBypassNativeKV() const { return bUseRemote || !LlamaNative || ModelParams.bImpersonationMode; }
 
+    /** Hash of the [0..Count) prefix of `History` (role + content per message). Public for tests. */
+    static uint32 ComputePrefixHash(const TArray<FStructuredChatMessage>& History, int32 Count);
+
 private:
     // Local backend
     FLlamaNative* LlamaNative = nullptr;
@@ -168,6 +178,19 @@ private:
 
     /** Set true on SetUseRemote when there is non-empty history; cleared after a successful sync. */
     bool bPendingHistorySync = false;
+
+    /** Number of messages currently reflected in the LOCAL FLlamaNative KV cache. The local
+     *  prefix [0..LocalKVMessageCount) is what the model has decoded so far. Updated automatically
+     *  via OnModelStateChanged after every native action; explicitly invalidated in bypass-path
+     *  mutations (state-only RemoveLast*, RebuildContextFromHistory while remote, etc). */
+    int32 LocalKVMessageCount = 0;
+
+    /** Hash of the [0..LocalKVMessageCount) prefix at the moment of the last local sync. On
+     *  history-flush we recompute the prefix hash and compare — if it matches we can append
+     *  only the new messages; if it doesn't (someone edited the prefix while remote) we full
+     *  rebuild. Cheap insurance against silent KV/state divergence. */
+    uint32 LocalKVPrefixHash = 0;
+
 
     // --- Internal helpers ---------------------------------------------------
 

@@ -89,6 +89,13 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Component")
     bool bSyncPromptHistory = true;
 
+    /** When true (default), a remote→local toggle whose chat-history prefix matches the local
+     *  KV cache appends only the new messages instead of full-replaying the entire history.
+     *  Hash-verified — falls back to full rebuild on prefix divergence. Flip to false to force
+     *  full rebuild on every sync (slower but bulletproof). */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Component")
+    bool bUseIncrementalKVSyncOnToggle = true;
+
     // ── Remote routing (defaults to false; local-first) ──────────────────────
 
     /** When true, inference is routed through the remote HTTP endpoint defined in `Endpoint`.
@@ -239,4 +246,9 @@ protected:
     FLlamaDualBackend* Backend = nullptr;
 
     void WireBackendCallbacks();
+
+    /** Push current ModelParams / Endpoint / behavior toggles down into the backend.
+     *  Called from every public mutator before delegating, so the backend always sees
+     *  the latest values at the moment of action. */
+    void SyncBackendConfig();
 };
