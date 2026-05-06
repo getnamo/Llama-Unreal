@@ -42,4 +42,21 @@ public:
         LastError = Err;
     }
     UFUNCTION() void HandleIngest(int32 Added) { IngestAdded = Added; }
+
+    // Optional diagnostic capture — populated by HandleTokenStream / HandlePartialStream
+    // when the test binds those handlers. Null in tests that only care about the final
+    // broadcast.
+    FString StreamedTokens;
+    TArray<FString> StreamedPartials;
+    int32 StreamedTokenCount = 0;
+
+    UFUNCTION() void HandleTokenStream(const FString& Token)
+    {
+        StreamedTokens += Token;
+        ++StreamedTokenCount;
+    }
+    UFUNCTION() void HandlePartialStream(const FString& Partial)
+    {
+        StreamedPartials.Add(Partial);
+    }
 };
