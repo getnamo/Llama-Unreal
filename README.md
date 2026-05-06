@@ -250,11 +250,22 @@ The plugin ships with a complete local RAG stack: an embedding pipeline, an HNSW
 
 ## Quick start
 
-1. Load an embedding model (e.g. `bge-small-en-v1.5-q4_k_m.gguf`) on a `ULlamaComponent` with `Advanced.bEmbeddingMode = true`. This component is your *embedder*; you typically run it alongside a separate chat component.
-2. Add a `URagStoreComponent` to the same actor (BP-friendly path) — it auto-discovers an embedding-mode `ULlamaComponent` on the actor and auto-Initializes once the model reports its embedding dimension. Or use `URagStore` directly as a UObject for non-actor flows.
-3. Ingest content with `IngestText(Text, Source)`, `IngestFile(Path)`, `IngestDocuments(Texts, Sources)` for batched in-memory corpora, or `IngestDirectory(Folder, "txt,md", recursive)` to walk a directory and ingest everything in one embedding round. `OnIngestComplete(int32 Added)` fires once when the round-trip finishes.
-4. Retrieve with `RetrieveAsync(Query, Params)` (or `RetrieveAsyncDefault(Query)`). `Params.Mode` = `Vector`, `BM25`, or `Hybrid` (default). On the component variant, results arrive via the `OnRetrievalComplete` multicast. For prompt augmentation, pass the chunks through `FormatChunksAsContext(Chunks, Header)` and prepend to your chat prompt.
-5. Persist with `SaveToFile(Path)` / `LoadFromFile(Path)`. A single `.rag` file bundles the vector index, BM25 inverted index, and chunk metadata.
+The `URagStore` (UObject) and `URagStoreComponent` (UActorComponent) are self-contained: they own their own embedding model and, optionally, their own answer model. The minimal flow:
+
+1. Configure two model paths:
+   - `EmbeddingModelParams.PathToModel = "./bge-small-en-v1.5-q4_k_m.gguf"` (or any embedding GGUF — `bEmbeddingMode` is force-set at load time).
+   - `AnswerModelParams.PathToModel = "./google_gemma-3-4b-it-Q4_K_L.gguf"` (or any chat GGUF you'd run via `ULlamaComponent`).
+2. Drop a `URagStoreComponent` on your actor. With `bAutoInitializeOnBeginPlay = true` (default), `BeginPlay` calls `LoadModels()` and auto-`Initialize()`s once the embedder reports its dimension. For non-actor flows, `NewObject<URagStore>()` and call `LoadModels()` + `Initialize()` yourself.
+3. Ingest content: `IngestText(text, source)`, `IngestFile(path)`, `IngestDocuments(texts, sources)`, or `IngestDirectory(folder, "txt,md", recursive)`. `OnIngestComplete(int32 Added)` fires when done.
+4. **Ask in one call**: bind `OnAskTokenGenerated`/`OnAskPartialGenerated`/`OnAskResponseGenerated` and call `AskDefault("your question")`. The store retrieves top-K chunks, formats them with `SummarizingPromptTemplate` (overridable; ships with a sensible default that uses `{context}` and `{query}` placeholders), and streams the answer through the same `OnAsk*` delegates regardless of which answer pathway is configured.
+5. Or get chunks directly: `RetrieveAsync(query, params)` returns `TArray<FLlamaChunk>` with `Confidence` (0..1), `RetrievalScore` (raw, retriever-specific), and `SourceRetriever` (`Vector` / `BM25` / `Hybrid`) populated. `Params.MinConfidence` pre-filters the tail.
+6. Persist with `SaveToFile(Path)` / `LoadFromFile(Path)`. A single `.rag` file bundles vectors + BM25 index + chunk metadata.
+
+### Power-user paths
+
+- **Share an embedder across multiple stores** to save VRAM: load one `ULlamaComponent` in embedding mode and assign it to each store's `ExternalEmbedder`. The internal embedder is skipped when `ExternalEmbedder` is set.
+- **Route answers through an existing chat component** (e.g. an in-game NPC `ULlamaComponent`): leave `AnswerModelParams.PathToModel` empty and assign the component to `AnswerEngine`. The store wires `OnAsk*` relays to its broadcasts and gates on a `bAskInFlight` flag so unrelated chat from the same component doesn't leak into Ask events.
+- **Score-aware filtering**: each retrieved chunk carries `Confidence` ∈ [0,1] (top-1 always 1.0; lower = lower-quality match relative to top-1) and the raw `RetrievalScore` (L2 distance for vector, BM25 score, RRF score for hybrid). Set `FRagRetrievalParams::MinConfidence = 0.5` to drop chunks less than half as good as the best, etc. Top-1 always survives the filter so a query never returns blank.
 
 ## Components
 
@@ -262,8 +273,8 @@ The plugin ships with a complete local RAG stack: an embedding pipeline, an HNSW
 - **`FBM25Index`** ([BM25Index.h](Source/LlamaCore/Public/Embedding/BM25Index.h)) — Lexical retrieval with BM25+ IDF; tokenizer is model-free (Unicode-aware lowercase + alphanumeric split + ASCII stopword filter).
 - **`FHybridRetriever`** ([HybridRetriever.h](Source/LlamaCore/Public/Embedding/HybridRetriever.h)) — Reciprocal Rank Fusion (k=60) of the dense and sparse ranks; parameter-free across heterogeneous score scales.
 - **`FLlamaCorpusChunker`** ([CorpusChunker.h](Source/LlamaCore/Public/Embedding/CorpusChunker.h)) — Deterministic paragraph + sliding-window chunker with sentence-boundary snapping.
-- **`URagStore`** ([RagStore.h](Source/LlamaCore/Public/Embedding/RagStore.h)) — Composes the above; owns ingest + retrieve workflow.
-- **`URagStoreComponent`** ([RagStoreComponent.h](Source/LlamaCore/Public/Embedding/RagStoreComponent.h)) — Actor-component variant. Drop on an actor next to your embedding `ULlamaComponent`; auto-resolves the embedder, auto-initializes when the model dim is known, and re-broadcasts ingest/retrieval events as multicast delegates for easy BP wiring.
+- **`URagStore`** ([RagStore.h](Source/LlamaCore/Public/Embedding/RagStore.h)) — Composes the above; self-contained two-model pipeline (embedder + optional answerer); `Ask()` for end-to-end retrieve+answer with streaming.
+- **`URagStoreComponent`** ([RagStoreComponent.h](Source/LlamaCore/Public/Embedding/RagStoreComponent.h)) — Actor-component wrapper: same surface, auto-init on BeginPlay, BP-friendly delegate chain.
 
 ## Recommended embedding models (GGUF)
 

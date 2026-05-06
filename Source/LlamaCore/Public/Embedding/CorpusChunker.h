@@ -5,6 +5,15 @@
 #include "CoreMinimal.h"
 #include "CorpusChunker.generated.h"
 
+/** Which retriever produced a particular chunk in retrieval results. */
+UENUM(BlueprintType)
+enum class ERagRetrievalSource : uint8
+{
+    Vector  UMETA(DisplayName = "Vector"),
+    BM25    UMETA(DisplayName = "BM25"),
+    Hybrid  UMETA(DisplayName = "Hybrid")
+};
+
 USTRUCT(BlueprintType)
 struct FLlamaChunk
 {
@@ -24,6 +33,27 @@ struct FLlamaChunk
     /** Optional source identifier set by the caller (filename, URL, doc id). */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chunk")
     FString Source;
+
+    /** Raw retrieval score. Semantics depend on SourceRetriever:
+     *   - Vector : L2 distance      (lower = better)
+     *   - BM25   : BM25 score       (higher = better)
+     *   - Hybrid : RRF fused score  (higher = better)
+     *  0.0 when this chunk was constructed outside a retrieval call (e.g. fresh from
+     *  the chunker during ingest). */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chunk")
+    float RetrievalScore = 0.f;
+
+    /** Normalized 0..1 confidence relative to the top-1 result of THIS query.
+     *  Top-1 is always 1.0 by construction. Useful for cutoff-style filtering;
+     *  NOT an absolute similarity. For an absolute signal use RetrievalScore +
+     *  SourceRetriever and interpret per the table above. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chunk")
+    float Confidence = 0.f;
+
+    /** Which retriever produced this chunk. Defaults to Vector for chunks
+     *  constructed outside a retrieval call. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chunk")
+    ERagRetrievalSource SourceRetriever = ERagRetrievalSource::Vector;
 };
 
 USTRUCT(BlueprintType)

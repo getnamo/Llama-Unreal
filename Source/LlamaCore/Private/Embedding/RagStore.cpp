@@ -5,6 +5,8 @@
 #include "Embedding/HybridRetriever.h"
 
 #include "LlamaComponent.h"
+#include "LlamaDualBackend.h"
+#include "LlamaNative.h"
 #include "LlamaUtility.h"
 
 #include "Misc/FileHelper.h"
@@ -31,8 +33,187 @@ URagStore::URagStore()
 
 URagStore::~URagStore() = default;
 
+void URagStore::BeginDestroy()
+{
+    if (InternalEmbedder)
+    {
+        if (InternalEmbedder->GetLlamaNative())
+        {
+            InternalEmbedder->GetLlamaNative()->RemoveTicker();
+        }
+        InternalEmbedder->Shutdown();
+        InternalEmbedder.Reset();
+    }
+    if (InternalAnswerer)
+    {
+        if (InternalAnswerer->GetLlamaNative())
+        {
+            InternalAnswerer->GetLlamaNative()->RemoveTicker();
+        }
+        InternalAnswerer->Shutdown();
+        InternalAnswerer.Reset();
+    }
+    Super::BeginDestroy();
+}
+
+void URagStore::LoadModels()
+{
+    // Internal embedder
+    if (!EmbeddingModelParams.PathToModel.IsEmpty() && !InternalEmbedder)
+    {
+        // Force the embedding-mode flag — that's the whole point of this backend.
+        if (!EmbeddingModelParams.Advanced.bEmbeddingMode)
+        {
+            UE_LOG(LlamaLog, Log, TEXT("URagStore: forcing EmbeddingModelParams.Advanced.bEmbeddingMode = true"));
+            EmbeddingModelParams.Advanced.bEmbeddingMode = true;
+        }
+
+        InternalEmbedder = MakeUnique<FLlamaDualBackend>();
+        InternalEmbedder->Initialize();
+        if (FLlamaNative* Native = InternalEmbedder->GetLlamaNative())
+        {
+            Native->AddTicker();
+        }
+        InternalEmbedder->ModelParams = EmbeddingModelParams;
+        InternalEmbedder->bUseRemote = false;
+
+        InternalEmbedder->OnModelLoaded = [this](const FString& /*ModelName*/)
+        {
+            bInternalEmbedderReady = true;
+            // Auto-pull dim into VectorParams if user didn't set it.
+            if (VectorParams.Dimensions <= 0 && InternalEmbedder)
+            {
+                const int32 Dim = InternalEmbedder->GetEmbeddingDimension();
+                if (Dim > 0) { VectorParams.Dimensions = Dim; }
+            }
+        };
+        InternalEmbedder->OnError = [this](const FString& Err, int32 /*Code*/)
+        {
+            UE_LOG(LlamaLog, Warning, TEXT("URagStore embedder error: %s"), *Err);
+        };
+
+        InternalEmbedder->LoadModel(/*bForceReload=*/false);
+    }
+
+    // Internal answerer
+    if (!AnswerModelParams.PathToModel.IsEmpty() && !InternalAnswerer)
+    {
+        InternalAnswerer = MakeUnique<FLlamaDualBackend>();
+        InternalAnswerer->Initialize();
+        if (FLlamaNative* Native = InternalAnswerer->GetLlamaNative())
+        {
+            Native->AddTicker();
+        }
+        InternalAnswerer->ModelParams = AnswerModelParams;
+        InternalAnswerer->bUseRemote = false;
+
+        InternalAnswerer->OnModelLoaded = [this](const FString& /*ModelName*/)
+        {
+            bInternalAnswererReady = true;
+        };
+
+        // Wire streaming callbacks: every Ask() invocation flips bAskInFlight on, and
+        // these forward only while the flag is active. End-of-stream / response / error
+        // turn it off so unrelated direct chat usage of the same backend (if any)
+        // doesn't bleed into OnAsk* delegates.
+        TWeakObjectPtr<URagStore> WeakThis(this);
+        InternalAnswerer->OnTokenGenerated = [WeakThis](const FString& Token)
+        {
+            URagStore* Self = WeakThis.Get();
+            if (Self && Self->bAskInFlight) { Self->OnAskTokenGenerated.Broadcast(Token); }
+        };
+        InternalAnswerer->OnPartialGenerated = [WeakThis](const FString& Partial)
+        {
+            URagStore* Self = WeakThis.Get();
+            if (Self && Self->bAskInFlight) { Self->OnAskPartialGenerated.Broadcast(Partial); }
+        };
+        InternalAnswerer->OnMarkdownPartialGenerated = [WeakThis](const FString& Partial, EMarkdownStreamState State)
+        {
+            URagStore* Self = WeakThis.Get();
+            if (Self && Self->bAskInFlight) { Self->OnAskMarkdownPartialGenerated.Broadcast(Partial, State); }
+        };
+        InternalAnswerer->OnResponseGenerated = [WeakThis](const FString& Response)
+        {
+            URagStore* Self = WeakThis.Get();
+            if (Self && Self->bAskInFlight) { Self->OnAskResponseGenerated.Broadcast(Response); }
+        };
+        InternalAnswerer->OnEndOfStream = [WeakThis](bool bStopSeq, float Tps)
+        {
+            URagStore* Self = WeakThis.Get();
+            if (!Self) { return; }
+            if (Self->bAskInFlight)
+            {
+                Self->OnAskEndOfStream.Broadcast(bStopSeq, Tps);
+                Self->bAskInFlight = false;
+            }
+        };
+        InternalAnswerer->OnError = [WeakThis](const FString& Err, int32 Code)
+        {
+            URagStore* Self = WeakThis.Get();
+            if (!Self) { return; }
+            UE_LOG(LlamaLog, Warning, TEXT("URagStore answerer error: %s"), *Err);
+            if (Self->bAskInFlight)
+            {
+                Self->OnAskError.Broadcast(Err, Code);
+                Self->bAskInFlight = false;
+            }
+        };
+
+        InternalAnswerer->LoadModel(/*bForceReload=*/false);
+    }
+}
+
+bool URagStore::IsEmbedderReady() const
+{
+    if (ExternalEmbedder && ExternalEmbedder->ModelParams.Advanced.bEmbeddingMode &&
+        ExternalEmbedder->IsModelLoaded())
+    {
+        return true;
+    }
+    return bInternalEmbedderReady;
+}
+
+bool URagStore::IsAnswerEngineReady() const
+{
+    if (bInternalAnswererReady) { return true; }
+    if (AnswerEngine && AnswerEngine->IsModelLoaded()) { return true; }
+    return false;
+}
+
 void URagStore::Initialize()
 {
+    // Resolve the embedder's actual output dimension (if any backend is ready) and prefer
+    // it over a user-supplied VectorParams.Dimensions. This avoids subtle mismatch bugs
+    // when a user changes embedding model without updating Dimensions (the default 384
+    // matches bge-small but not nomic-768 / e5-1024 etc).
+    int32 EmbedderDim = 0;
+    if (bInternalEmbedderReady && InternalEmbedder)
+    {
+        EmbedderDim = InternalEmbedder->GetEmbeddingDimension();
+    }
+    else if (ExternalEmbedder && ExternalEmbedder->IsModelLoaded())
+    {
+        EmbedderDim = ExternalEmbedder->GetEmbeddingDimension();
+    }
+
+    if (EmbedderDim > 0)
+    {
+        if (VectorParams.Dimensions > 0 && VectorParams.Dimensions != EmbedderDim)
+        {
+            UE_LOG(LlamaLog, Warning,
+                TEXT("URagStore::Initialize: VectorParams.Dimensions=%d disagrees with the loaded embedder's output dim=%d; ")
+                TEXT("using the embedder's dim. Update VectorParams.Dimensions to silence this warning."),
+                VectorParams.Dimensions, EmbedderDim);
+        }
+        VectorParams.Dimensions = EmbedderDim;
+    }
+    else if (VectorParams.Dimensions <= 0)
+    {
+        UE_LOG(LlamaLog, Warning,
+            TEXT("URagStore::Initialize: VectorParams.Dimensions is 0 and no embedder is ready to auto-pull from. ")
+            TEXT("Set Dimensions manually or call LoadModels() first and wait for the embedder to load."));
+    }
+
     Vector->Params = VectorParams;
     Vector->InitializeDB();
     Bm25->Reset();
@@ -48,16 +229,31 @@ void URagStore::Reset()
     bInitialized = false;
 }
 
+void URagStore::EmbedTextsViaActiveEmbedder(const TArray<FString>& Texts,
+    TFunction<void(const TArray<TArray<float>>&, const TArray<FString>&)> OnDone)
+{
+    // External embedder wins if configured AND in embedding mode AND loaded.
+    if (ExternalEmbedder &&
+        ExternalEmbedder->ModelParams.Advanced.bEmbeddingMode &&
+        ExternalEmbedder->IsModelLoaded())
+    {
+        ExternalEmbedder->EmbedTextsAsync(Texts, MoveTemp(OnDone));
+        return;
+    }
+    if (bInternalEmbedderReady && InternalEmbedder)
+    {
+        InternalEmbedder->EmbedTextsAsync(Texts, MoveTemp(OnDone));
+        return;
+    }
+    UE_LOG(LlamaLog, Warning, TEXT("URagStore: no embedder ready (configure EmbeddingModelParams.PathToModel + LoadModels(), or set ExternalEmbedder)"));
+    if (OnDone) { OnDone(TArray<TArray<float>>(), TArray<FString>()); }
+}
+
 void URagStore::IngestText(const FString& Text, const FString& Source)
 {
     if (!bInitialized)
     {
         UE_LOG(LlamaLog, Warning, TEXT("URagStore::IngestText called before Initialize"));
-        return;
-    }
-    if (!Embedder)
-    {
-        UE_LOG(LlamaLog, Warning, TEXT("URagStore::IngestText: Embedder is null"));
         return;
     }
 
@@ -74,7 +270,7 @@ void URagStore::IngestText(const FString& Text, const FString& Source)
     for (const FLlamaChunk& C : NewChunks) { Texts.Add(C.Text); }
 
     TWeakObjectPtr<URagStore> WeakThis(this);
-    Embedder->EmbedTextsAsync(Texts,
+    EmbedTextsViaActiveEmbedder(Texts,
         [WeakThis, NewChunks](const TArray<TArray<float>>& All, const TArray<FString>& /*Sources*/) mutable
         {
             URagStore* Self = WeakThis.Get();
@@ -100,11 +296,6 @@ void URagStore::IngestDocuments(const TArray<FString>& Texts, const TArray<FStri
     if (!bInitialized)
     {
         UE_LOG(LlamaLog, Warning, TEXT("URagStore::IngestDocuments called before Initialize"));
-        return;
-    }
-    if (!Embedder)
-    {
-        UE_LOG(LlamaLog, Warning, TEXT("URagStore::IngestDocuments: Embedder is null"));
         return;
     }
     if (Texts.Num() != Sources.Num())
@@ -134,7 +325,7 @@ void URagStore::IngestDocuments(const TArray<FString>& Texts, const TArray<FStri
     for (const FLlamaChunk& C : AllChunks) { ChunkTexts.Add(C.Text); }
 
     TWeakObjectPtr<URagStore> WeakThis(this);
-    Embedder->EmbedTextsAsync(ChunkTexts,
+    EmbedTextsViaActiveEmbedder(ChunkTexts,
         [WeakThis, AllChunks](const TArray<TArray<float>>& All, const TArray<FString>& /*Sources*/) mutable
         {
             URagStore* Self = WeakThis.Get();
@@ -315,21 +506,65 @@ void URagStore::Retrieve(const TArray<float>& QueryEmbedding, const FString& Que
     }
     }
 
-    OutChunks.Reserve(Ids.Num());
-    for (int64 Id : Ids)
+    if (Ids.Num() == 0) { return; }
+
+    // Score → similarity (higher = better) per retriever, then normalize against top-1
+    // similarity to produce Confidence ∈ [0, 1] with top-1 always = 1.0.
+    auto RawToSimilarity = [&](float RawScore) -> float
     {
-        const int32 Idx = ChunkIdToIndex(Id);
-        if (Chunks.IsValidIndex(Idx))
+        switch (Params.Mode)
         {
-            OutChunks.Add(Chunks[Idx]);
+        case ERagRetrievalMode::Vector:
+            // L2 distance for unit-norm embeddings: ||a - b||^2 = 2 - 2*cos(a,b),
+            // so distance ∈ [0, 2]. Map to similarity ∈ [0, 1]: 1 - d/2.
+            return FMath::Max(0.f, 1.f - RawScore * 0.5f);
+        case ERagRetrievalMode::BM25:
+        case ERagRetrievalMode::Hybrid:
+        default:
+            return FMath::Max(0.f, RawScore);
         }
+    };
+
+    const ERagRetrievalSource SourceTag =
+        (Params.Mode == ERagRetrievalMode::Vector) ? ERagRetrievalSource::Vector :
+        (Params.Mode == ERagRetrievalMode::BM25)   ? ERagRetrievalSource::BM25 :
+                                                     ERagRetrievalSource::Hybrid;
+
+    // Find the top-1 similarity for normalization. Results are already sorted nearest/best-first
+    // by the retrievers (FindNearestNIds reverses the priority queue, BM25/Hybrid sort descending).
+    float TopSim = -1.f;
+    for (int32 i = 0; i < Ids.Num(); ++i)
+    {
+        const float Sim = RawToSimilarity(Scores[i]);
+        if (Sim > TopSim) { TopSim = Sim; }
+    }
+    if (TopSim <= 0.f) { TopSim = 1.f; } // pathological: all-zero scores → keep top-1, no scaling
+
+    OutChunks.Reserve(Ids.Num());
+    for (int32 i = 0; i < Ids.Num(); ++i)
+    {
+        const int32 Idx = ChunkIdToIndex(Ids[i]);
+        if (!Chunks.IsValidIndex(Idx)) { continue; }
+
+        const float Sim = RawToSimilarity(Scores[i]);
+        const float Confidence = Sim / TopSim;
+
+        // Pre-filter, but always keep top-1 (i==0) so callers always get *something* when
+        // results exist. MinConfidence is meant to trim the noisy tail, not blank the result.
+        if (i > 0 && Confidence < Params.MinConfidence) { continue; }
+
+        FLlamaChunk Chunk = Chunks[Idx];
+        Chunk.RetrievalScore  = Scores[i];
+        Chunk.Confidence      = Confidence;
+        Chunk.SourceRetriever = SourceTag;
+        OutChunks.Add(MoveTemp(Chunk));
     }
 }
 
 void URagStore::RetrieveAsync(const FString& QueryText, const FRagRetrievalParams& Params,
                               TFunction<void(const TArray<FLlamaChunk>&)> OnDone)
 {
-    if (!bInitialized || !Embedder)
+    if (!bInitialized)
     {
         if (OnDone) { OnDone(TArray<FLlamaChunk>()); }
         return;
@@ -348,7 +583,7 @@ void URagStore::RetrieveAsync(const FString& QueryText, const FRagRetrievalParam
     TWeakObjectPtr<URagStore> WeakThis(this);
     const FRagRetrievalParams ParamsCopy = Params;
 
-    Embedder->EmbedTextsAsync(Single,
+    EmbedTextsViaActiveEmbedder(Single,
         [WeakThis, ParamsCopy, QueryText, OnDone = MoveTemp(OnDone)]
         (const TArray<TArray<float>>& All, const TArray<FString>& /*Sources*/) mutable
         {
@@ -491,4 +726,155 @@ bool URagStore::LoadFromFile(const FString& FilePath)
     VectorParams = Vector->Params;
     bInitialized = true;
     return true;
+}
+
+// ─── Ask pipeline ────────────────────────────────────────────────────────────
+
+void URagStore::AskDefault(const FString& Query)
+{
+    Ask(Query, RetrievalDefaults);
+}
+
+void URagStore::Ask(const FString& Query, FRagRetrievalParams ParamsOverride)
+{
+    if (!bInitialized)
+    {
+        const FString Err = TEXT("URagStore::Ask called before Initialize");
+        UE_LOG(LlamaLog, Warning, TEXT("%s"), *Err);
+        OnAskError.Broadcast(Err, 70);
+        return;
+    }
+    if (!IsAnswerEngineReady())
+    {
+        const FString Err = TEXT("URagStore::Ask: no answer engine ready (configure AnswerModelParams.PathToModel + LoadModels(), or set AnswerEngine)");
+        UE_LOG(LlamaLog, Warning, TEXT("%s"), *Err);
+        OnAskError.Broadcast(Err, 71);
+        return;
+    }
+    if (bAskInFlight)
+    {
+        const FString Err = TEXT("URagStore::Ask: an Ask is already in flight; ignore or wait for OnAskEndOfStream");
+        UE_LOG(LlamaLog, Warning, TEXT("%s"), *Err);
+        OnAskError.Broadcast(Err, 72);
+        return;
+    }
+
+    // Inherit defaults if user passed a default-constructed Params (i.e. TopK still 5,
+    // or specifically signaled via TopK <= 0).
+    if (ParamsOverride.TopK <= 0) { ParamsOverride = RetrievalDefaults; }
+
+    TWeakObjectPtr<URagStore> WeakThis(this);
+    const FString QueryCopy = Query;
+
+    RetrieveAsync(Query, ParamsOverride,
+        [WeakThis, QueryCopy](const TArray<FLlamaChunk>& Chunks)
+        {
+            URagStore* Self = WeakThis.Get();
+            if (!Self) { return; }
+
+            // Surface the chunks first so listeners can show citations etc. before the
+            // answer streams in.
+            Self->OnAskRetrievedChunks.Broadcast(Chunks);
+
+            const FString FormattedPrompt = Self->BuildSummarizingPrompt(QueryCopy, Chunks);
+            Self->bAskInFlight = true;
+            Self->SendFormattedPromptToActiveAnswerer(FormattedPrompt);
+        });
+}
+
+FString URagStore::BuildSummarizingPrompt(const FString& Query, const TArray<FLlamaChunk>& InChunks) const
+{
+    const FString Context = FormatChunksAsContext(InChunks, /*HeaderTemplate*/ FString());
+    FString Out = SummarizingPromptTemplate;
+    Out.ReplaceInline(TEXT("{context}"), *Context, ESearchCase::CaseSensitive);
+    Out.ReplaceInline(TEXT("{query}"),   *Query,   ESearchCase::CaseSensitive);
+    return Out;
+}
+
+void URagStore::SendFormattedPromptToActiveAnswerer(const FString& FormattedPrompt)
+{
+    // Internal answer backend wins.
+    if (bInternalAnswererReady && InternalAnswerer)
+    {
+        FLlamaChatPrompt P;
+        P.Prompt = FormattedPrompt;
+        P.Role = EChatTemplateRole::User;
+        P.bAddAssistantBOS = false;
+        P.bGenerateReply = true;
+        InternalAnswerer->InsertTemplatedPrompt(P);
+        return;
+    }
+
+    // External answer engine — bind dynamic delegates lazily on first use.
+    if (AnswerEngine)
+    {
+        // We can't dynamically bind C++ lambdas to UFUNCTION dynamic multicasts. Instead
+        // we relay through the COMPONENT's existing broadcast events. The component owns
+        // its own multicast — we add UFUNCTION-marked relays on URagStore that subscribe
+        // to those multicasts. Once-only binding so re-Asks don't double-fire.
+        //
+        // For an MVP we use a simpler shortcut: subscribe the component's broadcasts to
+        // forwarding methods on URagStore via AddDynamic. Implementation details handled
+        // in private helpers below. This MVP path supports one external answer engine
+        // per RagStore lifetime — rebinding to a different engine mid-run is unsupported.
+        static const FName N_Token = FName(TEXT("RelayAnswerToken"));
+        static const FName N_Partial = FName(TEXT("RelayAnswerPartial"));
+        static const FName N_Markdown = FName(TEXT("RelayAnswerMarkdownPartial"));
+        static const FName N_Response = FName(TEXT("RelayAnswerResponse"));
+        static const FName N_EndOfStream = FName(TEXT("RelayAnswerEndOfStream"));
+        static const FName N_Error = FName(TEXT("RelayAnswerError"));
+
+        // Rebind every call (cheap; AddUniqueDynamic is a no-op if already bound).
+        AnswerEngine->OnTokenGenerated.AddUniqueDynamic(this,            &URagStore::RelayAnswerToken);
+        AnswerEngine->OnPartialGenerated.AddUniqueDynamic(this,          &URagStore::RelayAnswerPartial);
+        AnswerEngine->OnMarkdownPartialGenerated.AddUniqueDynamic(this,  &URagStore::RelayAnswerMarkdownPartial);
+        AnswerEngine->OnResponseGenerated.AddUniqueDynamic(this,         &URagStore::RelayAnswerResponse);
+        AnswerEngine->OnEndOfStream.AddUniqueDynamic(this,               &URagStore::RelayAnswerEndOfStream);
+        AnswerEngine->OnError.AddUniqueDynamic(this,                     &URagStore::RelayAnswerError);
+
+        AnswerEngine->InsertTemplatedPrompt(FormattedPrompt, EChatTemplateRole::User, /*bAddAssistantBOS*/ false, /*bGenerateReply*/ true);
+        return;
+    }
+
+    // Should be unreachable — IsAnswerEngineReady() pre-check should have caught this.
+    OnAskError.Broadcast(TEXT("Ask: no answer engine pathway available at dispatch time"), 73);
+    bAskInFlight = false;
+}
+
+// Relay handlers for the external AnswerEngine path. These are UFUNCTION so they can
+// subscribe to the dynamic multicasts on ULlamaComponent. Each gates on bAskInFlight
+// to avoid bleeding unrelated direct-chat output through OnAsk* delegates.
+
+void URagStore::RelayAnswerToken(const FString& Token)
+{
+    if (bAskInFlight) { OnAskTokenGenerated.Broadcast(Token); }
+}
+void URagStore::RelayAnswerPartial(const FString& Partial)
+{
+    if (bAskInFlight) { OnAskPartialGenerated.Broadcast(Partial); }
+}
+void URagStore::RelayAnswerMarkdownPartial(const FString& Partial, EMarkdownStreamState State)
+{
+    if (bAskInFlight) { OnAskMarkdownPartialGenerated.Broadcast(Partial, State); }
+}
+void URagStore::RelayAnswerResponse(const FString& Response)
+{
+    if (bAskInFlight) { OnAskResponseGenerated.Broadcast(Response); }
+}
+void URagStore::RelayAnswerEndOfStream(bool bStopSeq, float Tps)
+{
+    if (bAskInFlight)
+    {
+        OnAskEndOfStream.Broadcast(bStopSeq, Tps);
+        bAskInFlight = false;
+    }
+}
+void URagStore::RelayAnswerError(const FString& ErrorMessage, int32 ErrorCode)
+{
+    UE_LOG(LlamaLog, Warning, TEXT("URagStore relay error: %s"), *ErrorMessage);
+    if (bAskInFlight)
+    {
+        OnAskError.Broadcast(ErrorMessage, ErrorCode);
+        bAskInFlight = false;
+    }
 }

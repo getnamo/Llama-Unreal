@@ -13,16 +13,24 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnRagRetrievalCompleteSignature,
     const TArray<FLlamaChunk>&, RetrievedChunks, const FString&, Query);
 
 /**
- * Actor-component wrapper around URagStore. Owns one URagStore subobject for its lifetime
- * so RAG state is rooted in the actor and follows the usual ActorComponent lifecycle —
- * easier to drop into a test map / BP actor than the bare UObject form.
+ * Actor-component wrapper around URagStore. Owns one URagStore subobject for its
+ * lifetime so RAG state is rooted in the actor and follows the usual ActorComponent
+ * lifecycle — easier to drop into a test map / BP actor than the bare UObject form.
  *
- * Default behavior:
- *  - On BeginPlay (or first call), the inner URagStore is constructed using the configured params.
- *  - If `Embedder` is left null, the component looks for a sibling `ULlamaComponent` on the same actor
- *    that's loaded in embedding mode, and uses it.
- *  - Initialize() must be called before ingest. Set bAutoInitializeOnBeginPlay = true to do it for you
- *    once the embedder reports a valid embedding dimension.
+ * Quickstart for users:
+ *  1. Configure EmbeddingModelParams.PathToModel (and optionally AnswerModelParams.PathToModel
+ *     for the streaming Ask() pipeline).
+ *  2. Place on an actor. With bAutoInitializeOnBeginPlay = true (default), BeginPlay
+ *     calls LoadModels(). Once the embedder reports its dimension, it auto-Initializes.
+ *  3. Call IngestText/IngestDirectory to populate.
+ *  4. Bind OnAskTokenGenerated / OnAskResponseGenerated, then call AskDefault(query).
+ *
+ * Power-user paths:
+ *  - Set ExternalEmbedder to share a pre-loaded ULlamaComponent across stores.
+ *  - Set AnswerEngine to route Ask() through a chat actor that already exists.
+ *  - If neither EmbeddingModelParams.PathToModel nor ExternalEmbedder is set, BeginPlay
+ *    looks for a sibling ULlamaComponent on the same actor that's loaded in embedding
+ *    mode and uses that as ExternalEmbedder (back-compat / discovery shortcut).
  */
 UCLASS(Category = "LLM", BlueprintType, meta = (BlueprintSpawnableComponent))
 class LLAMACORE_API URagStoreComponent : public UActorComponent
@@ -31,13 +39,26 @@ class LLAMACORE_API URagStoreComponent : public UActorComponent
 public:
     URagStoreComponent();
 
-    /** Embedding component to drive ingest + query embedding. If null, an attached
-     *  ULlamaComponent on the owning actor is used. */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RAG")
-    ULlamaComponent* Embedder = nullptr;
+    // ── Embedder / Answer config (mirror of URagStore) ──────────────────────
 
-    /** Vector index parameters. Set Dimensions to match the embedding model's output dim
-     *  (or leave 0 to auto-pull from Embedder->GetEmbeddingDimension() at Initialize-time). */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RAG|Embedding")
+    FLLMModelParams EmbeddingModelParams;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RAG|Embedding")
+    ULlamaComponent* ExternalEmbedder = nullptr;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RAG|Answer")
+    FLLMModelParams AnswerModelParams;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RAG|Answer")
+    ULlamaComponent* AnswerEngine = nullptr;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RAG|Answer", meta = (MultiLine = true))
+    FString SummarizingPromptTemplate =
+        TEXT("Use only the following context to answer the question. ")
+        TEXT("If the answer isn't in the context, say so plainly.\n\n")
+        TEXT("Context:\n{context}\n\nQuestion: {query}");
+
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RAG")
     FVectorDBParams VectorParams;
 
@@ -47,26 +68,37 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RAG")
     FRagRetrievalParams RetrievalDefaults;
 
-    /** When true, BeginPlay calls Initialize() once the embedder reports a non-zero embedding
-     *  dimension. Falls back to manual Initialize() if false or no embedder is bound. */
+    /** When true, BeginPlay calls LoadModels() and (when an embedder is ready)
+     *  Initialize(). Set false for fully-manual control. */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RAG")
     bool bAutoInitializeOnBeginPlay = true;
 
-    /** Fired on the game thread once an Ingest* call has fully ingested. Mirrors URagStore::OnIngestComplete. */
+    // ── Delegates (mirror inner store) ──────────────────────────────────────
+
     UPROPERTY(BlueprintAssignable)
     FOnRagIngestCompleteSignature OnIngestComplete;
 
-    /** Fired on the game thread once a RetrieveAsync call resolves. */
     UPROPERTY(BlueprintAssignable)
     FOnRagRetrievalCompleteSignature OnRetrievalComplete;
 
-    // -- Lifecycle ------------------------------------------------------------
+    UPROPERTY(BlueprintAssignable) FOnRagAskRetrievedSignature      OnAskRetrievedChunks;
+    UPROPERTY(BlueprintAssignable) FOnTokenGeneratedSignature       OnAskTokenGenerated;
+    UPROPERTY(BlueprintAssignable) FOnPartialSignature              OnAskPartialGenerated;
+    UPROPERTY(BlueprintAssignable) FOnMarkdownPartialSignature      OnAskMarkdownPartialGenerated;
+    UPROPERTY(BlueprintAssignable) FOnResponseGeneratedSignature    OnAskResponseGenerated;
+    UPROPERTY(BlueprintAssignable) FOnEndOfStreamSignature          OnAskEndOfStream;
+    UPROPERTY(BlueprintAssignable) FOnErrorSignature                OnAskError;
+
+    // ── Lifecycle ───────────────────────────────────────────────────────────
 
     virtual void BeginPlay() override;
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+    virtual void TickComponent(float DeltaTime, ELevelTick TickType,
+                               FActorComponentTickFunction* ThisTickFunction) override;
 
-    /** Build the inner URagStore + indexes. If VectorParams.Dimensions == 0 and an embedder is set,
-     *  pulls the dim from Embedder->GetEmbeddingDimension(). Returns true on success. */
+    UFUNCTION(BlueprintCallable, Category = "RAG")
+    void LoadModels();
+
     UFUNCTION(BlueprintCallable, Category = "RAG")
     bool Initialize();
 
@@ -76,10 +108,16 @@ public:
     UFUNCTION(BlueprintPure, Category = "RAG")
     int32 NumChunks() const;
 
+    UFUNCTION(BlueprintPure, Category = "RAG")
+    bool IsEmbedderReady() const;
+
+    UFUNCTION(BlueprintPure, Category = "RAG")
+    bool IsAnswerEngineReady() const;
+
     UFUNCTION(BlueprintCallable, Category = "RAG")
     void Reset();
 
-    // -- Ingest ---------------------------------------------------------------
+    // ── Ingest ──────────────────────────────────────────────────────────────
 
     UFUNCTION(BlueprintCallable, Category = "RAG")
     void IngestText(const FString& Text, const FString& Source);
@@ -90,27 +128,31 @@ public:
     UFUNCTION(BlueprintCallable, Category = "RAG")
     void IngestDocuments(const TArray<FString>& Texts, const TArray<FString>& Sources);
 
-    /** Walk a directory and ingest every matching file. See URagStore::IngestDirectory. */
     UFUNCTION(BlueprintCallable, Category = "RAG")
     int32 IngestDirectory(const FString& FolderPath,
                           const FString& ExtensionsCsv = TEXT("txt,md"),
                           bool bRecursive = true);
 
-    // -- Retrieval ------------------------------------------------------------
+    // ── Retrieval ───────────────────────────────────────────────────────────
 
-    /** Embed Query through Embedder, retrieve, then broadcast OnRetrievalComplete on the game thread. */
     UFUNCTION(BlueprintCallable, Category = "RAG")
     void RetrieveAsync(const FString& Query, FRagRetrievalParams Params);
 
-    /** Same as RetrieveAsync but uses RetrievalDefaults. Convenience for one-line BP wiring. */
     UFUNCTION(BlueprintCallable, Category = "RAG")
     void RetrieveAsyncDefault(const FString& Query);
 
-    /** Format chunks as a single context string for prompt prepending. */
+    // ── Ask (full retrieve + answer pipeline) ───────────────────────────────
+
+    UFUNCTION(BlueprintCallable, Category = "RAG")
+    void Ask(const FString& Query, FRagRetrievalParams Params);
+
+    UFUNCTION(BlueprintCallable, Category = "RAG")
+    void AskDefault(const FString& Query);
+
+    // ── Utilities / persistence ─────────────────────────────────────────────
+
     UFUNCTION(BlueprintCallable, Category = "RAG")
     FString FormatChunksAsContext(const TArray<FLlamaChunk>& InChunks, const FString& HeaderTemplate) const;
-
-    // -- Persistence ----------------------------------------------------------
 
     UFUNCTION(BlueprintCallable, Category = "RAG|Persistence")
     bool SaveToFile(const FString& FilePath);
@@ -118,7 +160,6 @@ public:
     UFUNCTION(BlueprintCallable, Category = "RAG|Persistence")
     bool LoadFromFile(const FString& FilePath);
 
-    /** Direct access to the underlying store for advanced workflows (custom retrievers, etc). */
     UFUNCTION(BlueprintPure, Category = "RAG")
     URagStore* GetStore() const { return Store; }
 
@@ -126,12 +167,31 @@ protected:
     UPROPERTY(VisibleInstanceOnly, Transient, Category = "RAG")
     URagStore* Store = nullptr;
 
-    /** Locates an embedder on the owning actor if one wasn't set explicitly. */
-    ULlamaComponent* ResolveEmbedder();
+    /** Auto-discover a sibling ULlamaComponent loaded in embedding mode and use it
+     *  as ExternalEmbedder. Called from BeginPlay only when neither
+     *  EmbeddingModelParams.PathToModel nor ExternalEmbedder is set. */
+    ULlamaComponent* AutoDiscoverEmbedder();
 
     void EnsureStore();
     void HookStoreDelegates();
+    void SyncStoreConfig();
+
+    /** Polled from TickComponent during the wait-for-embedder window after
+     *  bAutoInitializeOnBeginPlay's LoadModels() call. Calls Initialize once the
+     *  embedder dim is available. */
+    void TryAutoInitialize();
+
+    bool bPendingAutoInitialize = false;
 
     UFUNCTION()
     void HandleStoreIngestComplete(int32 ChunksAdded);
+
+    // Re-broadcast helpers for inner store's OnAsk* events.
+    UFUNCTION() void HandleStoreAskRetrieved(const TArray<FLlamaChunk>& RetrievedChunks);
+    UFUNCTION() void HandleStoreAskToken(const FString& Token);
+    UFUNCTION() void HandleStoreAskPartial(const FString& Partial);
+    UFUNCTION() void HandleStoreAskMarkdownPartial(const FString& Partial, EMarkdownStreamState State);
+    UFUNCTION() void HandleStoreAskResponse(const FString& Response);
+    UFUNCTION() void HandleStoreAskEndOfStream(bool bStopSequenceTriggered, float TokensPerSecond);
+    UFUNCTION() void HandleStoreAskError(const FString& ErrorMessage, int32 ErrorCode);
 };
