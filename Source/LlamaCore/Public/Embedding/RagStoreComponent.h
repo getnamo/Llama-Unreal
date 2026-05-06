@@ -62,6 +62,16 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RAG")
     FVectorDBParams VectorParams;
 
+    /** When true (default), Initialize() overwrites VectorParams.Dimensions with the
+     *  embedder's actual output dim. See URagStore::bSyncVectorDimToEmbedder. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RAG")
+    bool bSyncVectorDimToEmbedder = true;
+
+    /** When true, Ask()/AskDefault() broadcast OnAskRetrievedChunks before streaming the
+     *  answer. Default false; flip on for debugging or citation UI. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RAG|Answer")
+    bool bBroadcastChunksOnAsk = false;
+
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RAG")
     FLlamaChunkerParams ChunkerParams;
 

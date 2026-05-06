@@ -107,6 +107,9 @@ bool FRagAskPipelineTest::RunTest(const FString& /*Parameters*/)
     Store->AnswerModelParams.SystemPrompt      = TEXT("");
     Store->AnswerModelParams.Seed              = 47;
 
+    // Test assertions inspect the retrieved chunks — opt in to the broadcast.
+    Store->bBroadcastChunksOnAsk = true;
+
     Store->OnAskRetrievedChunks.AddDynamic(Sink, &URagAskTestSink::HandleRetrieved);
     Store->OnAskResponseGenerated.AddDynamic(Sink, &URagAskTestSink::HandleResponse);
     Store->OnAskEndOfStream.AddDynamic(Sink, &URagAskTestSink::HandleEnd);

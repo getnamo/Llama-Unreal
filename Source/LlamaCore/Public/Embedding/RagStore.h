@@ -120,11 +120,19 @@ public:
 
     // ── Index configuration ─────────────────────────────────────────────────
 
-    /** Vector index parameters. Dimensions is auto-set from the loaded embedder when
-     *  the embedder is internally owned. Set manually only when using ExternalEmbedder
-     *  before LoadModels() / Initialize(). */
+    /** Vector index parameters. With `bSyncVectorDimToEmbedder = true` (default),
+     *  Dimensions is auto-overwritten from the loaded embedder during Initialize() —
+     *  ignore the field unless you're loading from a saved file or using an external
+     *  embedder that hasn't loaded yet. */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RAG")
     FVectorDBParams VectorParams;
+
+    /** When true (default), Initialize() overwrites VectorParams.Dimensions with the
+     *  loaded embedder's actual output dim. Set false if you want full manual control
+     *  (e.g. you're using a saved index whose dim must stay pinned regardless of which
+     *  embedder is loaded). When off, a mismatch triggers a warning instead. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RAG")
+    bool bSyncVectorDimToEmbedder = true;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RAG")
     FLlamaChunkerParams ChunkerParams;
@@ -140,9 +148,17 @@ public:
     // ── Ask pipeline delegates ──────────────────────────────────────────────
 
     /** Fired with the retrieved chunks before the answer model sees them. Useful for
-     *  showing source citations in UI as soon as retrieval completes. */
+     *  showing source citations in UI as soon as retrieval completes. Only broadcasts
+     *  when `bBroadcastChunksOnAsk = true` — opt in for debug / citation overlays. */
     UPROPERTY(BlueprintAssignable)
     FOnRagAskRetrievedSignature OnAskRetrievedChunks;
+
+    /** When true, Ask()/AskDefault() broadcast OnAskRetrievedChunks with the retrieved
+     *  context chunks before the answer streams. Default false so the standard answer
+     *  flow is quiet — flip on to peek at what's feeding the prompt for debugging or
+     *  citation UI. Direct RetrieveAsync() always returns chunks regardless. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RAG|Answer")
+    bool bBroadcastChunksOnAsk = false;
 
     /** Token-level streaming from the answer model. */
     UPROPERTY(BlueprintAssignable)

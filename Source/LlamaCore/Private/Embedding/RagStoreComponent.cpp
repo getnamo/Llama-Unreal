@@ -103,6 +103,8 @@ void URagStoreComponent::SyncStoreConfig()
     Store->VectorParams              = VectorParams;
     Store->ChunkerParams             = ChunkerParams;
     Store->RetrievalDefaults         = RetrievalDefaults;
+    Store->bSyncVectorDimToEmbedder  = bSyncVectorDimToEmbedder;
+    Store->bBroadcastChunksOnAsk     = bBroadcastChunksOnAsk;
 }
 
 ULlamaComponent* URagStoreComponent::AutoDiscoverEmbedder()

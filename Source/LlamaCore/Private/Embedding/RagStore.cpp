@@ -278,14 +278,24 @@ void URagStore::Initialize()
 
     if (EmbedderDim > 0)
     {
-        if (VectorParams.Dimensions > 0 && VectorParams.Dimensions != EmbedderDim)
+        if (bSyncVectorDimToEmbedder)
         {
+            // Silent overwrite — this is the default ergonomic path.
+            VectorParams.Dimensions = EmbedderDim;
+        }
+        else if (VectorParams.Dimensions > 0 && VectorParams.Dimensions != EmbedderDim)
+        {
+            // Manual mode but mismatch — warn, don't override.
             UE_LOG(LlamaLog, Warning,
-                TEXT("URagStore::Initialize: VectorParams.Dimensions=%d disagrees with the loaded embedder's output dim=%d; ")
-                TEXT("using the embedder's dim. Update VectorParams.Dimensions to silence this warning."),
+                TEXT("URagStore::Initialize: VectorParams.Dimensions=%d disagrees with the loaded embedder's output dim=%d. ")
+                TEXT("Sync skipped because bSyncVectorDimToEmbedder=false; expect ingest mismatch errors unless you intend this."),
                 VectorParams.Dimensions, EmbedderDim);
         }
-        VectorParams.Dimensions = EmbedderDim;
+        else if (VectorParams.Dimensions <= 0)
+        {
+            // Manual mode but unset — fall through to the embedder dim anyway since 0 is invalid.
+            VectorParams.Dimensions = EmbedderDim;
+        }
     }
     else if (VectorParams.Dimensions <= 0)
     {
@@ -852,9 +862,13 @@ void URagStore::Ask(const FString& Query, FRagRetrievalParams ParamsOverride)
             URagStore* Self = WeakThis.Get();
             if (!Self) { return; }
 
-            // Surface the chunks first so listeners can show citations etc. before the
-            // answer streams in.
-            Self->OnAskRetrievedChunks.Broadcast(Chunks);
+            // Optionally surface the chunks for citation UI / debugging. Off by default
+            // because most users only want the streamed answer; opt in via
+            // bBroadcastChunksOnAsk. Direct RetrieveAsync callers always get chunks.
+            if (Self->bBroadcastChunksOnAsk)
+            {
+                Self->OnAskRetrievedChunks.Broadcast(Chunks);
+            }
 
             const FString FormattedPrompt = Self->BuildSummarizingPrompt(QueryCopy, Chunks);
             Self->bAskInFlight = true;
