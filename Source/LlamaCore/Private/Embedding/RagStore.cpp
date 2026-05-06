@@ -951,7 +951,7 @@ void URagStore::SendFormattedPromptToActiveAnswerer(const FString& FormattedProm
         AnswerEngine->OnEndOfStream.AddUniqueDynamic(this,               &URagStore::RelayAnswerEndOfStream);
         AnswerEngine->OnError.AddUniqueDynamic(this,                     &URagStore::RelayAnswerError);
 
-        AnswerEngine->InsertTemplatedPrompt(FormattedPrompt, EChatTemplateRole::User, /*bAddAssistantBOS*/ false, /*bGenerateReply*/ true);
+        AnswerEngine->InsertTemplatedPrompt(FormattedPrompt, EChatTemplateRole::User, /*bAddAssistantBOS*/ true, /*bGenerateReply*/ true);
         return;
     }
 
