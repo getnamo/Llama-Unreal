@@ -50,8 +50,8 @@ URagStore::URagStore()
     AnswerModelParams.GPULayers                   = 99;
     AnswerModelParams.MaxBatchLength              = 1024;
     AnswerModelParams.bAutoLoadModelOnStartup     = false;
-    AnswerModelParams.bAutoInsertSystemPromptOnLoad = false;
-    AnswerModelParams.SystemPrompt                = TEXT(""); // SummarizingPromptTemplate carries instructions
+    AnswerModelParams.bAutoInsertSystemPromptOnLoad = true;
+    AnswerModelParams.SystemPrompt                = TEXT("You are a helpful AI assistant.");
 }
 
 URagStore::~URagStore() = default;
@@ -878,7 +878,20 @@ void URagStore::Ask(const FString& Query, FRagRetrievalParams ParamsOverride)
 
 FString URagStore::BuildSummarizingPrompt(const FString& Query, const TArray<FLlamaChunk>& InChunks) const
 {
-    const FString Context = FormatChunksAsContext(InChunks, /*HeaderTemplate*/ FString());
+    // Substitute a sentinel for empty chunk sets — feeding a totally empty Context block
+    // tends to make the model emit empty completions. The placeholder gives it something
+    // concrete to read so it follows the template instructions and responds with an
+    // explicit "no context available" answer.
+    FString Context;
+    if (InChunks.Num() == 0)
+    {
+        Context = TEXT("(no relevant context was retrieved for this query)");
+    }
+    else
+    {
+        Context = FormatChunksAsContext(InChunks, /*HeaderTemplate*/ FString());
+    }
+
     FString Out = SummarizingPromptTemplate;
     Out.ReplaceInline(TEXT("{context}"), *Context, ESearchCase::CaseSensitive);
     Out.ReplaceInline(TEXT("{query}"),   *Query,   ESearchCase::CaseSensitive);
@@ -890,6 +903,12 @@ void URagStore::SendFormattedPromptToActiveAnswerer(const FString& FormattedProm
     // Internal answer backend wins.
     if (bInternalAnswererReady && InternalAnswerer)
     {
+        // RAG queries are stateless by design: each Ask is a fresh single-turn
+        // exchange. Without resetting, the answerer's chat history accumulates
+        // across calls and the model can latch onto prior empty/wrong completions
+        // and continue producing them. Keep the system prompt; drop everything else.
+        InternalAnswerer->ResetContextHistory(/*bKeepSystemPrompt=*/ true);
+
         FLlamaChatPrompt P;
         P.Prompt = FormattedPrompt;
         P.Role = EChatTemplateRole::User;
@@ -902,6 +921,12 @@ void URagStore::SendFormattedPromptToActiveAnswerer(const FString& FormattedProm
     // External answer engine — bind dynamic delegates lazily on first use.
     if (AnswerEngine)
     {
+        // Same statelessness guarantee for the external path. We reset the
+        // component's history (preserving its system prompt) so back-to-back
+        // Asks don't bleed between each other or into the user's own usage of
+        // the same component.
+        AnswerEngine->ResetContextHistory(/*bKeepSystemPrompt=*/ true);
+
         // We can't dynamically bind C++ lambdas to UFUNCTION dynamic multicasts. Instead
         // we relay through the COMPONENT's existing broadcast events. The component owns
         // its own multicast — we add UFUNCTION-marked relays on URagStore that subscribe

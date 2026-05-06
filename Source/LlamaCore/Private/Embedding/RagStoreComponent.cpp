@@ -26,8 +26,8 @@ URagStoreComponent::URagStoreComponent()
     AnswerModelParams.GPULayers                   = 99;
     AnswerModelParams.MaxBatchLength              = 1024;
     AnswerModelParams.bAutoLoadModelOnStartup     = false;
-    AnswerModelParams.bAutoInsertSystemPromptOnLoad = false;
-    AnswerModelParams.SystemPrompt                = TEXT("");
+    AnswerModelParams.bAutoInsertSystemPromptOnLoad = true;
+    AnswerModelParams.SystemPrompt                = TEXT("You are a helpful AI assistant.");
 }
 
 void URagStoreComponent::BeginPlay()
