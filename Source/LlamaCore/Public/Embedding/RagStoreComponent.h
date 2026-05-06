@@ -89,6 +89,12 @@ public:
     UPROPERTY(BlueprintAssignable) FOnEndOfStreamSignature          OnAskEndOfStream;
     UPROPERTY(BlueprintAssignable) FOnErrorSignature                OnAskError;
 
+    /** Fires once when the full pipeline (models loaded + Initialize() complete) is ready
+     *  to use. Bind before calling LoadAndInitialize() (or before BeginPlay if you're
+     *  relying on bAutoInitializeOnBeginPlay). */
+    UPROPERTY(BlueprintAssignable)
+    FOnRagPipelineReadySignature OnRagPipelineReady;
+
     // ── Lifecycle ───────────────────────────────────────────────────────────
 
     virtual void BeginPlay() override;
@@ -98,6 +104,11 @@ public:
 
     UFUNCTION(BlueprintCallable, Category = "RAG")
     void LoadModels();
+
+    /** One-call setup: load embedder + answerer (sequential, no concurrent backend init),
+     *  auto-Initialize when models are ready, broadcast OnRagPipelineReady. */
+    UFUNCTION(BlueprintCallable, Category = "RAG")
+    void LoadAndInitialize();
 
     UFUNCTION(BlueprintCallable, Category = "RAG")
     bool Initialize();
@@ -176,15 +187,11 @@ protected:
     void HookStoreDelegates();
     void SyncStoreConfig();
 
-    /** Polled from TickComponent during the wait-for-embedder window after
-     *  bAutoInitializeOnBeginPlay's LoadModels() call. Calls Initialize once the
-     *  embedder dim is available. */
-    void TryAutoInitialize();
-
-    bool bPendingAutoInitialize = false;
-
     UFUNCTION()
     void HandleStoreIngestComplete(int32 ChunksAdded);
+
+    UFUNCTION()
+    void HandleStoreRagPipelineReady();
 
     // Re-broadcast helpers for inner store's OnAsk* events.
     UFUNCTION() void HandleStoreAskRetrieved(const TArray<FLlamaChunk>& RetrievedChunks);

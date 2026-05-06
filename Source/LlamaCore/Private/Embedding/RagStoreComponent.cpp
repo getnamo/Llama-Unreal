@@ -7,8 +7,27 @@
 
 URagStoreComponent::URagStoreComponent()
 {
-    PrimaryComponentTick.bCanEverTick = true;
-    PrimaryComponentTick.bStartWithTickEnabled = true;
+    PrimaryComponentTick.bCanEverTick = false;
+
+    // Mirror URagStore's defaults so the component's UPROPERTY editor view shows the
+    // same recommended models out of the box (otherwise FLLMModelParams' default
+    // ./model.gguf would shadow them when the component syncs config to the store).
+    EmbeddingModelParams.PathToModel              = TEXT("./nomic-embed-text-v1.5.Q4_K_M.gguf");
+    EmbeddingModelParams.MaxContextLength         = 2048;
+    EmbeddingModelParams.GPULayers                = 99;
+    EmbeddingModelParams.MaxBatchLength           = 2048;
+    EmbeddingModelParams.bAutoLoadModelOnStartup  = false;
+    EmbeddingModelParams.bAutoInsertSystemPromptOnLoad = false;
+    EmbeddingModelParams.SystemPrompt             = TEXT("");
+    EmbeddingModelParams.Advanced.bEmbeddingMode  = true;
+
+    AnswerModelParams.PathToModel                 = TEXT("./google_gemma-3-4b-it-Q4_K_L.gguf");
+    AnswerModelParams.MaxContextLength            = 8192;
+    AnswerModelParams.GPULayers                   = 99;
+    AnswerModelParams.MaxBatchLength              = 1024;
+    AnswerModelParams.bAutoLoadModelOnStartup     = false;
+    AnswerModelParams.bAutoInsertSystemPromptOnLoad = false;
+    AnswerModelParams.SystemPrompt                = TEXT("");
 }
 
 void URagStoreComponent::BeginPlay()
@@ -28,9 +47,11 @@ void URagStoreComponent::BeginPlay()
 
     if (bAutoInitializeOnBeginPlay)
     {
-        Store->LoadModels();
-        bPendingAutoInitialize = true; // resolved by TickComponent once embedder is ready
-        TryAutoInitialize();
+        // One-call chain: serialized model loads + auto-Initialize + OnRagPipelineReady.
+        // Replaces the old polling-via-TickComponent pattern, which could call Initialize()
+        // before the embedder finished loading and concurrently kick off both backend
+        // loads (causing crashes during ggml/Vulkan device init).
+        Store->LoadAndInitialize();
     }
 }
 
@@ -44,7 +65,7 @@ void URagStoreComponent::TickComponent(float DeltaTime, ELevelTick TickType,
                                        FActorComponentTickFunction* ThisTickFunction)
 {
     Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
-    if (bPendingAutoInitialize) { TryAutoInitialize(); }
+    // Tick disabled by default — the auto-init flow uses delegates now.
 }
 
 void URagStoreComponent::EnsureStore()
@@ -60,6 +81,7 @@ void URagStoreComponent::HookStoreDelegates()
 {
     if (!Store) { return; }
     Store->OnIngestComplete.AddDynamic(this,         &URagStoreComponent::HandleStoreIngestComplete);
+    Store->OnRagPipelineReady.AddDynamic(this,       &URagStoreComponent::HandleStoreRagPipelineReady);
 
     Store->OnAskRetrievedChunks.AddDynamic(this,     &URagStoreComponent::HandleStoreAskRetrieved);
     Store->OnAskTokenGenerated.AddDynamic(this,      &URagStoreComponent::HandleStoreAskToken);
@@ -83,23 +105,6 @@ void URagStoreComponent::SyncStoreConfig()
     Store->RetrievalDefaults         = RetrievalDefaults;
 }
 
-void URagStoreComponent::TryAutoInitialize()
-{
-    if (!bPendingAutoInitialize || !Store) { return; }
-
-    // Wait until either an embedder is ready OR the user has manually populated
-    // VectorParams.Dimensions (in which case we can Initialize without an embedder
-    // — useful for LoadFromFile flows).
-    const bool bCanInit = Store->IsEmbedderReady() || Store->VectorParams.Dimensions > 0;
-    if (!bCanInit) { return; }
-
-    // Re-sync VectorParams from Store in case an internal embedder has populated
-    // Dimensions during its OnModelLoaded.
-    VectorParams = Store->VectorParams;
-    Store->Initialize();
-    bPendingAutoInitialize = false;
-}
-
 ULlamaComponent* URagStoreComponent::AutoDiscoverEmbedder()
 {
     AActor* Owner = GetOwner();
@@ -119,6 +124,13 @@ void URagStoreComponent::LoadModels()
     EnsureStore();
     SyncStoreConfig();
     Store->LoadModels();
+}
+
+void URagStoreComponent::LoadAndInitialize()
+{
+    EnsureStore();
+    SyncStoreConfig();
+    Store->LoadAndInitialize();
 }
 
 bool URagStoreComponent::Initialize()
@@ -223,6 +235,14 @@ bool URagStoreComponent::LoadFromFile(const FString& FilePath)
 void URagStoreComponent::HandleStoreIngestComplete(int32 ChunksAdded)
 {
     OnIngestComplete.Broadcast(ChunksAdded);
+}
+
+void URagStoreComponent::HandleStoreRagPipelineReady()
+{
+    // Re-sync VectorParams in case the inner store auto-pulled Dimensions from the
+    // loaded embedder during the chain.
+    if (Store) { VectorParams = Store->VectorParams; }
+    OnRagPipelineReady.Broadcast();
 }
 
 void URagStoreComponent::HandleStoreAskRetrieved(const TArray<FLlamaChunk>& RetrievedChunks)

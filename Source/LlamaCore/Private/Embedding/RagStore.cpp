@@ -29,6 +29,29 @@ URagStore::URagStore()
 {
     Vector = MakeUnique<FVectorDatabase>();
     Bm25 = MakeUnique<FBM25Index>();
+
+    // Sensible defaults preconfigured for the canonical recommended models.
+    // Users override any field via the property panel; PathToModel uses the './...' form
+    // which FLlamaPaths resolves under <Project>/Saved/Models/.
+
+    // Embedder: nomic-embed-text-v1.5.Q4_K_M (~85 MB, 768-dim, English-strong).
+    EmbeddingModelParams.PathToModel              = TEXT("./nomic-embed-text-v1.5.Q4_K_M.gguf");
+    EmbeddingModelParams.MaxContextLength         = 2048;
+    EmbeddingModelParams.GPULayers                = 99;
+    EmbeddingModelParams.MaxBatchLength           = 2048;
+    EmbeddingModelParams.bAutoLoadModelOnStartup  = false;
+    EmbeddingModelParams.bAutoInsertSystemPromptOnLoad = false;
+    EmbeddingModelParams.SystemPrompt             = TEXT("");
+    EmbeddingModelParams.Advanced.bEmbeddingMode  = true;
+
+    // Answerer: gemma-3-4b-it Q4_K_L (~2.5 GB, multilingual chat).
+    AnswerModelParams.PathToModel                 = TEXT("./google_gemma-3-4b-it-Q4_K_L.gguf");
+    AnswerModelParams.MaxContextLength            = 8192;
+    AnswerModelParams.GPULayers                   = 99;
+    AnswerModelParams.MaxBatchLength              = 1024;
+    AnswerModelParams.bAutoLoadModelOnStartup     = false;
+    AnswerModelParams.bAutoInsertSystemPromptOnLoad = false;
+    AnswerModelParams.SystemPrompt                = TEXT(""); // SummarizingPromptTemplate carries instructions
 }
 
 URagStore::~URagStore() = default;
@@ -58,109 +81,166 @@ void URagStore::BeginDestroy()
 
 void URagStore::LoadModels()
 {
-    // Internal embedder
+    // Sequential: kick off embedder first; its OnModelLoaded chains the answerer.
+    // This avoids concurrent ggml_backend_load_all() / Vulkan device init races that
+    // could crash when both backends initialize at once.
     if (!EmbeddingModelParams.PathToModel.IsEmpty() && !InternalEmbedder)
     {
-        // Force the embedding-mode flag — that's the whole point of this backend.
-        if (!EmbeddingModelParams.Advanced.bEmbeddingMode)
-        {
-            UE_LOG(LlamaLog, Log, TEXT("URagStore: forcing EmbeddingModelParams.Advanced.bEmbeddingMode = true"));
-            EmbeddingModelParams.Advanced.bEmbeddingMode = true;
-        }
-
-        InternalEmbedder = MakeUnique<FLlamaDualBackend>();
-        InternalEmbedder->Initialize();
-        if (FLlamaNative* Native = InternalEmbedder->GetLlamaNative())
-        {
-            Native->AddTicker();
-        }
-        InternalEmbedder->ModelParams = EmbeddingModelParams;
-        InternalEmbedder->bUseRemote = false;
-
-        InternalEmbedder->OnModelLoaded = [this](const FString& /*ModelName*/)
-        {
-            bInternalEmbedderReady = true;
-            // Auto-pull dim into VectorParams if user didn't set it.
-            if (VectorParams.Dimensions <= 0 && InternalEmbedder)
-            {
-                const int32 Dim = InternalEmbedder->GetEmbeddingDimension();
-                if (Dim > 0) { VectorParams.Dimensions = Dim; }
-            }
-        };
-        InternalEmbedder->OnError = [this](const FString& Err, int32 /*Code*/)
-        {
-            UE_LOG(LlamaLog, Warning, TEXT("URagStore embedder error: %s"), *Err);
-        };
-
-        InternalEmbedder->LoadModel(/*bForceReload=*/false);
+        LoadEmbedderInternal();
     }
-
-    // Internal answerer
-    if (!AnswerModelParams.PathToModel.IsEmpty() && !InternalAnswerer)
+    else if (!AnswerModelParams.PathToModel.IsEmpty() && !InternalAnswerer)
     {
-        InternalAnswerer = MakeUnique<FLlamaDualBackend>();
-        InternalAnswerer->Initialize();
-        if (FLlamaNative* Native = InternalAnswerer->GetLlamaNative())
-        {
-            Native->AddTicker();
-        }
-        InternalAnswerer->ModelParams = AnswerModelParams;
-        InternalAnswerer->bUseRemote = false;
-
-        InternalAnswerer->OnModelLoaded = [this](const FString& /*ModelName*/)
-        {
-            bInternalAnswererReady = true;
-        };
-
-        // Wire streaming callbacks: every Ask() invocation flips bAskInFlight on, and
-        // these forward only while the flag is active. End-of-stream / response / error
-        // turn it off so unrelated direct chat usage of the same backend (if any)
-        // doesn't bleed into OnAsk* delegates.
-        TWeakObjectPtr<URagStore> WeakThis(this);
-        InternalAnswerer->OnTokenGenerated = [WeakThis](const FString& Token)
-        {
-            URagStore* Self = WeakThis.Get();
-            if (Self && Self->bAskInFlight) { Self->OnAskTokenGenerated.Broadcast(Token); }
-        };
-        InternalAnswerer->OnPartialGenerated = [WeakThis](const FString& Partial)
-        {
-            URagStore* Self = WeakThis.Get();
-            if (Self && Self->bAskInFlight) { Self->OnAskPartialGenerated.Broadcast(Partial); }
-        };
-        InternalAnswerer->OnMarkdownPartialGenerated = [WeakThis](const FString& Partial, EMarkdownStreamState State)
-        {
-            URagStore* Self = WeakThis.Get();
-            if (Self && Self->bAskInFlight) { Self->OnAskMarkdownPartialGenerated.Broadcast(Partial, State); }
-        };
-        InternalAnswerer->OnResponseGenerated = [WeakThis](const FString& Response)
-        {
-            URagStore* Self = WeakThis.Get();
-            if (Self && Self->bAskInFlight) { Self->OnAskResponseGenerated.Broadcast(Response); }
-        };
-        InternalAnswerer->OnEndOfStream = [WeakThis](bool bStopSeq, float Tps)
-        {
-            URagStore* Self = WeakThis.Get();
-            if (!Self) { return; }
-            if (Self->bAskInFlight)
-            {
-                Self->OnAskEndOfStream.Broadcast(bStopSeq, Tps);
-                Self->bAskInFlight = false;
-            }
-        };
-        InternalAnswerer->OnError = [WeakThis](const FString& Err, int32 Code)
-        {
-            URagStore* Self = WeakThis.Get();
-            if (!Self) { return; }
-            UE_LOG(LlamaLog, Warning, TEXT("URagStore answerer error: %s"), *Err);
-            if (Self->bAskInFlight)
-            {
-                Self->OnAskError.Broadcast(Err, Code);
-                Self->bAskInFlight = false;
-            }
-        };
-
-        InternalAnswerer->LoadModel(/*bForceReload=*/false);
+        // No embedder configured — load the answerer directly.
+        LoadAnswererInternal();
     }
+    // If neither, nothing to do; user is presumably wiring an external embedder.
+}
+
+void URagStore::LoadEmbedderInternal()
+{
+    // Force the embedding-mode flag — that's the whole point of this backend.
+    if (!EmbeddingModelParams.Advanced.bEmbeddingMode)
+    {
+        UE_LOG(LlamaLog, Log, TEXT("URagStore: forcing EmbeddingModelParams.Advanced.bEmbeddingMode = true"));
+        EmbeddingModelParams.Advanced.bEmbeddingMode = true;
+    }
+
+    InternalEmbedder = MakeUnique<FLlamaDualBackend>();
+    InternalEmbedder->Initialize();
+    if (FLlamaNative* Native = InternalEmbedder->GetLlamaNative())
+    {
+        Native->AddTicker();
+    }
+    InternalEmbedder->ModelParams = EmbeddingModelParams;
+    InternalEmbedder->bUseRemote = false;
+
+    InternalEmbedder->OnModelLoaded = [this](const FString& /*ModelName*/)
+    {
+        bInternalEmbedderReady = true;
+        if (VectorParams.Dimensions <= 0 && InternalEmbedder)
+        {
+            const int32 Dim = InternalEmbedder->GetEmbeddingDimension();
+            if (Dim > 0) { VectorParams.Dimensions = Dim; }
+        }
+
+        // Chain: now load the answerer if configured (serialized to avoid backend races).
+        if (!AnswerModelParams.PathToModel.IsEmpty() && !InternalAnswerer)
+        {
+            LoadAnswererInternal();
+        }
+        else
+        {
+            // No answerer to load — the chain is complete after this.
+            OnAllInternalLoadsComplete();
+        }
+    };
+    InternalEmbedder->OnError = [this](const FString& Err, int32 /*Code*/)
+    {
+        UE_LOG(LlamaLog, Warning, TEXT("URagStore embedder error: %s"), *Err);
+    };
+
+    InternalEmbedder->LoadModel(/*bForceReload=*/false);
+}
+
+void URagStore::LoadAnswererInternal()
+{
+    InternalAnswerer = MakeUnique<FLlamaDualBackend>();
+    InternalAnswerer->Initialize();
+    if (FLlamaNative* Native = InternalAnswerer->GetLlamaNative())
+    {
+        Native->AddTicker();
+    }
+    InternalAnswerer->ModelParams = AnswerModelParams;
+    InternalAnswerer->bUseRemote = false;
+
+    InternalAnswerer->OnModelLoaded = [this](const FString& /*ModelName*/)
+    {
+        bInternalAnswererReady = true;
+        OnAllInternalLoadsComplete();
+    };
+
+    // Wire streaming callbacks gated on bAskInFlight so unrelated direct chat
+    // through the same backend doesn't bleed into OnAsk* delegates.
+    TWeakObjectPtr<URagStore> WeakThis(this);
+    InternalAnswerer->OnTokenGenerated = [WeakThis](const FString& Token)
+    {
+        URagStore* Self = WeakThis.Get();
+        if (Self && Self->bAskInFlight) { Self->OnAskTokenGenerated.Broadcast(Token); }
+    };
+    InternalAnswerer->OnPartialGenerated = [WeakThis](const FString& Partial)
+    {
+        URagStore* Self = WeakThis.Get();
+        if (Self && Self->bAskInFlight) { Self->OnAskPartialGenerated.Broadcast(Partial); }
+    };
+    InternalAnswerer->OnMarkdownPartialGenerated = [WeakThis](const FString& Partial, EMarkdownStreamState State)
+    {
+        URagStore* Self = WeakThis.Get();
+        if (Self && Self->bAskInFlight) { Self->OnAskMarkdownPartialGenerated.Broadcast(Partial, State); }
+    };
+    InternalAnswerer->OnResponseGenerated = [WeakThis](const FString& Response)
+    {
+        URagStore* Self = WeakThis.Get();
+        if (Self && Self->bAskInFlight) { Self->OnAskResponseGenerated.Broadcast(Response); }
+    };
+    InternalAnswerer->OnEndOfStream = [WeakThis](bool bStopSeq, float Tps)
+    {
+        URagStore* Self = WeakThis.Get();
+        if (!Self) { return; }
+        if (Self->bAskInFlight)
+        {
+            Self->OnAskEndOfStream.Broadcast(bStopSeq, Tps);
+            Self->bAskInFlight = false;
+        }
+    };
+    InternalAnswerer->OnError = [WeakThis](const FString& Err, int32 Code)
+    {
+        URagStore* Self = WeakThis.Get();
+        if (!Self) { return; }
+        UE_LOG(LlamaLog, Warning, TEXT("URagStore answerer error: %s"), *Err);
+        if (Self->bAskInFlight)
+        {
+            Self->OnAskError.Broadcast(Err, Code);
+            Self->bAskInFlight = false;
+        }
+    };
+
+    InternalAnswerer->LoadModel(/*bForceReload=*/false);
+}
+
+void URagStore::OnAllInternalLoadsComplete()
+{
+    // If LoadAndInitialize() drove this chain, run Initialize() now and signal ready.
+    if (bAutoInitPending)
+    {
+        bAutoInitPending = false;
+        Initialize();
+        OnRagPipelineReady.Broadcast();
+    }
+}
+
+void URagStore::LoadAndInitialize()
+{
+    // Already fully ready? Just signal.
+    if (IsInitialized())
+    {
+        OnRagPipelineReady.Broadcast();
+        return;
+    }
+
+    // No internal models AND no external paths — can still init if the user has set
+    // VectorParams.Dimensions or is loading from a saved file.
+    const bool bHasInternalEmbedder = !EmbeddingModelParams.PathToModel.IsEmpty();
+    const bool bHasInternalAnswerer = !AnswerModelParams.PathToModel.IsEmpty();
+    if (!bHasInternalEmbedder && !bHasInternalAnswerer)
+    {
+        // Nothing to load; init now if we can, then signal.
+        Initialize();
+        OnRagPipelineReady.Broadcast();
+        return;
+    }
+
+    bAutoInitPending = true;
+    LoadModels();
 }
 
 bool URagStore::IsEmbedderReady() const

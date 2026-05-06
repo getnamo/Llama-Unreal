@@ -53,6 +53,7 @@ struct FRagRetrievalParams
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnRagIngestCompleteSignature, int32, ChunksAdded);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnRagAskRetrievedSignature, const TArray<FLlamaChunk>&, RetrievedChunks);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnRagPipelineReadySignature);
 
 /**
  * Engine-side RAG store. Owns its own embedding model (FLlamaDualBackend in embedding
@@ -167,11 +168,22 @@ public:
 
     // ── Lifecycle ───────────────────────────────────────────────────────────
 
+    /** Fires once when the full RAG pipeline is ready: every configured internal model has
+     *  loaded AND `Initialize()` has run. Subscribe before calling `LoadAndInitialize()`. */
+    UPROPERTY(BlueprintAssignable)
+    FOnRagPipelineReadySignature OnRagPipelineReady;
+
     /** Loads internally-owned models (embedder iff EmbeddingModelParams.PathToModel non-empty,
-     *  answerer iff AnswerModelParams.PathToModel non-empty). Idempotent. The embedder load
-     *  is async; consumers should wait for IsEmbedderReady() before ingesting. */
+     *  answerer iff AnswerModelParams.PathToModel non-empty). Loads are SERIALIZED — the
+     *  embedder finishes before the answerer kicks off — to avoid concurrent llama.cpp /
+     *  Vulkan backend init races. Idempotent. */
     UFUNCTION(BlueprintCallable, Category = "RAG")
     void LoadModels();
+
+    /** Convenience: `LoadModels()` + auto-`Initialize()` once the embedder is ready, with
+     *  `OnRagPipelineReady` broadcast on completion. The recommended one-call setup path. */
+    UFUNCTION(BlueprintCallable, Category = "RAG")
+    void LoadAndInitialize();
 
     /** True iff the embedder (internal or external) is ready to produce embeddings. */
     UFUNCTION(BlueprintPure, Category = "RAG")
@@ -278,6 +290,16 @@ private:
 
     /** Substitutes {context} and {query} in SummarizingPromptTemplate. */
     FString BuildSummarizingPrompt(const FString& Query, const TArray<FLlamaChunk>& InChunks) const;
+
+    /** Build (if needed) and kick off the embedder load. Calls OnEmbedderDone when it lands. */
+    void LoadEmbedderInternal();
+    /** Build (if needed) and kick off the answerer load. Calls OnAnswererDone when it lands. */
+    void LoadAnswererInternal();
+    /** Called when the chain in LoadAndInitialize finishes both model loads. */
+    void OnAllInternalLoadsComplete();
+
+    /** True when LoadAndInitialize is mid-chain — Initialize() is deferred until both loads land. */
+    bool bAutoInitPending = false;
 
     bool bInitialized = false;
 
