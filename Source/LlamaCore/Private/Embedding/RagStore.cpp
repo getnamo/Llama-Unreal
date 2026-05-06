@@ -52,6 +52,23 @@ URagStore::URagStore()
     AnswerModelParams.bAutoLoadModelOnStartup     = false;
     AnswerModelParams.bAutoInsertSystemPromptOnLoad = true;
     AnswerModelParams.SystemPrompt                = TEXT("You are a helpful AI assistant.");
+
+    // Disable chain-of-thought for RAG. Thinking-capable models (Qwen3 / DeepSeek-R1
+    // / etc) burn tokens on a pre-answer reasoning trace, which is exactly the wrong
+    // shape for "summarize this retrieved context" workloads — the chunks ARE the
+    // reasoning substrate, the model just needs to read them and respond.
+    // bStripThinkingFromResponse is belt-and-suspenders: if a stray <think> block
+    // does emit, we don't surface it in the broadcast response.
+    AnswerModelParams.Advanced.Thinking.bEnableThinking            = false;
+    AnswerModelParams.Advanced.Thinking.bStripThinkingFromResponse = true;
+
+    // NB: leaving Temp at the FLLMSamplingParams default (0.8). Counter-intuitively,
+    // very low temperatures (~0.2) make the first-token-EOT failure mode on Gemma3
+    // *worse* — the greedier sampler locks onto the EOT logit deterministically when
+    // it happens to be the argmax, whereas higher temp lets the sampler explore other
+    // viable tokens. If a user really wants deterministic RAG completions, also pair
+    // it with a logit-bias against the model's EOG tokens (future feature) or use a
+    // model that doesn't exhibit the first-token-EOT quirk.
 }
 
 URagStore::~URagStore() = default;
@@ -906,8 +923,23 @@ void URagStore::SendFormattedPromptToActiveAnswerer(const FString& FormattedProm
         // RAG queries are stateless by design: each Ask is a fresh single-turn
         // exchange. Without resetting, the answerer's chat history accumulates
         // across calls and the model can latch onto prior empty/wrong completions
-        // and continue producing them. Keep the system prompt; drop everything else.
-        InternalAnswerer->ResetContextHistory(/*bKeepSystemPrompt=*/ true);
+        // and continue producing them.
+        //
+        // Defensive flow: full wipe (bKeepSystemPrompt=false), then re-insert the
+        // configured AnswerModelParams.SystemPrompt as a system-role prompt before
+        // the user query. We don't trust bKeepSystemPrompt's KV-rebuild path since
+        // it's been suspected of leaving stale state in some edge cases.
+        InternalAnswerer->ResetContextHistory(/*bKeepSystemPrompt=*/ false);
+
+        if (!AnswerModelParams.SystemPrompt.IsEmpty())
+        {
+            FLlamaChatPrompt S;
+            S.Prompt = AnswerModelParams.SystemPrompt;
+            S.Role = EChatTemplateRole::System;
+            S.bAddAssistantBOS = false;
+            S.bGenerateReply = false;
+            InternalAnswerer->InsertTemplatedPrompt(S);
+        }
 
         FLlamaChatPrompt P;
         P.Prompt = FormattedPrompt;

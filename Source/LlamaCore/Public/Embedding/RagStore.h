@@ -111,12 +111,18 @@ public:
     /** Template applied to the formatted-context + query before Ask() sends it to the
      *  answer model. `{context}` is substituted with the retrieved chunks; `{query}`
      *  with the user's question. Substitution is plain string replace, not full
-     *  templating — only these two tokens are honored. */
+     *  templating — only these two tokens are honored.
+     *
+     *  Note the trailing "Answer:" — that cue primes the model to continue with the
+     *  answer body and prevents some instruction-tuned chat models (notably Gemma3)
+     *  from emitting an end-of-turn token as their first generated token, which
+     *  produces an empty completion. If you customize the template, keep a similar
+     *  trailing cue or you may see inconsistent empty responses. */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RAG|Answer", meta = (MultiLine = true))
     FString SummarizingPromptTemplate =
         TEXT("Use only the following context to answer the question. ")
         TEXT("If the answer isn't in the context, say so plainly.\n\n")
-        TEXT("Context:\n{context}\n\nQuestion: {query}");
+        TEXT("Context:\n{context}\n\nQuestion: {query}\n\nAnswer:");
 
     // ── Index configuration ─────────────────────────────────────────────────
 

@@ -28,6 +28,8 @@ URagStoreComponent::URagStoreComponent()
     AnswerModelParams.bAutoLoadModelOnStartup     = false;
     AnswerModelParams.bAutoInsertSystemPromptOnLoad = true;
     AnswerModelParams.SystemPrompt                = TEXT("You are a helpful AI assistant.");
+    AnswerModelParams.Advanced.Thinking.bEnableThinking            = false;
+    AnswerModelParams.Advanced.Thinking.bStripThinkingFromResponse = true;
 }
 
 void URagStoreComponent::BeginPlay()

@@ -57,7 +57,7 @@ public:
     FString SummarizingPromptTemplate =
         TEXT("Use only the following context to answer the question. ")
         TEXT("If the answer isn't in the context, say so plainly.\n\n")
-        TEXT("Context:\n{context}\n\nQuestion: {query}");
+        TEXT("Context:\n{context}\n\nQuestion: {query}\n\nAnswer:");
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RAG")
     FVectorDBParams VectorParams;
