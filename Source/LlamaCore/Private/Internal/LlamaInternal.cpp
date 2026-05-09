@@ -9,6 +9,94 @@
 #include "LlamaUtility.h"
 #include "HardwareInfo.h"
 
+// ---------------------------------------------------------------------------
+// Allocator-safe wrappers around common_* helpers.
+//
+// Helpers in `llama-common*.lib` that return STL containers by value
+// (std::vector, std::string) allocate the container's backing storage with
+// the LIB's allocator. When that container destructs inside our module —
+// where operator new/delete is overridden to mimalloc via PerModuleInline.inl
+// — the free path tries to release CRT-allocated memory through mimalloc and
+// crashes inside _mi_free_block_mt with EXCEPTION_ACCESS_VIOLATION reading
+// 0xfff...f. This was latent before the b9090 split of common.lib into
+// llama-common.lib + llama-common-base.lib (which changed STL/allocator
+// linkage relative to our module).
+//
+// Fix pattern: bypass the std-returning helpers and call the raw C-ABI
+// `llama_*` entry points against buffers we own, so allocation and free both
+// go through the same allocator (mimalloc).
+// ---------------------------------------------------------------------------
+namespace
+{
+    // Replacement for `common_tokenize(ctx, text, add_special, parse_special)`.
+    // Output vector is owned by the caller's module.
+    static std::vector<llama_token> SafeTokenize(
+        const llama_vocab* Vocab,
+        const std::string& Text,
+        bool bAddSpecial,
+        bool bParseSpecial)
+    {
+        std::vector<llama_token> Out;
+        if (!Vocab) return Out;
+
+        const int32_t Needed = -llama_tokenize(
+            Vocab, Text.data(), (int32_t)Text.size(),
+            /*tokens*/ nullptr, /*n_tokens_max*/ 0,
+            bAddSpecial, bParseSpecial);
+        if (Needed <= 0) return Out;
+
+        Out.resize((size_t)Needed);
+        const int32_t Wrote = llama_tokenize(
+            Vocab, Text.data(), (int32_t)Text.size(),
+            Out.data(), (int32_t)Out.size(),
+            bAddSpecial, bParseSpecial);
+        if (Wrote < 0 || Wrote > Needed)
+        {
+            Out.clear();
+            return Out;
+        }
+        Out.resize((size_t)Wrote);
+        return Out;
+    }
+
+    // Replacement for `common_token_to_piece(vocab, token, special)`.
+    // Output string is owned by the caller's module.
+    static std::string SafeTokenToPiece(
+        const llama_vocab* Vocab,
+        llama_token Token,
+        bool bSpecial)
+    {
+        if (!Vocab) return std::string();
+
+        // Common case: pieces are short. Single attempt with a small buffer
+        // covers virtually all tokens; fall back to the size-probe path on
+        // the rare overflow.
+        char StackBuf[128];
+        const int32_t Wrote = llama_token_to_piece(
+            Vocab, Token, StackBuf, (int32_t)sizeof(StackBuf),
+            /*lstrip*/ 0, bSpecial);
+
+        if (Wrote >= 0)
+        {
+            return std::string(StackBuf, (size_t)Wrote);
+        }
+
+        // Negative return = required size (negated). Allocate and retry.
+        const int32_t Needed = -Wrote;
+        std::string Out;
+        Out.resize((size_t)Needed);
+        const int32_t Wrote2 = llama_token_to_piece(
+            Vocab, Token, Out.data(), (int32_t)Out.size(),
+            /*lstrip*/ 0, bSpecial);
+        if (Wrote2 < 0 || Wrote2 > Needed)
+        {
+            return std::string();
+        }
+        Out.resize((size_t)Wrote2);
+        return Out;
+    }
+}
+
 bool FLlamaInternal::LoadModelFromParams(const FLLMModelParams& InModelParams)
 {
     FString RHI = FHardwareInfo::GetHardwareDetailsString();
@@ -585,41 +673,17 @@ void FLlamaInternal::GetPromptEmbeddings(const std::string& Text, std::vector<fl
     //Try tokenizing using normal method?
     //CONTINUE HERE:
 
-    // IMPORTANT: do NOT use `common_tokenize` here — that helper lives in the static
-    // common lib (split into llama-common*.lib in b9090) and returns a std::vector
-    // whose data buffer is allocated by the LIB's allocator. When the vector
-    // destructs inside this module, our overridden operator delete (mimalloc, via
-    // PerModuleInline.inl) tries to free CRT-allocated memory and crashes inside
-    // _mi_free_block_mt with EXCEPTION_ACCESS_VIOLATION reading 0xfff...f. The fix:
-    // tokenize against a buffer this module owns, so the allocation and the free
-    // both go through the same allocator (mimalloc).
-    //
-    // Worked silently before b9090 because `common.lib` was a single archive whose
-    // STL/allocator linkage happened to match ours; the b9090 split into
-    // `llama-common.lib` + `llama-common-base.lib` exposed the latent mismatch.
+    // SafeTokenize replaces `common_tokenize` to keep the result vector's
+    // backing storage on our side of the static-lib boundary. See helper
+    // definition at the top of this file for the cross-allocator background.
     const llama_vocab* Vocab = llama_model_get_vocab(LlamaModel);
-    const int32 NeededRaw = -llama_tokenize(
-        Vocab, Text.data(), (int32)Text.size(),
-        /*tokens*/ nullptr, /*n_tokens_max*/ 0,
-        /*add_special*/ true, /*parse_special*/ true);
-    if (NeededRaw <= 0)
+    std::vector<llama_token> Input = SafeTokenize(Vocab, Text, /*add_special*/ true, /*parse_special*/ true);
+    if (Input.empty())
     {
-        UE_LOG(LlamaLog, Error, TEXT("GetPromptEmbeddings: llama_tokenize size-probe returned %d (text bytes=%d)"),
-            NeededRaw, (int32)Text.size());
+        UE_LOG(LlamaLog, Error, TEXT("GetPromptEmbeddings: tokenize produced 0 tokens (text bytes=%d)"),
+            (int32)Text.size());
         return;
     }
-    std::vector<llama_token> Input((size_t)NeededRaw);
-    const int32 NWritten = llama_tokenize(
-        Vocab, Text.data(), (int32)Text.size(),
-        Input.data(), (int32)Input.size(),
-        /*add_special*/ true, /*parse_special*/ true);
-    if (NWritten < 0 || NWritten > NeededRaw)
-    {
-        UE_LOG(LlamaLog, Error, TEXT("GetPromptEmbeddings: llama_tokenize write failed: needed=%d wrote=%d"),
-            NeededRaw, NWritten);
-        return;
-    }
-    Input.resize((size_t)NWritten);
 
     //int32 NBatch = llama_n_ctx(Context);    //todo: get this from our params
     int32 NBatch = Input.size();    //todo: get this from our params
@@ -856,9 +920,9 @@ std::string FLlamaInternal::Generate(const std::string& Prompt, bool bAppendToMe
         if (bFirstToken)
         {
             bFirstToken = false;
+            const std::string FirstPiece = SafeTokenToPiece(Vocab, NewTokenId, true);
             UE_LOG(LlamaLog, Log, TEXT("[Generate] first token id=%d piece='%hs'"),
-                (int32)NewTokenId,
-                common_token_to_piece(Vocab, NewTokenId, true).c_str());
+                (int32)NewTokenId, FirstPiece.c_str());
         }
 
         // is it an end of generation?
@@ -868,8 +932,10 @@ std::string FLlamaInternal::Generate(const std::string& Prompt, bool bAppendToMe
             break;
         }
 
-        // convert the token to a string, print it and add it to the response
-        std::string Piece = common_token_to_piece(Vocab, NewTokenId, true);
+        // convert the token to a string, print it and add it to the response.
+        // SafeTokenToPiece keeps the string allocation on our side of the static-lib
+        // boundary; see helper definition for the cross-allocator background.
+        std::string Piece = SafeTokenToPiece(Vocab, NewTokenId, true);
 
         Response += Piece;
         NDecoded += 1;
