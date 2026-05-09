@@ -69,7 +69,13 @@ public:
     std::string InsertRawPrompt(const std::string& Prompt, bool bGenerateReply = true);
 
     //main function for structure insert and generation
-    std::string InsertTemplatedPrompt(const std::string& Prompt, EChatTemplateRole Role = EChatTemplateRole::User, bool bAddAssistantBoS = true, bool bGenerateReply = true);
+    //AssistantPrefill: optional text prepended into the assistant turn before sampling resumes.
+    //  Requires bAddAssistantBoS=true (silently ignored otherwise). The prefill is fed through the
+    //  prompt-eval batch (so it lands in KV) and is treated as if the model emitted it: streamed via
+    //  OnTokenGenerated, included in the returned response, and stored in the assistant message
+    //  history. Useful for steering first-token behavior (e.g. forcing "Answer: " or pre-closing a
+    //  thinking block).
+    std::string InsertTemplatedPrompt(const std::string& Prompt, EChatTemplateRole Role = EChatTemplateRole::User, bool bAddAssistantBoS = true, bool bGenerateReply = true, const std::string& AssistantPrefill = "");
 
     //Wipe KV + message state and re-ingest the supplied messages so the KV cache mirrors `Messages`.
     //Each message is fed via InsertTemplatedPrompt(bGenerateReply=false) so the existing template+decode path runs.
@@ -121,7 +127,10 @@ protected:
     //Wrapper for user<->assistant templated conversation
     int32 ProcessPrompt(const std::string& Prompt, EChatTemplateRole Role = EChatTemplateRole::Unknown);
     int32 ProcessMultimodalPrompt(const std::string& FormattedPrompt, const TArray<FLlamaMediaEntry>& MediaEntries, EChatTemplateRole Role, bool bLogitsLast = true);
-    std::string Generate(const std::string& Prompt = "", bool bAppendToMessageHistory = true);
+    //AssistantPrefill: if non-empty, seeds the response accumulator with this text and emits it
+    //  through OnTokenGenerated as if the model produced it. Caller is responsible for having
+    //  already fed the prefill through the prompt-eval batch (InsertTemplatedPrompt does this).
+    std::string Generate(const std::string& Prompt = "", bool bAppendToMessageHistory = true, const std::string& AssistantPrefill = "");
 
     void EmitErrorMessage(const FString& ErrorMessage, int32 ErrorCode = -1, const FString& FunctionName = TEXT("unknown"));
 

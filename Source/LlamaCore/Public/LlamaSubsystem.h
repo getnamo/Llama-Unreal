@@ -140,7 +140,8 @@ public:
     UFUNCTION(BlueprintCallable, Category = "LLM Model Subsystem")
     void InsertTemplatedPrompt(UPARAM(meta=(MultiLine=true)) const FString& Text,
                                EChatTemplateRole Role = EChatTemplateRole::User,
-                               bool bAddAssistantBOS = false, bool bGenerateReply = true);
+                               bool bAddAssistantBOS = false, bool bGenerateReply = true,
+                               UPARAM(meta=(MultiLine=true)) const FString& AssistantPrefill = TEXT(""));
 
     UFUNCTION(BlueprintCallable, Category = "LLM Model Subsystem")
     void InsertTemplatedPromptStruct(const FLlamaChatPrompt& ChatPrompt);

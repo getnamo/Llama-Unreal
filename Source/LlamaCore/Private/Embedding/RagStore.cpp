@@ -944,8 +944,12 @@ void URagStore::SendFormattedPromptToActiveAnswerer(const FString& FormattedProm
         FLlamaChatPrompt P;
         P.Prompt = FormattedPrompt;
         P.Role = EChatTemplateRole::User;
-        P.bAddAssistantBOS = false;
+        // bAddAssistantBOS is forced true when a prefill is configured: the prefill bytes
+        // need to land *inside* the assistant turn (after the assistant header), so the
+        // template must explicitly close the user turn and open the assistant one.
+        P.bAddAssistantBOS = !AnswerPrefill.IsEmpty();
         P.bGenerateReply = true;
+        P.AssistantPrefill = AnswerPrefill;
         InternalAnswerer->InsertTemplatedPrompt(P);
         return;
     }
@@ -983,7 +987,7 @@ void URagStore::SendFormattedPromptToActiveAnswerer(const FString& FormattedProm
         AnswerEngine->OnEndOfStream.AddUniqueDynamic(this,               &URagStore::RelayAnswerEndOfStream);
         AnswerEngine->OnError.AddUniqueDynamic(this,                     &URagStore::RelayAnswerError);
 
-        AnswerEngine->InsertTemplatedPrompt(FormattedPrompt, EChatTemplateRole::User, /*bAddAssistantBOS*/ true, /*bGenerateReply*/ true);
+        AnswerEngine->InsertTemplatedPrompt(FormattedPrompt, EChatTemplateRole::User, /*bAddAssistantBOS*/ true, /*bGenerateReply*/ true, /*AssistantPrefill*/ AnswerPrefill);
         return;
     }
 

@@ -113,16 +113,27 @@ public:
      *  with the user's question. Substitution is plain string replace, not full
      *  templating — only these two tokens are honored.
      *
-     *  Note the trailing "Answer:" — that cue primes the model to continue with the
-     *  answer body and prevents some instruction-tuned chat models (notably Gemma3)
-     *  from emitting an end-of-turn token as their first generated token, which
-     *  produces an empty completion. If you customize the template, keep a similar
-     *  trailing cue or you may see inconsistent empty responses. */
+     *  The first-token-EOT primer (e.g. "Answer:") that some instruction-tuned models
+     *  need to avoid empty completions is no longer baked into this template; it is
+     *  applied via AnswerPrefill (see below) which is positioned correctly inside the
+     *  assistant turn rather than smuggled at the tail of the user message. */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RAG|Answer", meta = (MultiLine = true))
     FString SummarizingPromptTemplate =
         TEXT("Use only the following context to answer the question. ")
         TEXT("If the answer isn't in the context, say so plainly.\n\n")
-        TEXT("Context:\n{context}\n\nQuestion: {query}\n\nAnswer:");
+        TEXT("Context:\n{context}\n\nQuestion: {query}");
+
+    /** Optional assistant-turn prefill prepended to every Ask() answer. The text is
+     *  inserted into the assistant turn (after the BOS header, before sampling) so the
+     *  model continues from it as if it generated the prefill itself. Streamed through
+     *  OnAskTokenGenerated/OnAskPartialGenerated and included in OnAskResponseGenerated.
+     *
+     *  Defaults to "Answer: " — a cue that primes the model to produce the answer body
+     *  and works around the first-token-EOT quirk on instruction-tuned chat models
+     *  (notably Gemma3). Set to empty for "raw" generation. To hard-suppress thinking
+     *  on a thinking-capable model, set to "<think></think>\n\n". */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RAG|Answer", meta = (MultiLine = true))
+    FString AnswerPrefill = TEXT("Answer: ");
 
     // ── Index configuration ─────────────────────────────────────────────────
 

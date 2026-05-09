@@ -498,13 +498,24 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chat")
     bool bGenerateReply = true;
 
+    /** Optional assistant-turn prefill (a.k.a. prepend). When non-empty AND bAddAssistantBOS=true,
+     *  this text is inserted into the assistant turn after the BOS header but before sampling
+     *  begins. The model continues from this text without an intervening end-of-turn token, and
+     *  the prefill is treated as if the model produced it: streamed through token/partial
+     *  delegates, included in the final response, and stored as part of the assistant message
+     *  history. Useful for steering first-token behavior (e.g. "Answer: ") or for hard-suppressing
+     *  a thinking block (e.g. prefill = "<think></think>\n"). */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chat", meta=(MultiLine=true))
+    FString AssistantPrefill;
+
     FLlamaChatPrompt() {}
 
-    FLlamaChatPrompt(const FString& InPrompt, EChatTemplateRole InRole = EChatTemplateRole::User, bool bInAddAssistantBOS = false, bool bInGenerateReply = true)
+    FLlamaChatPrompt(const FString& InPrompt, EChatTemplateRole InRole = EChatTemplateRole::User, bool bInAddAssistantBOS = false, bool bInGenerateReply = true, const FString& InAssistantPrefill = TEXT(""))
         : Prompt(InPrompt)
         , Role(InRole)
         , bAddAssistantBOS(bInAddAssistantBOS)
         , bGenerateReply(bInGenerateReply)
+        , AssistantPrefill(InAssistantPrefill)
     {
     }
 };

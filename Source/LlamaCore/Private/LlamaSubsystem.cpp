@@ -172,13 +172,15 @@ void ULlamaSubsystem::RemoveLastNTokens(int32 TokenCount)
 }
 
 void ULlamaSubsystem::InsertTemplatedPrompt(const FString& Text, EChatTemplateRole Role,
-                                            bool bAddAssistantBOS, bool bGenerateReply)
+                                            bool bAddAssistantBOS, bool bGenerateReply,
+                                            const FString& AssistantPrefill)
 {
     FLlamaChatPrompt Prompt;
     Prompt.Prompt = Text;
     Prompt.Role = Role;
     Prompt.bAddAssistantBOS = bAddAssistantBOS;
     Prompt.bGenerateReply = bGenerateReply;
+    Prompt.AssistantPrefill = AssistantPrefill;
     InsertTemplatedPromptStruct(Prompt);
 }
 

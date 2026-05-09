@@ -102,6 +102,7 @@ void URagStoreComponent::SyncStoreConfig()
     Store->AnswerModelParams         = AnswerModelParams;
     Store->AnswerEngine              = AnswerEngine;
     Store->SummarizingPromptTemplate = SummarizingPromptTemplate;
+    Store->AnswerPrefill             = AnswerPrefill;
     Store->VectorParams              = VectorParams;
     Store->ChunkerParams             = ChunkerParams;
     Store->RetrievalDefaults         = RetrievalDefaults;

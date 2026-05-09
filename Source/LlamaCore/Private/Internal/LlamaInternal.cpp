@@ -459,7 +459,7 @@ std::string FLlamaInternal::InsertRawPrompt(const std::string& Prompt, bool bGen
     return "";
 }
 
-std::string FLlamaInternal::InsertTemplatedPrompt(const std::string& Prompt, EChatTemplateRole Role, bool bAddAssistantBoS, bool bGenerateReply)
+std::string FLlamaInternal::InsertTemplatedPrompt(const std::string& Prompt, EChatTemplateRole Role, bool bAddAssistantBoS, bool bGenerateReply, const std::string& AssistantPrefill)
 {
     if (!bIsModelLoaded)
     {
@@ -496,6 +496,24 @@ std::string FLlamaInternal::InsertTemplatedPrompt(const std::string& Prompt, ECh
         NewLen += (int32)InjLen;
     }
 
+    //Inject assistant prefill (raw bytes appended after the assistant turn header so the model
+    //continues from this text without an intervening EOT). Only valid when add_ass=true; ignored
+    //otherwise to avoid corrupting non-assistant turns.
+    if (bAddAssistantBoS && !AssistantPrefill.empty() && NewLen > 0)
+    {
+        size_t PrefillLen = AssistantPrefill.size();
+        if (ContextHistory.size() < (size_t)NewLen + PrefillLen)
+        {
+            ContextHistory.resize(NewLen + PrefillLen);
+        }
+        memcpy(ContextHistory.data() + NewLen, AssistantPrefill.data(), PrefillLen);
+        NewLen += (int32)PrefillLen;
+    }
+    else if (!bAddAssistantBoS && !AssistantPrefill.empty())
+    {
+        UE_LOG(LlamaLog, Warning, TEXT("InsertTemplatedPrompt: AssistantPrefill ignored because bAddAssistantBoS=false"));
+    }
+
     //Only process non-zero prompts
     if (NewLen > 0)
     {
@@ -509,8 +527,9 @@ std::string FLlamaInternal::InsertTemplatedPrompt(const std::string& Prompt, ECh
     std::string Response;
     if (bGenerateReply)
     {
-        //Run generation
-        Response = Generate();
+        //Run generation. AssistantPrefill is forwarded so Generate() can seed the response
+        //accumulator and emit the prefill through OnTokenGenerated before sampling resumes.
+        Response = Generate("", true, bAddAssistantBoS ? AssistantPrefill : std::string());
     }
 
     return Response;
@@ -745,18 +764,26 @@ int32 FLlamaInternal::ProcessPrompt(const std::string& Prompt, EChatTemplateRole
     return NPromptTokens;
 }
 
-std::string FLlamaInternal::Generate(const std::string& Prompt, bool bAppendToMessageHistory)
+std::string FLlamaInternal::Generate(const std::string& Prompt, bool bAppendToMessageHistory, const std::string& AssistantPrefill)
 {
     const auto StartTime = ggml_time_us();
- 
+
     bGenerationActive = true;
-    
+
     if (!Prompt.empty())
     {
         int32 TokensProcessed = ProcessPrompt(Prompt);
     }
 
-    std::string Response;
+    //Seed response accumulator with prefill so it shows up in the final response and in the
+    //assistant message history. The prefill bytes are assumed to already be in the KV cache
+    //(InsertTemplatedPrompt injects them into the prompt-eval batch). We also emit through
+    //OnTokenGenerated as a single piece so subscribers see one continuous stream.
+    std::string Response = AssistantPrefill;
+    if (!AssistantPrefill.empty() && OnTokenGenerated)
+    {
+        OnTokenGenerated(AssistantPrefill);
+    }
 
     const llama_vocab* Vocab = llama_model_get_vocab(LlamaModel);
 

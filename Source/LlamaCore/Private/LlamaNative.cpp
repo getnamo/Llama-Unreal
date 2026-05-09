@@ -454,10 +454,11 @@ void FLlamaNative::InsertTemplatedPrompt(const FLlamaChatPrompt& Prompt, TFuncti
     EnqueueBGTask([this, ThreadSafePrompt, OnResponseFinished](int64 TaskId)
     {
         const std::string UserStdString = FLlamaString::ToStd(ThreadSafePrompt.Prompt);
-        
+        const std::string PrefillStdString = FLlamaString::ToStd(ThreadSafePrompt.AssistantPrefill);
+
         if (ThreadSafePrompt.bGenerateReply)
         {
-            FString Response = FLlamaString::ToUE(Internal->InsertTemplatedPrompt(UserStdString, ThreadSafePrompt.Role, ThreadSafePrompt.bAddAssistantBOS, true));
+            FString Response = FLlamaString::ToUE(Internal->InsertTemplatedPrompt(UserStdString, ThreadSafePrompt.Role, ThreadSafePrompt.bAddAssistantBOS, true, PrefillStdString));
 
             //NB: OnResponseGenerated will also be called separately from this
             EnqueueGTTask([this, Response, OnResponseFinished]()
@@ -471,7 +472,7 @@ void FLlamaNative::InsertTemplatedPrompt(const FLlamaChatPrompt& Prompt, TFuncti
         else
         {
             //We don't want to generate a reply, just append a prompt. (last param = false turns it off)
-            Internal->InsertTemplatedPrompt(UserStdString, ThreadSafePrompt.Role, ThreadSafePrompt.bAddAssistantBOS, false);
+            Internal->InsertTemplatedPrompt(UserStdString, ThreadSafePrompt.Role, ThreadSafePrompt.bAddAssistantBOS, false, PrefillStdString);
         }
     });
 }

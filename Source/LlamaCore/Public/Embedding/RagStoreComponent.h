@@ -57,7 +57,13 @@ public:
     FString SummarizingPromptTemplate =
         TEXT("Use only the following context to answer the question. ")
         TEXT("If the answer isn't in the context, say so plainly.\n\n")
-        TEXT("Context:\n{context}\n\nQuestion: {query}\n\nAnswer:");
+        TEXT("Context:\n{context}\n\nQuestion: {query}");
+
+    /** Optional assistant-turn prefill prepended to every Ask() answer. See
+     *  URagStore::AnswerPrefill for full semantics. Default "Answer: " works around
+     *  the Gemma3 first-token-EOT quirk. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RAG|Answer", meta = (MultiLine = true))
+    FString AnswerPrefill = TEXT("Answer: ");
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RAG")
     FVectorDBParams VectorParams;

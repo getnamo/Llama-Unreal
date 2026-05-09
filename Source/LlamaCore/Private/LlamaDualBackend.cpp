@@ -389,6 +389,11 @@ void FLlamaDualBackend::InsertTemplatedPrompt(const FLlamaChatPrompt& Prompt)
         LlamaNative->InsertTemplatedPrompt(Prompt);
         return;
     }
+    if (!Prompt.AssistantPrefill.IsEmpty())
+    {
+        //TODO: support OpenAI-compatible assistant-turn continuation for prefill in remote mode.
+        UE_LOG(LlamaLog, Warning, TEXT("AssistantPrefill is currently only honored in local mode; ignored for remote backend."));
+    }
     AppendUserMessage(Prompt.Prompt, Prompt.Role);
     if (Prompt.bGenerateReply) BeginStreamFromHistory(true);
 }
