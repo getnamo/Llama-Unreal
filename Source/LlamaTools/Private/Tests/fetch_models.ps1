@@ -1,6 +1,6 @@
 # Copyright 2025-current Getnamo.
 #
-# Downloads embedding models used by the LlamaCore RAG automation tests.
+# Downloads embedding models used by the LlamaTools RAG automation tests.
 # Default target: bge-small-en-v1.5 Q4_K_M (~33 MB, dim 384).
 #
 # Usage (from any directory):
@@ -18,7 +18,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 if (-not $DestRoot) {
-    # Walk up from this script: Plugins/Llama-Unreal/Source/LlamaCore/Private/Tests/ -> project root
+    # Walk up from this script: Plugins/Llama-Unreal/Source/LlamaTools/Private/Tests/ -> project root
     $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
     $ProjectRoot = (Resolve-Path (Join-Path $ScriptDir '..\..\..\..\..\..\..')).Path
     $DestRoot = Join-Path $ProjectRoot 'Saved\Models'

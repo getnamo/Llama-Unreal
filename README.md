@@ -37,7 +37,9 @@ Everything is wrapped inside a [`ULlamaComponent`](Source/LlamaCore/Public/Llama
 
 3) Call [`LoadModel`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaComponent.h#L78). Consider listening to the [`OnModelLoaded`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaComponent.h#L54) callback to deal with post loading operations.
 
-2) Call [`InsertTemplatedPrompt`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaComponent.h#L101) with your message and role (typically User) along with whether you want your prompt to generate a response or not. Optionally use [`InsertRawPrompt`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaComponent.h#L108) if you're doing raw input style without chat formatting. Note that you can safely chain requests and they will queue up one after another, responses will return in order.
+2) Call [`InsertTemplatedPrompt`](Source/LlamaCore/Public/LlamaComponent.h) with your message and role (typically User) along with whether you want your prompt to generate a response or not. Optionally use [`InsertRawPrompt`](Source/LlamaCore/Public/LlamaComponent.h) if you're doing raw input style without chat formatting. Note that you can safely chain requests and they will queue up one after another, responses will return in order.
+
+  **Assistant prefill / prepend**: `InsertTemplatedPrompt` and the `FLlamaChatPrompt` struct accept an optional `AssistantPrefill` argument. When non-empty (and `bAddAssistantBOS = true`), the text is inserted into the assistant turn after the BOS header but before sampling — the model continues from it without an intervening end-of-turn token. The prefill is treated as if the model produced it: streamed via `OnTokenGenerated` / `OnPartialGenerated`, returned in `OnResponseGenerated`, and stored in chat history. Useful for steering first-token behavior (`"Answer: "`) or for hard-suppressing thinking on a thinking-capable model (`"<think></think>\n\n"`). Currently a local-only feature; a warning is emitted in remote mode.
 
 3) You should receive replies via [`OnResponseGenerated`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaComponent.h#L36) when full response has been generated. If you need streaming information, listen to [`OnNewTokenGenerated`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaComponent.h#L32) and optionally `OnPartialGenerated` (sentence-level) or `OnMarkdownPartialGenerated` (formatting-aware partials tagged with `EMarkdownStreamState`: Text, Italic, Bold, Heading, Quote, Emphasis, **Thinking**). Markdown emission requires `Advanced.Markdown.bSplitMarkdown = true`. Thinking-capable models (Qwen3, DeepSeek-R1) auto-route content between `<think>...</think>` tags into the `Thinking` category - tag chars are stripped, content is delivered separately so you can route it to a "thinking" UI panel.
 
@@ -248,6 +250,8 @@ Multimodal errors are delivered through the existing `OnError` delegate:
 
 The plugin ships with a complete local RAG stack: an embedding pipeline, an HNSW vector index, a model-free BM25 inverted index, and an RRF hybrid retriever - all running in-process, no external services.
 
+> **Module note:** the RAG stack lives in its own module, **`LlamaTools`** (sibling to `LlamaCore` and `LlamaWhisper`), under [`Source/LlamaTools/`](Source/LlamaTools/). C++ consumers must add `"LlamaTools"` to their `*.Build.cs` `PublicDependencyModuleNames` to access `URagStore`, `FVectorDatabase`, `FBM25Index`, etc. `LlamaCore` no longer depends on RAG: the embedding *backend* (the raw `GetPromptEmbeddings` / `GetEmbeddingDimension` calls on `ULlamaComponent` and `ULlamaSubsystem`) stays in `LlamaCore` so any consumer can compute embeddings without pulling the full RAG stack — `URagStore` is what *consumes* that backend. Removing the `LlamaTools/` directory leaves `LlamaCore` (and `LlamaWhisper`) compileable and runnable.
+
 ## Quick start
 
 The `URagStore` (UObject) and `URagStoreComponent` (UActorComponent) are self-contained: they own their own embedding model and, optionally, their own answer model. The minimal flow:
@@ -257,7 +261,7 @@ The `URagStore` (UObject) and `URagStoreComponent` (UActorComponent) are self-co
    - `AnswerModelParams.PathToModel = "./google_gemma-3-4b-it-Q4_K_L.gguf"` (or any chat GGUF you'd run via `ULlamaComponent`).
 2. Drop a `URagStoreComponent` on your actor. With `bAutoInitializeOnBeginPlay = true` (default), `BeginPlay` calls `LoadModels()` and auto-`Initialize()`s once the embedder reports its dimension. For non-actor flows, `NewObject<URagStore>()` and call `LoadModels()` + `Initialize()` yourself.
 3. Ingest content: `IngestText(text, source)`, `IngestFile(path)`, `IngestDocuments(texts, sources)`, or `IngestDirectory(folder, "txt,md", recursive)`. `OnIngestComplete(int32 Added)` fires when done.
-4. **Ask in one call**: bind `OnAskTokenGenerated`/`OnAskPartialGenerated`/`OnAskResponseGenerated` and call `AskDefault("your question")`. The store retrieves top-K chunks, formats them with `SummarizingPromptTemplate` (overridable; ships with a sensible default that uses `{context}` and `{query}` placeholders), and streams the answer through the same `OnAsk*` delegates regardless of which answer pathway is configured.
+4. **Ask in one call**: bind `OnAskTokenGenerated`/`OnAskPartialGenerated`/`OnAskResponseGenerated` and call `AskDefault("your question")`. The store retrieves top-K chunks, formats them with `SummarizingPromptTemplate` (overridable; ships with a sensible default that uses `{context}` and `{query}` placeholders), and streams the answer through the same `OnAsk*` delegates regardless of which answer pathway is configured. `AnswerPrefill` (default `"Answer: "`) is applied to the assistant turn before sampling — see [Assistant prefill](#how-to-use---basics) — and works around the Gemma3 first-token-EOT quirk; set to `"<think></think>\n\n"` to hard-suppress thinking on a thinking-capable model, or empty for raw generation.
 5. Or get chunks directly: `RetrieveAsync(query, params)` returns `TArray<FLlamaChunk>` with `Confidence` (0..1), `RetrievalScore` (raw, retriever-specific), and `SourceRetriever` (`Vector` / `BM25` / `Hybrid`) populated. `Params.MinConfidence` pre-filters the tail.
 6. Persist with `SaveToFile(Path)` / `LoadFromFile(Path)`. A single `.rag` file bundles vectors + BM25 index + chunk metadata.
 
@@ -269,12 +273,12 @@ The `URagStore` (UObject) and `URagStoreComponent` (UActorComponent) are self-co
 
 ## Components
 
-- **`FVectorDatabase`** ([VectorDatabase.h](Source/LlamaCore/Public/Embedding/VectorDatabase.h)) - HNSW (hnswlib) ANN with L2 metric. Works as cosine when input is L2-normalized, which `GetPromptEmbeddings` does by default. `UVectorDatabase` is the Blueprint-callable wrapper.
-- **`FBM25Index`** ([BM25Index.h](Source/LlamaCore/Public/Embedding/BM25Index.h)) - Lexical retrieval with BM25+ IDF; tokenizer is model-free (Unicode-aware lowercase + alphanumeric split + ASCII stopword filter).
-- **`FHybridRetriever`** ([HybridRetriever.h](Source/LlamaCore/Public/Embedding/HybridRetriever.h)) - Reciprocal Rank Fusion (k=60) of the dense and sparse ranks; parameter-free across heterogeneous score scales.
-- **`FLlamaCorpusChunker`** ([CorpusChunker.h](Source/LlamaCore/Public/Embedding/CorpusChunker.h)) - Deterministic paragraph + sliding-window chunker with sentence-boundary snapping.
-- **`URagStore`** ([RagStore.h](Source/LlamaCore/Public/Embedding/RagStore.h)) - Composes the above; self-contained two-model pipeline (embedder + optional answerer); `Ask()` for end-to-end retrieve+answer with streaming.
-- **`URagStoreComponent`** ([RagStoreComponent.h](Source/LlamaCore/Public/Embedding/RagStoreComponent.h)) - Actor-component wrapper: same surface, auto-init on BeginPlay, BP-friendly delegate chain.
+- **`FVectorDatabase`** ([VectorDatabase.h](Source/LlamaTools/Public/Embedding/VectorDatabase.h)) - HNSW (hnswlib) ANN with L2 metric. Works as cosine when input is L2-normalized, which `GetPromptEmbeddings` does by default. `UVectorDatabase` is the Blueprint-callable wrapper.
+- **`FBM25Index`** ([BM25Index.h](Source/LlamaTools/Public/Embedding/BM25Index.h)) - Lexical retrieval with BM25+ IDF; tokenizer is model-free (Unicode-aware lowercase + alphanumeric split + ASCII stopword filter).
+- **`FHybridRetriever`** ([HybridRetriever.h](Source/LlamaTools/Public/Embedding/HybridRetriever.h)) - Reciprocal Rank Fusion (k=60) of the dense and sparse ranks; parameter-free across heterogeneous score scales.
+- **`FLlamaCorpusChunker`** ([CorpusChunker.h](Source/LlamaTools/Public/Embedding/CorpusChunker.h)) - Deterministic paragraph + sliding-window chunker with sentence-boundary snapping.
+- **`URagStore`** ([RagStore.h](Source/LlamaTools/Public/Embedding/RagStore.h)) - Composes the above; self-contained two-model pipeline (embedder + optional answerer); `Ask()` for end-to-end retrieve+answer with streaming.
+- **`URagStoreComponent`** ([RagStoreComponent.h](Source/LlamaTools/Public/Embedding/RagStoreComponent.h)) - Actor-component wrapper: same surface, auto-init on BeginPlay, BP-friendly delegate chain.
 
 ## Recommended embedding models (GGUF)
 
@@ -284,15 +288,7 @@ The `URagStore` (UObject) and `URagStoreComponent` (UActorComponent) are self-co
 | `nomic-embed-text-v1.5-q4_k_m` | 768 | ~85 MB | General-purpose default |
 | `Qwen3-Embedding-0.6B-q8_0` | 1024 | ~600 MB | Multilingual, modern |
 
-A fetch script for the test fixture lives at [`Source/LlamaCore/Private/Tests/fetch_models.ps1`](Source/LlamaCore/Private/Tests/fetch_models.ps1).
-
-## Tests
-
-Automation tests cover HNSW round-trip + ordering + persistence + dimension guards, BM25 query/save/load, hybrid RRF fusion across three topical clusters, and chunker determinism. Run headless with:
-
-```
-UnrealEditor-Cmd.exe <your project>.uproject -ExecCmds="Automation RunTests LlamaCore;Quit" -unattended -nullrhi -nopause -log
-```
+A fetch script for the test fixture lives at [`Source/LlamaTools/Private/Tests/fetch_models.ps1`](Source/LlamaTools/Private/Tests/fetch_models.ps1).
 
 ---
 
@@ -319,6 +315,21 @@ Exposed via `UWhisperComponent` wrapping `FWhisperNative` which can be optionall
    In all VAD modes, start the microphone with `StartMicrophoneCapture` and stop with `StopMicrophoneCapture`. Any in-progress speech at stop time is always flushed and dispatched.
 4. Listen to `OnTranscriptionResult` for transcriptions. Bind `OnVADStateChanged` for speech onset/offset events.
 
+
+# Automation Tests
+
+The plugin ships with two automation buckets matching the module split:
+
+- **`LlamaCore`** — backend-only tests (no RAG, no model files needed): chat-history UTF-8 round-trip, dual-backend prefix-hash and frontier-invalidation logic, path resolver, etc.
+- **`LlamaTools`** — RAG stack: `VectorDatabase` (HNSW round-trip + ordering + persistence + dimension guards), `BM25` (query/save/load), `Chunker` determinism, `RAG.HybridRRF`, `RAG.ScoreNormalization*`, plus the model-gated end-to-end tests (`RAG.AskPipeline`, `RAG.IngestDirectoryWalk`, `RAG.QwenThinkingDiagnostic`) that load a real embedder + answer model from `Saved/Models/`.
+
+Run headless with:
+
+```
+UnrealEditor-Cmd.exe <project name>.uproject -ExecCmds="Automation RunTests LlamaCore+LlamaTools;Quit" -unattended -nullrhi -nopause -log
+```
+
+Use `LlamaCore` or `LlamaTools` alone to run a single bucket. The model-gated `LlamaTools.RAG.*` tests skip cleanly with an `AddInfo` log when the corresponding GGUFs are not present — fetch them with [`Source/LlamaTools/Private/Tests/fetch_models.ps1`](Source/LlamaTools/Private/Tests/fetch_models.ps1) (see the RAG section above).
 
 # Note on speed
 
