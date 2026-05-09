@@ -15,7 +15,7 @@ class FBM25Index;
  *
  * Pulls Candidates from each side, fuses, returns top K.
  */
-class LLAMACORE_API FHybridRetriever
+class LLAMATOOLS_API FHybridRetriever
 {
 public:
     FVectorDatabase* Vector = nullptr;   // not owned

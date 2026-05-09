@@ -84,7 +84,7 @@ struct FLlamaChunkerParams
  * Params.MaxChars. Char counts are approximate to token counts at ~4:1 for most
  * English embedding models.
  */
-class LLAMACORE_API FLlamaCorpusChunker
+class LLAMATOOLS_API FLlamaCorpusChunker
 {
 public:
     /** Split a single source document into chunks. The Source string is copied into each chunk's metadata. */

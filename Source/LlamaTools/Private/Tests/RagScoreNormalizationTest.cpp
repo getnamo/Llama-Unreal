@@ -40,7 +40,7 @@ namespace
  *   - MinConfidence pre-filter trims the tail without dropping top-1
  */
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRagScoreNormalizationVectorModeTest,
-    "LlamaCore.RAG.ScoreNormalizationVector",
+    "LlamaTools.RAG.ScoreNormalizationVector",
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FRagScoreNormalizationVectorModeTest::RunTest(const FString& /*Parameters*/)
@@ -122,7 +122,7 @@ bool FRagScoreNormalizationVectorModeTest::RunTest(const FString& /*Parameters*/
  * BM25-mode score normalization. Same contract — top-1 = 1.0, descending, tagged.
  */
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRagScoreNormalizationBM25ModeTest,
-    "LlamaCore.RAG.ScoreNormalizationBM25",
+    "LlamaTools.RAG.ScoreNormalizationBM25",
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FRagScoreNormalizationBM25ModeTest::RunTest(const FString& /*Parameters*/)

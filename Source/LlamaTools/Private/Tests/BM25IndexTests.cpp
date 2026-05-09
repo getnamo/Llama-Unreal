@@ -11,7 +11,7 @@
 #include "Serialization/MemoryWriter.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FBM25TokenizeTest,
-    "LlamaCore.BM25.Tokenize",
+    "LlamaTools.BM25.Tokenize",
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FBM25TokenizeTest::RunTest(const FString& /*Parameters*/)
@@ -27,7 +27,7 @@ bool FBM25TokenizeTest::RunTest(const FString& /*Parameters*/)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FBM25BasicQueryTest,
-    "LlamaCore.BM25.BasicQuery",
+    "LlamaTools.BM25.BasicQuery",
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FBM25BasicQueryTest::RunTest(const FString& /*Parameters*/)
@@ -55,7 +55,7 @@ bool FBM25BasicQueryTest::RunTest(const FString& /*Parameters*/)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FBM25SaveLoadTest,
-    "LlamaCore.BM25.SaveLoad",
+    "LlamaTools.BM25.SaveLoad",
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FBM25SaveLoadTest::RunTest(const FString& /*Parameters*/)
@@ -93,7 +93,7 @@ bool FBM25SaveLoadTest::RunTest(const FString& /*Parameters*/)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHybridRRFFusionTest,
-    "LlamaCore.RAG.HybridRRF",
+    "LlamaTools.RAG.HybridRRF",
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FHybridRRFFusionTest::RunTest(const FString& /*Parameters*/)

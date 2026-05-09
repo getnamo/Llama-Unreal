@@ -73,7 +73,7 @@ namespace
  *  Whitespace-only inner content = the directive worked. Non-whitespace content = the
  *  model thought anyway (i.e. the "disable" directive is being ignored). */
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FQwenThinkingDiagnosticTest,
-    "LlamaCore.RAG.QwenThinkingDiagnostic",
+    "LlamaTools.RAG.QwenThinkingDiagnostic",
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FQwenThinkingDiagnosticTest::RunTest(const FString& /*Parameters*/)

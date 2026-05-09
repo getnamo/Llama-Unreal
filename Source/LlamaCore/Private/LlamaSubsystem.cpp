@@ -5,7 +5,6 @@
 #include "LlamaDualBackend.h"
 #include "LlamaNative.h"
 #include "LlamaUtility.h"
-#include "Embedding/VectorDatabase.h"
 
 void ULlamaSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
@@ -306,12 +305,3 @@ void ULlamaSubsystem::EmbedTextsAsync(const TArray<FString>& Texts,
     Backend->EmbedTextsAsync(Texts, MoveTemp(OnDone));
 }
 
-// ── Diagnostics ─────────────────────────────────────────────────────────────
-
-float ULlamaSubsystem::TestVectorSearch()
-{
-    FVectorDatabase VectorDb;
-    VectorDb.Params.Dimensions = 16;
-    VectorDb.Params.MaxElements = 200;
-    return VectorDb.BasicsTest();
-}

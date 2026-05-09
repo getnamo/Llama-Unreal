@@ -13,7 +13,7 @@
  * FVectorDatabase directly.
  */
 UCLASS(Blueprintable, BlueprintType, ClassGroup = "LLM")
-class LLAMACORE_API UVectorDatabase : public UObject
+class LLAMATOOLS_API UVectorDatabase : public UObject
 {
     GENERATED_BODY()
 public:

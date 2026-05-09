@@ -67,7 +67,7 @@ namespace
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRagAskPipelineTest,
-    "LlamaCore.RAG.AskPipeline",
+    "LlamaTools.RAG.AskPipeline",
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FRagAskPipelineTest::RunTest(const FString& /*Parameters*/)

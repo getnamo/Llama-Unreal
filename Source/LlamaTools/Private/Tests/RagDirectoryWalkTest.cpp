@@ -35,7 +35,7 @@ namespace
 /** Verifies the directory walk + file filter behaviour. The store has no embedder
  *  so ingestion early-outs after enumeration — we just want the file count. */
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRagIngestDirectoryWalkTest,
-    "LlamaCore.RAG.IngestDirectoryWalk",
+    "LlamaTools.RAG.IngestDirectoryWalk",
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FRagIngestDirectoryWalkTest::RunTest(const FString& /*Parameters*/)

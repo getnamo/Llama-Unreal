@@ -27,11 +27,6 @@ public class LlamaCore : ModuleRules
 		get { return Path.GetFullPath(Path.Combine(ModuleDirectory, "../../ThirdParty/LlamaCpp/Include")); }
 	}
 
-	private string HnswLibIncludePath
-	{
-		get { return Path.GetFullPath(Path.Combine(ModuleDirectory, "../../ThirdParty/HnswLib/Include")); }
-	}
-
 	// DLL filename prefixes this plugin owns — used to identify stale copies for cleanup.
 	// "ggml" covers all ggml-base/cpu/vulkan variants; cuda/cublas entries omitted (Vulkan backend).
 	private static readonly string[] ManagedDllPrefixes = new[]
@@ -150,7 +145,6 @@ public class LlamaCore : ModuleRules
 
 		//Includes
 		PublicIncludePaths.Add(LlamaCppIncludePath);
-		PublicIncludePaths.Add(HnswLibIncludePath);
 
 		if (Target.Platform == UnrealTargetPlatform.Linux)
 		{

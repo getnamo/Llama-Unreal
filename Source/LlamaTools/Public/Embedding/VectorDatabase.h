@@ -45,7 +45,7 @@ struct FVectorDBParams
  * Persistence: `Save()`/`Load()` write a single binary file containing both the HNSW
  * index and the text-database sidecar. Versioned with a magic header.
  */
-class LLAMACORE_API FVectorDatabase
+class LLAMATOOLS_API FVectorDatabase
 {
 public:
     FVectorDBParams Params;

@@ -1,7 +1,7 @@
 {
 	"FileVersion": 3,
 	"Version": 1,
-	"VersionName": "0.19.0",
+	"VersionName": "0.20.0",
 	"FriendlyName": "Llama",
 	"Description": "Llama.cpp plugin for large language model (LLM) inference.",
 	"Category": "LLM",
@@ -23,6 +23,11 @@
 		},
 		{
 			"Name": "LlamaWhisper",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		},
+		{
+			"Name": "LlamaTools",
 			"Type": "Runtime",
 			"LoadingPhase": "Default"
 		}

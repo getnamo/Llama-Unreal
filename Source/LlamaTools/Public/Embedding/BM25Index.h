@@ -35,7 +35,7 @@ struct FBM25Params
  *
  * Re-indexing after additions: call Finalize() again — IDF weights are recomputed.
  */
-class LLAMACORE_API FBM25Index
+class LLAMATOOLS_API FBM25Index
 {
 public:
     FBM25Params Params;

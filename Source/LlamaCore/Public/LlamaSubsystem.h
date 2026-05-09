@@ -220,10 +220,6 @@ public:
 
     // ── Diagnostics ──────────────────────────────────────────────────────────
 
-    /** Self-recall sanity check on the FVectorDatabase implementation. */
-    UFUNCTION(BlueprintCallable, Category = "TESTING")
-    float TestVectorSearch();
-
     /** Direct access to the underlying dual-backend for advanced consumers. */
     FLlamaDualBackend* GetBackend() const { return Backend; }
 

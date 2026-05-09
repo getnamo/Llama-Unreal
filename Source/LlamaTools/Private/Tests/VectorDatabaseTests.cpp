@@ -30,7 +30,7 @@ namespace
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FVectorDatabaseSelfRecallTest,
-    "LlamaCore.VectorDatabase.SelfRecall",
+    "LlamaTools.VectorDatabase.SelfRecall",
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FVectorDatabaseSelfRecallTest::RunTest(const FString& /*Parameters*/)
@@ -64,7 +64,7 @@ bool FVectorDatabaseSelfRecallTest::RunTest(const FString& /*Parameters*/)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FVectorDatabaseTopKOrderTest,
-    "LlamaCore.VectorDatabase.TopKOrdering",
+    "LlamaTools.VectorDatabase.TopKOrdering",
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FVectorDatabaseTopKOrderTest::RunTest(const FString& /*Parameters*/)
@@ -110,7 +110,7 @@ bool FVectorDatabaseTopKOrderTest::RunTest(const FString& /*Parameters*/)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FVectorDatabaseStringPairTest,
-    "LlamaCore.VectorDatabase.StringPair",
+    "LlamaTools.VectorDatabase.StringPair",
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FVectorDatabaseStringPairTest::RunTest(const FString& /*Parameters*/)
@@ -141,7 +141,7 @@ bool FVectorDatabaseStringPairTest::RunTest(const FString& /*Parameters*/)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FVectorDatabaseSaveLoadTest,
-    "LlamaCore.VectorDatabase.SaveLoad",
+    "LlamaTools.VectorDatabase.SaveLoad",
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FVectorDatabaseSaveLoadTest::RunTest(const FString& /*Parameters*/)
@@ -192,7 +192,7 @@ bool FVectorDatabaseSaveLoadTest::RunTest(const FString& /*Parameters*/)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FVectorDatabaseDimMismatchTest,
-    "LlamaCore.VectorDatabase.DimensionMismatch",
+    "LlamaTools.VectorDatabase.DimensionMismatch",
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FVectorDatabaseDimMismatchTest::RunTest(const FString& /*Parameters*/)

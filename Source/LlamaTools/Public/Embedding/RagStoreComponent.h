@@ -33,7 +33,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnRagRetrievalCompleteSignature,
  *    mode and uses that as ExternalEmbedder (back-compat / discovery shortcut).
  */
 UCLASS(Category = "LLM", BlueprintType, meta = (BlueprintSpawnableComponent))
-class LLAMACORE_API URagStoreComponent : public UActorComponent
+class LLAMATOOLS_API URagStoreComponent : public UActorComponent
 {
     GENERATED_BODY()
 public:

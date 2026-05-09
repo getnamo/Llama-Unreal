@@ -74,7 +74,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnRagPipelineReadySignature);
  *      for direct chunk access.
  */
 UCLASS(Blueprintable, BlueprintType, ClassGroup = "LLM")
-class LLAMACORE_API URagStore : public UObject
+class LLAMATOOLS_API URagStore : public UObject
 {
     GENERATED_BODY()
 public:

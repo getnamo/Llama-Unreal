@@ -7,7 +7,7 @@
 #include "Embedding/CorpusChunker.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCorpusChunkerShortTextTest,
-    "LlamaCore.Chunker.ShortText",
+    "LlamaTools.Chunker.ShortText",
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FCorpusChunkerShortTextTest::RunTest(const FString& /*Parameters*/)
@@ -22,7 +22,7 @@ bool FCorpusChunkerShortTextTest::RunTest(const FString& /*Parameters*/)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCorpusChunkerParagraphsTest,
-    "LlamaCore.Chunker.Paragraphs",
+    "LlamaTools.Chunker.Paragraphs",
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FCorpusChunkerParagraphsTest::RunTest(const FString& /*Parameters*/)
@@ -38,7 +38,7 @@ bool FCorpusChunkerParagraphsTest::RunTest(const FString& /*Parameters*/)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCorpusChunkerSlidingWindowTest,
-    "LlamaCore.Chunker.SlidingWindow",
+    "LlamaTools.Chunker.SlidingWindow",
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FCorpusChunkerSlidingWindowTest::RunTest(const FString& /*Parameters*/)
@@ -66,7 +66,7 @@ bool FCorpusChunkerSlidingWindowTest::RunTest(const FString& /*Parameters*/)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCorpusChunkerDeterminismTest,
-    "LlamaCore.Chunker.Determinism",
+    "LlamaTools.Chunker.Determinism",
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FCorpusChunkerDeterminismTest::RunTest(const FString& /*Parameters*/)
