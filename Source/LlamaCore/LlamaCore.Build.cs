@@ -234,7 +234,8 @@ public class LlamaCore : ModuleRules
 			PublicAdditionalLibraries.Add(Path.Combine(LlamaLibPath, "ggml-base.lib"));
 			PublicAdditionalLibraries.Add(Path.Combine(LlamaLibPath, "ggml-cpu.lib"));
 
-			PublicAdditionalLibraries.Add(Path.Combine(LlamaLibPath, "common.lib"));
+			PublicAdditionalLibraries.Add(Path.Combine(LlamaLibPath, "llama-common.lib"));
+			PublicAdditionalLibraries.Add(Path.Combine(LlamaLibPath, "llama-common-base.lib"));
 			PublicAdditionalLibraries.Add(Path.Combine(LlamaLibPath, "mtmd.lib"));
 
 			// Stage every DLL found in the source dir. $(BinaryOutputDir) resolves correctly
