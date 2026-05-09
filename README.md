@@ -27,7 +27,7 @@ Fork is modern re-write from [upstream](https://github.com/mika314/UELlama) to s
 
 # How to use - Basics
 
-Everything is wrapped inside a [`ULlamaComponent`](Source/LlamaCore/Public/LlamaComponent.h) (per-actor lifetime) or [`ULlamaSubsystem`](Source/LlamaCore/Public/LlamaSubsystem.h) (engine-wide singleton, survives level transitions). Both expose the *same* Blueprint surface: chat, multimodal, embeddings, rollback, impersonation, audio capture wiring. Both can run inference locally via the bundled llama.cpp ([`FLlamaNative`](Source/LlamaCore/Public/LlamaNative.h)) **or** route through an OpenAI-compatible HTTP endpoint by flipping `bUseRemote = true` and configuring `Endpoint.BaseUrl` — see [Remote routing](#remote-routing) below. The shared dual-backend core lives in [`FLlamaDualBackend`](Source/LlamaCore/Public/LlamaDualBackend.h).
+Everything is wrapped inside a [`ULlamaComponent`](Source/LlamaCore/Public/LlamaComponent.h) (per-actor lifetime) or [`ULlamaSubsystem`](Source/LlamaCore/Public/LlamaSubsystem.h) (engine-wide singleton, survives level transitions). Both expose the *same* Blueprint surface: chat, multimodal, embeddings, rollback, impersonation, audio capture wiring. Both can run inference locally via the bundled llama.cpp ([`FLlamaNative`](Source/LlamaCore/Public/LlamaNative.h)) **or** route through an OpenAI-compatible HTTP endpoint by flipping `bUseRemote = true` and configuring `Endpoint.BaseUrl` - see [Remote routing](#remote-routing) below. The shared dual-backend core lives in [`FLlamaDualBackend`](Source/LlamaCore/Public/LlamaDualBackend.h).
 
 1) In your component or subsystem, adjust your [`ModelParams`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaComponent.h#L62) of type [`FLLMModelParams`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaDataTypes.h#L208). The most important settings are:
   - `PathToModel` - where your [*.gguf](https://huggingface.co/docs/hub/en/gguf) is placed. If path begins with a . it's considered relative to Saved/Models path, otherwise it's an absolute path.
@@ -39,9 +39,9 @@ Everything is wrapped inside a [`ULlamaComponent`](Source/LlamaCore/Public/Llama
 
 2) Call [`InsertTemplatedPrompt`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaComponent.h#L101) with your message and role (typically User) along with whether you want your prompt to generate a response or not. Optionally use [`InsertRawPrompt`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaComponent.h#L108) if you're doing raw input style without chat formatting. Note that you can safely chain requests and they will queue up one after another, responses will return in order.
 
-3) You should receive replies via [`OnResponseGenerated`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaComponent.h#L36) when full response has been generated. If you need streaming information, listen to [`OnNewTokenGenerated`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaComponent.h#L32) and optionally `OnPartialGenerated` (sentence-level) or `OnMarkdownPartialGenerated` (formatting-aware partials tagged with `EMarkdownStreamState`: Text, Italic, Bold, Heading, Quote, Emphasis, **Thinking**). Markdown emission requires `Advanced.Markdown.bSplitMarkdown = true`. Thinking-capable models (Qwen3, DeepSeek-R1) auto-route content between `<think>...</think>` tags into the `Thinking` category — tag chars are stripped, content is delivered separately so you can route it to a "thinking" UI panel.
+3) You should receive replies via [`OnResponseGenerated`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaComponent.h#L36) when full response has been generated. If you need streaming information, listen to [`OnNewTokenGenerated`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaComponent.h#L32) and optionally `OnPartialGenerated` (sentence-level) or `OnMarkdownPartialGenerated` (formatting-aware partials tagged with `EMarkdownStreamState`: Text, Italic, Bold, Heading, Quote, Emphasis, **Thinking**). Markdown emission requires `Advanced.Markdown.bSplitMarkdown = true`. Thinking-capable models (Qwen3, DeepSeek-R1) auto-route content between `<think>...</think>` tags into the `Thinking` category - tag chars are stripped, content is delivered separately so you can route it to a "thinking" UI panel.
 
-`OnPartialGenerated` fires per-sentence using `Advanced.Output.PartialsSeparators`, which by default covers `.` `?` `!` `\n` `…` plus CJK (`。 ？ ！`), Devanagari danda (`।`), and Arabic question mark (`؟`). The matcher reads `Sep[0]` so only single-character entries are effective — replace or extend the array if your content needs different break points (clauses on `;` `:` etc.).
+`OnPartialGenerated` fires per-sentence using `Advanced.Output.PartialsSeparators`, which by default covers `.` `?` `!` `\n` `…` plus CJK (`。 ？ ！`), Devanagari danda (`।`), and Arabic question mark (`؟`). The matcher reads `Sep[0]` so only single-character entries are effective - replace or extend the array if your content needs different break points (clauses on `;` `:` etc.).
 
 Explore [LlamaComponent.h](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaComponent.h) for detailed API. Also if you need to modify sampling properties you find them in [`FLLMModelAdvancedParams`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaDataTypes.h#L49).
 
@@ -72,7 +72,7 @@ The plugin auto-translates `ModelParams` into the request JSON: `Advanced.Sampli
 
 ## Toggling between local and remote at runtime
 
-Both backends coexist. `SetUseRemote(bool)` flips routing live — any active stream is cancelled cleanly, the destination backend auto-loads if its config is valid (`Endpoint.BaseUrl` for remote, `ModelParams.PathToModel` for local), and the chat history is lazily synced on the next prompt insertion.
+Both backends coexist. `SetUseRemote(bool)` flips routing live - any active stream is cancelled cleanly, the destination backend auto-loads if its config is valid (`Endpoint.BaseUrl` for remote, `ModelParams.PathToModel` for local), and the chat history is lazily synced on the next prompt insertion.
 
 ```cpp
 Component->SetUseRemote(false);  // switch to local FLlamaNative for the next prompt
@@ -80,11 +80,11 @@ Component->SetUseRemote(false);  // switch to local FLlamaNative for the next pr
 
 `bUseRemote` defaults to `false` (local-first). The remote-side properties (`Endpoint`, etc.) are hidden in the editor until the toggle is on.
 
-**Smart KV sync on remote → local handoff.** When you swap back to local with messages added during the remote excursion, the plugin tracks how many messages the local KV last decoded and hashes that prefix. If the prefix still matches the current chat history, only the new messages are appended via `InsertTemplatedPrompt(bGenerateReply=false)` — no full replay. If the prefix has diverged (e.g. you reset history while remote, or rolled back a turn), it falls back to a full `RebuildContextFromHistory`. Toggle via `bUseIncrementalKVSyncOnToggle` (default `true`); flip to `false` for the bulletproof full-rebuild path on every sync if the smart path ever surfaces a KV bug in your environment.
+**Smart KV sync on remote → local handoff.** When you swap back to local with messages added during the remote excursion, the plugin tracks how many messages the local KV last decoded and hashes that prefix. If the prefix still matches the current chat history, only the new messages are appended via `InsertTemplatedPrompt(bGenerateReply=false)` - no full replay. If the prefix has diverged (e.g. you reset history while remote, or rolled back a turn), it falls back to a full `RebuildContextFromHistory`. Toggle via `bUseIncrementalKVSyncOnToggle` (default `true`); flip to `false` for the bulletproof full-rebuild path on every sync if the smart path ever surfaces a KV bug in your environment.
 
 **Model file is *not* reloaded** on toggle. Once the local backend's model file is in VRAM it stays resident across remote excursions, and `IsModelLoaded()` correctly reports per-backend so the lazy-load on swap-back skips reload when the local is already warm. KV cache rebuild (above) is the only cost. To free local VRAM during long remote sessions, call `UnloadModel()` explicitly before `SetUseRemote(true)`.
 
-**Warm-loading the local backend.** If you want zero handoff cost — i.e. instant local takeover on `SetUseRemote(false)` — set `bPreloadLocalWhenRemote = true` (default `false`). When `LoadModel` runs in remote mode this also kicks off a silent local model load in the background. Trade: full model resident from startup. Useful when you expect to swap mid-session and can't tolerate the multi-second initial load latency.
+**Warm-loading the local backend.** If you want zero handoff cost - i.e. instant local takeover on `SetUseRemote(false)` - set `bPreloadLocalWhenRemote = true` (default `false`). When `LoadModel` runs in remote mode this also kicks off a silent local model load in the background. Trade: full model resident from startup. Useful when you expect to swap mid-session and can't tolerate the multi-second initial load latency.
 
 ## Multimodal over HTTP
 
@@ -246,14 +246,14 @@ Multimodal errors are delivered through the existing `OnError` delegate:
 
 # RAG: Embeddings, Vector DB & Hybrid Search
 
-The plugin ships with a complete local RAG stack: an embedding pipeline, an HNSW vector index, a model-free BM25 inverted index, and an RRF hybrid retriever — all running in-process, no external services.
+The plugin ships with a complete local RAG stack: an embedding pipeline, an HNSW vector index, a model-free BM25 inverted index, and an RRF hybrid retriever - all running in-process, no external services.
 
 ## Quick start
 
 The `URagStore` (UObject) and `URagStoreComponent` (UActorComponent) are self-contained: they own their own embedding model and, optionally, their own answer model. The minimal flow:
 
 1. Configure two model paths:
-   - `EmbeddingModelParams.PathToModel = "./bge-small-en-v1.5-q4_k_m.gguf"` (or any embedding GGUF — `bEmbeddingMode` is force-set at load time).
+   - `EmbeddingModelParams.PathToModel = "./bge-small-en-v1.5-q4_k_m.gguf"` (or any embedding GGUF - `bEmbeddingMode` is force-set at load time).
    - `AnswerModelParams.PathToModel = "./google_gemma-3-4b-it-Q4_K_L.gguf"` (or any chat GGUF you'd run via `ULlamaComponent`).
 2. Drop a `URagStoreComponent` on your actor. With `bAutoInitializeOnBeginPlay = true` (default), `BeginPlay` calls `LoadModels()` and auto-`Initialize()`s once the embedder reports its dimension. For non-actor flows, `NewObject<URagStore>()` and call `LoadModels()` + `Initialize()` yourself.
 3. Ingest content: `IngestText(text, source)`, `IngestFile(path)`, `IngestDocuments(texts, sources)`, or `IngestDirectory(folder, "txt,md", recursive)`. `OnIngestComplete(int32 Added)` fires when done.
@@ -269,12 +269,12 @@ The `URagStore` (UObject) and `URagStoreComponent` (UActorComponent) are self-co
 
 ## Components
 
-- **`FVectorDatabase`** ([VectorDatabase.h](Source/LlamaCore/Public/Embedding/VectorDatabase.h)) — HNSW (hnswlib) ANN with L2 metric. Works as cosine when input is L2-normalized, which `GetPromptEmbeddings` does by default. `UVectorDatabase` is the Blueprint-callable wrapper.
-- **`FBM25Index`** ([BM25Index.h](Source/LlamaCore/Public/Embedding/BM25Index.h)) — Lexical retrieval with BM25+ IDF; tokenizer is model-free (Unicode-aware lowercase + alphanumeric split + ASCII stopword filter).
-- **`FHybridRetriever`** ([HybridRetriever.h](Source/LlamaCore/Public/Embedding/HybridRetriever.h)) — Reciprocal Rank Fusion (k=60) of the dense and sparse ranks; parameter-free across heterogeneous score scales.
-- **`FLlamaCorpusChunker`** ([CorpusChunker.h](Source/LlamaCore/Public/Embedding/CorpusChunker.h)) — Deterministic paragraph + sliding-window chunker with sentence-boundary snapping.
-- **`URagStore`** ([RagStore.h](Source/LlamaCore/Public/Embedding/RagStore.h)) — Composes the above; self-contained two-model pipeline (embedder + optional answerer); `Ask()` for end-to-end retrieve+answer with streaming.
-- **`URagStoreComponent`** ([RagStoreComponent.h](Source/LlamaCore/Public/Embedding/RagStoreComponent.h)) — Actor-component wrapper: same surface, auto-init on BeginPlay, BP-friendly delegate chain.
+- **`FVectorDatabase`** ([VectorDatabase.h](Source/LlamaCore/Public/Embedding/VectorDatabase.h)) - HNSW (hnswlib) ANN with L2 metric. Works as cosine when input is L2-normalized, which `GetPromptEmbeddings` does by default. `UVectorDatabase` is the Blueprint-callable wrapper.
+- **`FBM25Index`** ([BM25Index.h](Source/LlamaCore/Public/Embedding/BM25Index.h)) - Lexical retrieval with BM25+ IDF; tokenizer is model-free (Unicode-aware lowercase + alphanumeric split + ASCII stopword filter).
+- **`FHybridRetriever`** ([HybridRetriever.h](Source/LlamaCore/Public/Embedding/HybridRetriever.h)) - Reciprocal Rank Fusion (k=60) of the dense and sparse ranks; parameter-free across heterogeneous score scales.
+- **`FLlamaCorpusChunker`** ([CorpusChunker.h](Source/LlamaCore/Public/Embedding/CorpusChunker.h)) - Deterministic paragraph + sliding-window chunker with sentence-boundary snapping.
+- **`URagStore`** ([RagStore.h](Source/LlamaCore/Public/Embedding/RagStore.h)) - Composes the above; self-contained two-model pipeline (embedder + optional answerer); `Ask()` for end-to-end retrieve+answer with streaming.
+- **`URagStoreComponent`** ([RagStoreComponent.h](Source/LlamaCore/Public/Embedding/RagStoreComponent.h)) - Actor-component wrapper: same surface, auto-init on BeginPlay, BP-friendly delegate chain.
 
 ## Recommended embedding models (GGUF)
 
