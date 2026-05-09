@@ -585,9 +585,41 @@ void FLlamaInternal::GetPromptEmbeddings(const std::string& Text, std::vector<fl
     //Try tokenizing using normal method?
     //CONTINUE HERE:
 
-    UE_LOG(LogTemp, Log, TEXT("Trying to sample <%hs>"), Text.c_str());
-
-    auto Input = common_tokenize(Context, Text, true, true);
+    // IMPORTANT: do NOT use `common_tokenize` here — that helper lives in the static
+    // common lib (split into llama-common*.lib in b9090) and returns a std::vector
+    // whose data buffer is allocated by the LIB's allocator. When the vector
+    // destructs inside this module, our overridden operator delete (mimalloc, via
+    // PerModuleInline.inl) tries to free CRT-allocated memory and crashes inside
+    // _mi_free_block_mt with EXCEPTION_ACCESS_VIOLATION reading 0xfff...f. The fix:
+    // tokenize against a buffer this module owns, so the allocation and the free
+    // both go through the same allocator (mimalloc).
+    //
+    // Worked silently before b9090 because `common.lib` was a single archive whose
+    // STL/allocator linkage happened to match ours; the b9090 split into
+    // `llama-common.lib` + `llama-common-base.lib` exposed the latent mismatch.
+    const llama_vocab* Vocab = llama_model_get_vocab(LlamaModel);
+    const int32 NeededRaw = -llama_tokenize(
+        Vocab, Text.data(), (int32)Text.size(),
+        /*tokens*/ nullptr, /*n_tokens_max*/ 0,
+        /*add_special*/ true, /*parse_special*/ true);
+    if (NeededRaw <= 0)
+    {
+        UE_LOG(LlamaLog, Error, TEXT("GetPromptEmbeddings: llama_tokenize size-probe returned %d (text bytes=%d)"),
+            NeededRaw, (int32)Text.size());
+        return;
+    }
+    std::vector<llama_token> Input((size_t)NeededRaw);
+    const int32 NWritten = llama_tokenize(
+        Vocab, Text.data(), (int32)Text.size(),
+        Input.data(), (int32)Input.size(),
+        /*add_special*/ true, /*parse_special*/ true);
+    if (NWritten < 0 || NWritten > NeededRaw)
+    {
+        UE_LOG(LlamaLog, Error, TEXT("GetPromptEmbeddings: llama_tokenize write failed: needed=%d wrote=%d"),
+            NeededRaw, NWritten);
+        return;
+    }
+    Input.resize((size_t)NWritten);
 
     //int32 NBatch = llama_n_ctx(Context);    //todo: get this from our params
     int32 NBatch = Input.size();    //todo: get this from our params
@@ -602,7 +634,7 @@ void FLlamaInternal::GetPromptEmbeddings(const std::string& Text, std::vector<fl
 
     //Count number of embeddings
     int32 EmbeddingCount = 0;
-    
+
     if (PoolingType == llama_pooling_type::LLAMA_POOLING_TYPE_NONE)
     {
         EmbeddingCount = Input.size();
@@ -611,14 +643,14 @@ void FLlamaInternal::GetPromptEmbeddings(const std::string& Text, std::vector<fl
     {
         EmbeddingCount = 1;
     }
-    
+
     int32 NEmbd = llama_model_n_embd(LlamaModel);
 
     //allocate raw output buffer
-    std::vector<float> Raw(EmbeddingCount * NEmbd, 0.f);
+    std::vector<float> Raw((size_t)EmbeddingCount * NEmbd, 0.f);
 
     //decode
-    BatchDecodeEmbedding(Context, Batch, Raw.data(), 0, NEmbd, 2);
+    BatchDecodeEmbedding(Context, Batch, Raw.data(), 0, NEmbd, 2, EmbeddingCount);
 
     //Always return a single pooled vector. For NONE pooling, mean-pool per-token rows then re-normalize L2.
     if (EmbeddingCount > 1)
@@ -989,7 +1021,7 @@ const char* FLlamaInternal::RoleForEnum(EChatTemplateRole Role)
 }
 
 //from https://github.com/ggml-org/llama.cpp/blob/master/examples/embedding/embedding.cpp
-void FLlamaInternal::BatchDecodeEmbedding(llama_context* InContext, llama_batch& Batch, float* Output, int NSeq, int NEmbd, int EmbdNorm)
+void FLlamaInternal::BatchDecodeEmbedding(llama_context* InContext, llama_batch& Batch, float* Output, int NSeq, int NEmbd, int EmbdNorm, int MaxRows)
 {
     const enum llama_pooling_type pooling_type = llama_pooling_type(InContext);
     const struct llama_model* model = llama_get_model(InContext);
@@ -998,50 +1030,47 @@ void FLlamaInternal::BatchDecodeEmbedding(llama_context* InContext, llama_batch&
     llama_memory_clear(llama_get_memory(InContext), false);
 
     // run model
-    
-    //Debug info
-    //UE_LOG(LlamaLog, Log, TEXT("%hs: n_tokens = %d, n_seq = %d"), __func__, Batch.n_tokens, NSeq);
-
     if (llama_model_has_encoder(model) && !llama_model_has_decoder(model))
     {
         // encoder-only model
-        if (llama_encode(InContext, Batch) < 0) 
+        if (llama_encode(InContext, Batch) < 0)
         {
             UE_LOG(LlamaLog, Error, TEXT("%hs : failed to encode"), __func__);
+            return;
         }
     }
-    else if (!llama_model_has_encoder(model) && llama_model_has_decoder(model)) 
+    else if (!llama_model_has_encoder(model) && llama_model_has_decoder(model))
     {
         // decoder-only model
-        if (llama_decode(InContext, Batch) < 0) 
+        if (llama_decode(InContext, Batch) < 0)
         {
             UE_LOG(LlamaLog, Log, TEXT("%hs : failed to decode"), __func__);
+            return;
         }
     }
 
-    for (int i = 0; i < Batch.n_tokens; i++) 
+    for (int i = 0; i < Batch.n_tokens; i++)
     {
-        if (Batch.logits && !Batch.logits[i]) 
+        if (Batch.logits && !Batch.logits[i])
         {
             continue;
         }
 
         const float* Embd = nullptr;
         int EmbdPos = 0;
-        
-        if (pooling_type == LLAMA_POOLING_TYPE_NONE) 
+
+        if (pooling_type == LLAMA_POOLING_TYPE_NONE)
         {
             // try to get token embeddings
             Embd = llama_get_embeddings_ith(InContext, i);
             EmbdPos = i;
-            GGML_ASSERT(Embd != NULL && "failed to get token embeddings");
         }
         else if (Batch.seq_id)
         {
             // try to get sequence embeddings - supported only when pooling_type is not NONE
-            Embd = llama_get_embeddings_seq(InContext, Batch.seq_id[i][0]);
-            EmbdPos = Batch.seq_id[i][0];
-            GGML_ASSERT(Embd != NULL && "failed to get sequence embeddings");
+            const llama_seq_id SeqId = Batch.seq_id[i] ? Batch.seq_id[i][0] : 0;
+            Embd = llama_get_embeddings_seq(InContext, SeqId);
+            EmbdPos = SeqId;
         }
         else
         {
@@ -1049,7 +1078,21 @@ void FLlamaInternal::BatchDecodeEmbedding(llama_context* InContext, llama_batch&
             Embd = llama_get_embeddings(InContext);
         }
 
-        float* Out = Output + EmbdPos * NEmbd;
+        if (Embd == nullptr)
+        {
+            UE_LOG(LlamaLog, Error, TEXT("[BatchDecodeEmbedding] null embd at i=%d EmbdPos=%d pool=%d — skipping write"),
+                i, EmbdPos, (int32)pooling_type);
+            continue;
+        }
+
+        if (MaxRows > 0 && (EmbdPos < 0 || EmbdPos >= MaxRows))
+        {
+            UE_LOG(LlamaLog, Error, TEXT("[BatchDecodeEmbedding] OOB EmbdPos=%d (MaxRows=%d) at i=%d — skipping write"),
+                EmbdPos, MaxRows, i);
+            continue;
+        }
+
+        float* Out = Output + (size_t)EmbdPos * NEmbd;
         common_embd_normalize(Embd, Out, NEmbd, EmbdNorm);
     }
 }

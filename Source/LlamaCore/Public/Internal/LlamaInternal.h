@@ -149,6 +149,6 @@ protected:
     llama_pos NextGenerationNPast = 0;
 
     //Embedding Decoding utilities
-    void BatchDecodeEmbedding(llama_context* ctx, llama_batch& batch, float* output, int n_seq, int n_embd, int embd_norm);
+    void BatchDecodeEmbedding(llama_context* ctx, llama_batch& batch, float* output, int n_seq, int n_embd, int embd_norm, int max_rows = 0);
     void BatchAddSeq(llama_batch& batch, const std::vector<int32_t>& tokens, llama_seq_id seq_id);
 };
