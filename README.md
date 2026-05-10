@@ -425,6 +425,83 @@ cmake .. -DGGML_CUDA=ON -DGGML_NATIVE=OFF
 cmake --build . --config Release -j --verbose
 ```
 
+### Linux build (cross-compile from Windows)
+
+Cross-compile llama.cpp using UE 5.7's bundled clang toolchain (`v26_clang-20.1.8-rockylinux8`) so the resulting `.so` files have the same glibc/libstdc++ ABI as UBT's Linux output. This produces binaries that run on Rocky 8 / Ubuntu 20.04+ / Debian 11+ (glibc ≥ 2.28).
+
+**Prerequisites (Windows host):**
+1. UE 5.7 Linux toolchain — install `v26_clang-20.1.8-rockylinux8` from [Epic's Linux requirements page](https://dev.epicgames.com/documentation/en-us/unreal-engine/linux-development-requirements-for-unreal-engine?application_version=5.7). Sets `LINUX_MULTIARCH_ROOT`. UE 5.7 strictly requires this exact version (declared in `Engine/Config/Linux/Linux_SDK.json`); v22/v21 ship GCC 4.8.5 libstdc++ which is too old for modern llama.cpp's C++17 use.
+2. **UE Linux engine platform component** — in Epic Games Launcher: Library → UE 5.7 → small box icon → Options → enable "Engine Platforms → Linux" → Apply (~1-2 GB download). UBT refuses Linux targets without this even when the toolchain is installed.
+3. Vulkan SDK from https://vulkan.lunarg.com/sdk/home (sets `VULKAN_SDK`). Only the headers are needed at build time; `libvulkan.so.1` is `dlopen`'d at runtime on the Linux side.
+4. **libvulkan in the cross sysroot** — `find_package(Vulkan)` wants a libvulkan.so to satisfy the linker (ggml-vulkan dlopens at runtime, but CMake still checks). Easiest source: install `libvulkan-dev` in WSL2, then copy the `.so.1.x.y` file into the v26 toolchain at `<toolchain>/x86_64-unknown-linux-gnu/usr/lib64/` and create plain-file copies (NOT symlinks — WSL2 creates Windows junctions that clang.exe can't follow) named `libvulkan.so` and `libvulkan.so.1`.
+5. **MSVC** (Visual Studio 2022 Build Tools or Community) — the `vulkan-shaders-gen` sub-build is a *host* (Windows) tool built at CMake time. Without MSVC on PATH, CMake auto-picks mingw gcc which can't compile native Windows binaries. The build helper script invokes `VsDevCmd.bat` to set this up automatically.
+6. A modern llama.cpp checkout (b9090 or compatible).
+
+**One-shot build via the bundled helper:**
+```cmd
+cd <plugin>\Scripts
+build-llamacpp-linux.bat <path\to\llama.cpp>
+```
+The script copies the cmake toolchain file into the llama.cpp clone, configures, builds, and stages `.so` artifacts under `<plugin>\ThirdParty\LlamaCpp\Lib\Linux\`.
+
+**Manual invocation** (equivalent, for when you want to inspect intermediate state):
+```cmd
+cd <path\to\llama.cpp>
+copy <plugin>\Scripts\..\..\..\<plugin>\cmake\ue57-linux-cross.cmake cmake\ue57-linux-cross.cmake
+
+cmake -S . -B build-linux-vulkan -G Ninja ^
+  -DCMAKE_TOOLCHAIN_FILE=cmake/ue57-linux-cross.cmake ^
+  -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON ^
+  -DGGML_VULKAN=ON -DGGML_NATIVE=OFF ^
+  -DLLAMA_CURL=OFF -DLLAMA_BUILD_TESTS=OFF ^
+  -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_SERVER=OFF -DLLAMA_BUILD_TOOLS=OFF ^
+  -DVulkan_INCLUDE_DIR=%VULKAN_SDK%\Include
+cmake --build build-linux-vulkan --config Release -j
+```
+
+The toolchain file (`cmake/ue57-linux-cross.cmake` in the llama.cpp clone) bakes `$ORIGIN` rpath into every `.so` so `libllama.so` finds `libggml.so` etc. in the same staged directory at runtime.
+
+**Artifacts to stage** (into `<plugin>\ThirdParty\LlamaCpp\Lib\Linux\`):
+
+7 unique libraries, each staged twice — as `libfoo.so` (linker resolves `-llama` at link time) and as `libfoo.so.0` (loader resolves SONAME references between sibling libs at runtime). 14 files total. The build helper script handles this; copy real files, **not** symlinks (WSL2 emits Windows junctions, the loader doesn't follow them).
+
+| Library | Purpose |
+|---|---|
+| `libllama.so` | llama API |
+| `libggml.so` | ggml dispatcher |
+| `libggml-base.so` | ggml core |
+| `libggml-cpu.so` | CPU backend |
+| `libggml-vulkan.so` | Vulkan backend (optional but recommended) |
+| `libllama-common.so` | common helpers (Win64's `llama-common-base.lib` is consolidated into this single shared lib on Linux because `BUILD_SHARED_LIBS=ON` merges static sub-archives into the parent — no separate `libllama-common-base.so`) |
+| `libmtmd.so` | multimodal helper |
+
+The `.so` files are linked with `-Wl,-rpath,$ORIGIN` (via `CMAKE_INSTALL_RPATH=$ORIGIN` in the toolchain file), so once staged in the same directory at runtime they find each other without `LD_LIBRARY_PATH`.
+
+On Linux a single `.so` serves as both link target and runtime artifact, so this is the only directory needed — no `Lib/` + `Binaries/` split like Windows.
+
+**Cross-compile the plugin (Linux game target):**
+```cmd
+"<UE5.7>\Engine\Build\BatchFiles\Build.bat" <ProjectName> Linux Development -Project=<full-path>\<project name>.uproject
+```
+UBT picks up the toolchain via `LINUX_MULTIARCH_ROOT` and links against the staged `.so` files; `RuntimeDependencies` copies them next to the produced ELF binary.
+
+**Runtime verification (WSL2):**
+
+Set up Vulkan tools inside WSL2 once:
+```bash
+sudo apt update && sudo apt install -y vulkan-tools mesa-vulkan-drivers libvulkan1
+vulkaninfo --summary    # should list a Vulkan device
+```
+Then run the cross-built binary against the game-side automation tests (the `LlamaCore.DualBackend.*` family is tagged `EAutomationTestFlags_ApplicationContextMask`, so it runs without an editor):
+```bash
+cd /mnt/c/<path-to-project>/Binaries/Linux
+chmod +x <ProjectName>
+./<ProjectName> -ExecCmds="Automation RunTests LlamaCore.DualBackend;Quit" -unattended -nullrhi -nopause -log -stdout
+```
+This exercises the full `FLlamaDualBackend` construction path — proving every staged `.so` resolves cleanly at runtime. If `vulkaninfo` doesn't find a Vulkan device the test still passes; the model-load path silently falls back to CPU.
+
+The remaining automation buckets (`LlamaCore.UTF8.*`, `LlamaCore.RAG.*`, `LlamaTools.*`) are still gated to `EditorContext` and require the Linux *editor* binary — a separate native build inside WSL2 (cross-compile from Windows only emits the game target). That's a follow-up.
+
 ### Mac build
 
 ```

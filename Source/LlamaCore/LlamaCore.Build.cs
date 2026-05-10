@@ -2,6 +2,7 @@
 
 using System;
 using System.IO;
+using System.Linq;
 using UnrealBuildTool;
 using EpicGames.Core;
 
@@ -148,10 +149,65 @@ public class LlamaCore : ModuleRules
 
 		if (Target.Platform == UnrealTargetPlatform.Linux)
 		{
-			//NB: Currently not working for b4879
+			// Linux build — cross-compiled via UE's v26_clang-20.1.8-rockylinux8 toolchain.
+			// On Linux a single .so serves as both link target AND runtime artifact (no
+			// separate import-lib like Windows .lib/.dll), so we co-locate everything in
+			// ThirdParty/LlamaCpp/Lib/Linux/. See plugin README "Linux build (cross-compile)"
+			// for the llama.cpp CMake invocation that produces these artifacts.
+			//
+			// Required .so files (7 total — note Linux ships ONE libllama-common.so;
+			// Win64's split into llama-common + llama-common-base does not apply here
+			// because BUILD_SHARED_LIBS=ON consolidates the static sub-archive into
+			// the parent shared library):
+			//   libllama.so, libggml{,-base,-cpu}.so, libllama-common.so, libmtmd.so
+			//   libggml-vulkan.so (optional; Vulkan backend)
+			//
+			// Each .so is staged twice — as `libfoo.so` (linker resolves -llama →
+			// libllama.so) AND as `libfoo.so.0` (loader resolves SONAME references
+			// from sibling libs at runtime, e.g. libllama.so → libggml.so.0).
+			string LinuxLibPath = Path.Combine(LlamaCppLibPath, "Linux");
 
-			PublicAdditionalLibraries.Add(Path.Combine(LlamaCppLibPath, "Linux", "libllama.so"));
-		} 
+			if (Directory.Exists(LinuxLibPath) && Directory.EnumerateFiles(LinuxLibPath, "*.so").Any())
+			{
+				PublicAdditionalLibraries.Add(Path.Combine(LinuxLibPath, "libllama.so"));
+				PublicAdditionalLibraries.Add(Path.Combine(LinuxLibPath, "libggml.so"));
+				PublicAdditionalLibraries.Add(Path.Combine(LinuxLibPath, "libggml-base.so"));
+				PublicAdditionalLibraries.Add(Path.Combine(LinuxLibPath, "libggml-cpu.so"));
+				PublicAdditionalLibraries.Add(Path.Combine(LinuxLibPath, "libllama-common.so"));
+				PublicAdditionalLibraries.Add(Path.Combine(LinuxLibPath, "libmtmd.so"));
+
+				string VulkanSo = Path.Combine(LinuxLibPath, "libggml-vulkan.so");
+				if (File.Exists(VulkanSo))
+				{
+					PublicAdditionalLibraries.Add(VulkanSo);
+				}
+
+				// Stage every .so* found alongside the editor/game binary, including
+				// the soname variants (libfoo.so.0). Mirrors the Win64 dynamic
+				// enumeration so new backend variants are picked up without manual
+				// additions.
+				foreach (string SrcSo in Directory.EnumerateFiles(LinuxLibPath, "*.so*"))
+				{
+					string SoName = Path.GetFileName(SrcSo);
+					RuntimeDependencies.Add("$(BinaryOutputDir)/" + SoName, SrcSo);
+				}
+
+				// Make $ORIGIN explicit so the loader resolves sibling .so files (e.g.
+				// libllama.so → libggml.so) from the staged dir without LD_LIBRARY_PATH.
+				// The .so files themselves were also linked with -Wl,-rpath,$ORIGIN at
+				// CMake time (CMAKE_INSTALL_RPATH=$ORIGIN), so this is belt + suspenders.
+				PublicRuntimeLibraryPaths.Add("$(BinaryOutputDir)");
+			}
+			else
+			{
+				// No staged .so files — emit a build warning so the missing dependency is
+				// visible. UBT will fail later anyway when it can't resolve LlamaInternal
+				// symbols, but this hint catches the cause earlier.
+				System.Console.WriteLine("Llama-Unreal: no .so files found in " + LinuxLibPath +
+					"; cross-compile llama.cpp via cmake/ue57-linux-cross.cmake and stage the artifacts. " +
+					"See plugin README \"Linux build (cross-compile)\".");
+			}
+		}
 		else if (Target.Platform == UnrealTargetPlatform.Win64)
 		{
 			string Win64LibPath = Path.Combine(LlamaCppLibPath, "Win64");

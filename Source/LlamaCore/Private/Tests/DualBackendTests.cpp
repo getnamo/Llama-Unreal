@@ -15,7 +15,7 @@
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDualBackendDefaultLocalTest,
     "LlamaCore.DualBackend.DefaultLocal",
-    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+    EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
 
 bool FDualBackendDefaultLocalTest::RunTest(const FString& /*Parameters*/)
 {
@@ -33,7 +33,7 @@ bool FDualBackendDefaultLocalTest::RunTest(const FString& /*Parameters*/)
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDualBackendToggleHistorySyncTest,
     "LlamaCore.DualBackend.ToggleHistorySync",
-    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+    EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
 
 bool FDualBackendToggleHistorySyncTest::RunTest(const FString& /*Parameters*/)
 {
@@ -65,7 +65,7 @@ bool FDualBackendToggleHistorySyncTest::RunTest(const FString& /*Parameters*/)
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDualBackendRemoteCapsTest,
     "LlamaCore.DualBackend.RemoteCapsBeforeLoad",
-    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+    EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
 
 bool FDualBackendRemoteCapsTest::RunTest(const FString& /*Parameters*/)
 {
@@ -87,7 +87,7 @@ bool FDualBackendRemoteCapsTest::RunTest(const FString& /*Parameters*/)
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDualBackendRollbackBypassTest,
     "LlamaCore.DualBackend.RollbackBypass",
-    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+    EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
 
 bool FDualBackendRollbackBypassTest::RunTest(const FString& /*Parameters*/)
 {
@@ -117,7 +117,7 @@ bool FDualBackendRollbackBypassTest::RunTest(const FString& /*Parameters*/)
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDualBackendResetContextTest,
     "LlamaCore.DualBackend.ResetContext",
-    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+    EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
 
 bool FDualBackendResetContextTest::RunTest(const FString& /*Parameters*/)
 {
@@ -155,7 +155,7 @@ bool FDualBackendResetContextTest::RunTest(const FString& /*Parameters*/)
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDualBackendPrefixHashTest,
     "LlamaCore.DualBackend.PrefixHash",
-    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+    EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
 
 bool FDualBackendPrefixHashTest::RunTest(const FString& /*Parameters*/)
 {
@@ -204,7 +204,7 @@ bool FDualBackendPrefixHashTest::RunTest(const FString& /*Parameters*/)
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDualBackendFrontierInvalidationTest,
     "LlamaCore.DualBackend.FrontierInvalidation",
-    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+    EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
 
 bool FDualBackendFrontierInvalidationTest::RunTest(const FString& /*Parameters*/)
 {
