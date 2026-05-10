@@ -228,25 +228,79 @@ InsertTemplateImagePrompt(ImageB, "Second image:", User, false, false)
 InsertTemplatedPrompt("Now compare those two images.", User)
 ```
 
-## Error Codes
-
-Multimodal errors are delivered through the existing `OnError` delegate:
-
-| Code | Condition |
-|---|---|
-| 50 | Multimodal projector not loaded (`MmprojPath` empty or init failed) |
-| 51 | `<__media__>` marker count doesn't match `MediaEntries` count |
-| 52 | Invalid bitmap (null texture, unsupported pixel format, failed file load) |
-| 53 | `mtmd_tokenize` failed |
-| 54 | `mtmd_helper_eval_chunks` failed (eval error during image/audio ingestion) |
-| 55 | Vision not supported by the loaded mmproj |
-| 56 | Audio not supported by the loaded mmproj |
-
 ## Known Limitations
 
 - **Context rollback:** `RollbackContextHistoryByMessages` does not correctly account for the variable token count of multimodal messages (image token count depends on resolution). Use `ResetContextHistory` to clear context after multimodal sessions instead.
 - **Texture format:** `InsertTemplateImagePrompt` only supports `PF_B8G8R8A8` textures. Use `InsertTemplateImagePromptFromFile` to load other formats directly via the mtmd file decoder.
 - **Audio sample rate:** The caller is responsible for providing PCM at the model's expected rate. Use `GetAudioSampleRate()` and `ULlamaAudioUtils::ResamplePCMFloat` to convert if needed.
+
+---
+
+# Error Codes
+
+Errors are delivered through the `OnError(FString Message, int32 Code)` delegate on `ULlamaComponent`, `ULlamaSubsystem`, and (in the dual-backend layer) on `FLlamaDualBackend::OnError`. RAG-side errors arrive on `URagStore::OnAskError` with the same signature. Codes are grouped by subsystem so you can filter on a range:
+
+**10-19: Model load (local backend, [`FLlamaInternal`](Source/LlamaCore/Private/Internal/LlamaInternal.cpp))**
+
+| Code | Condition |
+|---|---|
+| 10 | `llama_model_load_from_file` failed - bad path, corrupted GGUF, or insufficient VRAM. Triggered from `LoadModel`. |
+| 11 | `llama_init_from_model` failed - context creation rejected. Usually `MaxContextLength` or `MaxBatchLength` set higher than the device can allocate. |
+
+**20-29: Prompt insertion / decoding (local backend)**
+
+| Code | Condition |
+|---|---|
+| 21 | `llama_tokenize` returned a negative count when processing a prompt. Indicates a vocab problem; rare. |
+| 22 | Prompt would exceed the configured context window. Message includes the attempted token count, currently used tokens, and `MaxContextLength`. Fired from `ProcessPrompt`. Mitigations: rollback older history with `RollbackContextHistoryByMessages`, raise `MaxContextLength` and reload, or reset with `ResetContextHistory`. |
+| 23 | `llama_decode` failed during prompt ingestion - typically "no KV slot for the batch". Lower `MaxBatchLength` or raise `MaxContextLength`. |
+
+**30-39: Generation (local backend)**
+
+| Code | Condition |
+|---|---|
+| 31 | Context exhausted mid-generation - the streaming token loop hit `MaxContextLength` before the model emitted EOG. Partial response is returned via `OnResponseGenerated` before this fires. |
+| 32 | `llama_decode` failed mid-generation. Same KV-slot conditions as code 23 but during sampling rather than prompt eval. |
+
+**40-49: Embedding (local backend)**
+
+| Code | Condition |
+|---|---|
+| 43 | `GetPromptEmbeddings` called before a model is loaded (or after `UnloadModel`). Make sure `OnModelLoaded` has fired. |
+
+**50-59: Multimodal (vision/audio prompts)**
+
+Fired from both the local mtmd path and the remote OpenAI-compatible image-encode path. Behavior is unified across both backends.
+
+| Code | Condition |
+|---|---|
+| 50 | Multimodal projector not loaded. Set `MmprojPath` in `ModelParams` before calling `LoadModel`, or in remote mode confirm the server's `/props` reports modality support. |
+| 51 | `<__media__>` marker count doesn't match `MediaEntries.Num()` in `FLlamaMultimodalPrompt`. Each entry needs exactly one marker. |
+| 52 | Invalid input bitmap. Local: null texture, unsupported pixel format (anything other than `PF_B8G8R8A8`), or failed file decode. Remote: same plus invalid texture passed to `InsertTemplateImagePrompt`. |
+| 53 | Image preprocessing error. Local: `mtmd_tokenize` returned a non-1 error (failed to encode a bitmap into mtmd chunks). Remote: PNG encode of the texture for the OpenAI request body failed. |
+| 54 | Image/audio eval into KV cache failed. Local: `mtmd_helper_eval_chunks` returned non-zero (often KV exhaustion - the message includes `n_past`, `n_ctx`, chunk count, token count). Remote: failed to read the file at `ImagePath` for an image-from-disk prompt. |
+| 55 | Vision not supported by the loaded model (or in `FLlamaMultimodalPrompt`, an entry tagged as image had no usable bitmap data). Fired from the remote backend's vision-capability check. |
+| 56 | Audio not supported by the loaded model. Fired from the remote backend's audio-capability check. |
+
+**60-69: Remote backend ([`FLlamaDualBackend`](Source/LlamaCore/Public/LlamaDualBackend.h) when `bUseRemote = true`)**
+
+| Code | Condition |
+|---|---|
+| 60 | Remote client not initialized, or no native backend available for a fallback path. Either flip `bUseRemote = true` and call `LoadModel`, or ensure the local `ModelParams.PathToModel` is configured. |
+| 61 | `/health` probe failed at `LoadModel` time - server unreachable at `Endpoint.BaseUrl`. Message includes the underlying HTTP/transport error. |
+| 62 | A remote-mode call was made before `LoadModel` completed (no model id assigned yet from `/props`). |
+| 63 | A streaming generation is already in flight on this component. Call `StopGeneration` first or wait for `OnEndOfStream`. |
+
+**70-79: RAG ([`URagStore::OnAskError`](Source/LlamaTools/Public/Embedding/RagStore.h))**
+
+`OnAskError` is separate from `OnError` and only fires during the `Ask`/`AskDefault` pipeline. Retrieval-only paths (`RetrieveAsync`, ingest) report through the standard `OnIngestComplete` / log channels.
+
+| Code | Condition |
+|---|---|
+| 70 | `Ask` called before `Initialize`. Run `LoadAndInitialize()`, or `LoadModels()` + `Initialize()` once `OnRagPipelineReady` fires. |
+| 71 | No answer engine ready. Either configure `AnswerModelParams.PathToModel` and call `LoadModels()`, or assign an external `ULlamaComponent` to `AnswerEngine`. |
+| 72 | An `Ask` is already in flight on this store. Wait for `OnAskEndOfStream` or `OnAskError` before issuing the next call. |
+| 73 | Internal dispatch dead-end - no answer pathway resolved at the moment of dispatch despite `IsAnswerEngineReady()` having returned true. Indicates a race between unload and ask; rare. |
 
 ---
 
