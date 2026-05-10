@@ -250,7 +250,7 @@ Multimodal errors are delivered through the existing `OnError` delegate:
 
 The plugin ships with a complete local RAG stack: an embedding pipeline, an HNSW vector index, a model-free BM25 inverted index, and an RRF hybrid retriever - all running in-process, no external services.
 
-> **Module note:** the RAG stack lives in its own module, **`LlamaTools`** (sibling to `LlamaCore` and `LlamaWhisper`), under [`Source/LlamaTools/`](Source/LlamaTools/). C++ consumers must add `"LlamaTools"` to their `*.Build.cs` `PublicDependencyModuleNames` to access `URagStore`, `FVectorDatabase`, `FBM25Index`, etc. `LlamaCore` no longer depends on RAG: the embedding *backend* (the raw `GetPromptEmbeddings` / `GetEmbeddingDimension` calls on `ULlamaComponent` and `ULlamaSubsystem`) stays in `LlamaCore` so any consumer can compute embeddings without pulling the full RAG stack - `URagStore` is what *consumes* that backend. Removing the `LlamaTools/` directory leaves `LlamaCore` (and `LlamaWhisper`) compileable and runnable.
+> **Module note:** the RAG stack lives in its own module, **`LlamaTools`** (sibling to `LlamaCore` and `LlamaWhisper`), under [`Source/LlamaTools/`](Source/LlamaTools/). C++ consumers must add `"LlamaTools"` to their `*.Build.cs` `PublicDependencyModuleNames` to access `URagStore`, `FVectorDatabase`, `FBM25Index`, etc. The embedding *backend* (the raw `GetPromptEmbeddings` / `GetEmbeddingDimension` calls on `ULlamaComponent` and `ULlamaSubsystem`) is in `LlamaCore` so any consumer can compute embeddings without pulling the full RAG stack - `URagStore` is what *consumes* that backend. Removing the `LlamaTools/` directory leaves `LlamaCore` (and `LlamaWhisper`) unaffected.
 
 ## Quick start
 
