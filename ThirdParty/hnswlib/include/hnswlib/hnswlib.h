@@ -128,10 +128,10 @@ static bool AVX512Capable() {
 
 #if defined(__EXCEPTIONS)
 #define HNSWLIB_THROW_RUNTIME_ERROR(message) do { \
-    UE_LOG(LogTemp, Error, TEXT("%s"), message); \
-    throw std::runtime_error(message) \
+    UE_LOG(LogTemp, Error, TEXT("%hs"), message); \
+    throw std::runtime_error(message); \
 } while (false)
-#else 
+#else
 #define HNSWLIB_THROW_RUNTIME_ERROR(message) UE_LOG(LogTemp, Error, TEXT("%hs"), message)
 #endif
 

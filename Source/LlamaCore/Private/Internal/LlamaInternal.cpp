@@ -9,6 +9,14 @@
 #include "LlamaUtility.h"
 #include "HardwareInfo.h"
 
+// Cross-platform strdup. MSVC ships `_strdup` and warns about plain `strdup`;
+// POSIX (glibc/clang on Linux) ships `strdup` and never had `_strdup`.
+#if PLATFORM_WINDOWS
+    #define LLAMA_STRDUP _strdup
+#else
+    #define LLAMA_STRDUP strdup
+#endif
+
 // ---------------------------------------------------------------------------
 // Allocator-safe wrappers around common_* helpers.
 //
@@ -368,7 +376,7 @@ void FLlamaInternal::UnloadModel()
 std::string FLlamaInternal::WrapPromptForRole(const std::string& Text, EChatTemplateRole Role, const std::string& OverrideTemplate, bool bAddAssistantBoS)
 {
     std::vector<llama_chat_message> MessageListWrapper;
-    MessageListWrapper.push_back({ RoleForEnum(Role), _strdup(Text.c_str()) });
+    MessageListWrapper.push_back({ RoleForEnum(Role), LLAMA_STRDUP(Text.c_str()) });
 
     //pre-allocate buffer 2x the size of text
     std::vector<char> Buffer;
@@ -559,7 +567,7 @@ std::string FLlamaInternal::InsertTemplatedPrompt(const std::string& Prompt, ECh
 
     if (!Prompt.empty())
     {
-        Messages.push_back({ RoleForEnum(Role), _strdup(Prompt.c_str()) });
+        Messages.push_back({ RoleForEnum(Role), LLAMA_STRDUP(Prompt.c_str()) });
 
         NewLen = ApplyTemplateToContextHistory(bAddAssistantBoS);
     }
@@ -984,7 +992,7 @@ std::string FLlamaInternal::Generate(const std::string& Prompt, bool bAppendToMe
     if (bAppendToMessageHistory)
     {
         //Add the raw response (with thinking) to our templated messages for context preservation
-        Messages.push_back({ RoleForEnum(EChatTemplateRole::Assistant), _strdup(Response.c_str()) });
+        Messages.push_back({ RoleForEnum(EChatTemplateRole::Assistant), LLAMA_STRDUP(Response.c_str()) });
 
         //Sync ContextHistory
         FilledContextCharLength = ApplyTemplateToContextHistory(false);
@@ -1398,7 +1406,7 @@ std::string FLlamaInternal::InsertMultimodalPrompt(const std::string& TextWithMa
 
     if (!TextWithMarkers.empty())
     {
-        Messages.push_back({ RoleForEnum(Role), _strdup(TextWithMarkers.c_str()) });
+        Messages.push_back({ RoleForEnum(Role), LLAMA_STRDUP(TextWithMarkers.c_str()) });
         // When generating a reply, always add the assistant BOS so the model responds immediately
         // rather than generating the <|im_start|>assistant token itself (which causes loops on vision models)
         const bool bActualAddAssistantBoS = bAddAssistantBoS || bGenerateReply;

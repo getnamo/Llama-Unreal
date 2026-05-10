@@ -104,7 +104,10 @@ public class LlamaCore : ModuleRules
 			new string[]
 			{
 				"Core",
-				// ... add other public dependencies that you statically link with here ...
+				// HTTP is a PUBLIC dep because LlamaDualBackend.h (a public header) exposes
+				// FHttpRequestPtr as a member type. Transitive consumers (LlamaTools'
+				// RagStore.h includes LlamaDualBackend.h) need HTTP's include path.
+				"HTTP",
 			}
 			);
 
@@ -120,7 +123,6 @@ public class LlamaCore : ModuleRules
 				"Media",               // IMediaCaptureSupport, FMediaCaptureDeviceInfo
 				"MediaUtils",          // MediaCaptureSupport::EnumerateVideoCaptureDevices
 				"MediaAssets",         // UMediaPlayer, UMediaTexture for video capture pipeline
-				"HTTP",                // FHttpModule, IHttpRequest for FLlamaDualBackend remote routing
 				"Json",                // FJsonObject, request/response serialization for remote
 				"JsonUtilities",       // FJsonObjectConverter helpers
 				"ImageWrapper",        // PNG encode for remote multimodal image parts

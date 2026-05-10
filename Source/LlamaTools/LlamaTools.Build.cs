@@ -49,7 +49,11 @@ public class LlamaTools : ModuleRules
 		);
 
 		// hnswlib (vector ANN backend) — header-only, RAG-exclusive.
-		PublicIncludePaths.Add(HnswLibIncludePath);
+		// PublicSystemIncludePaths emits -isystem (vs -I for non-system); clang then
+		// silences warnings originating inside hnswlib templates. Required for the
+		// Linux clang 20 cross-build path because UE's default -Werror -Wunused-value
+		// rejects hnswlib's nodiscard-Status-returning loadIndexNoExceptions drops.
+		PublicSystemIncludePaths.Add(HnswLibIncludePath);
 
 		// llama.cpp headers — RagStore.h transitively pulls llama.h via
 		// LlamaDualBackend.h. ggml libs themselves are NOT relinked here;

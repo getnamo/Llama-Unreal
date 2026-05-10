@@ -395,7 +395,7 @@ struct FLLMModelParams
 
     //If not different than default empty, no template will be applied
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
-    FJinjaChatTemplate CustomChatTemplate = "";
+    FJinjaChatTemplate CustomChatTemplate;
 
     //If set anything other than unknown, AI chat role will be enforced. Assistant is default
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")

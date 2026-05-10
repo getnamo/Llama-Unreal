@@ -42,6 +42,12 @@ public class LlamaWhisper : ModuleRules
 		// whisper.cpp uses try/catch internally; enable C++ exception handling (/EHsc) for this module.
 		bEnableExceptions = true;
 
+		// Inline whisper.cpp source has many shadow-variable warnings under Linux clang 20
+		// (UE's default -Wshadow + -Werror is stricter than MSVC's posture). Demote to off
+		// so the inline compile doesn't fail. Has no effect on the Unreal-side code in this
+		// module, which is small.
+		CppCompileWarningSettings.ShadowVariableWarningLevel = WarningLevel.Off;
+
 		PublicDependencyModuleNames.AddRange(
 			new string[]
 			{

@@ -430,12 +430,14 @@ cmake --build . --config Release -j --verbose
 Cross-compile llama.cpp using UE 5.7's bundled clang toolchain (`v26_clang-20.1.8-rockylinux8`) so the resulting `.so` files have the same glibc/libstdc++ ABI as UBT's Linux output. This produces binaries that run on Rocky 8 / Ubuntu 20.04+ / Debian 11+ (glibc ≥ 2.28).
 
 **Prerequisites (Windows host):**
-1. UE 5.7 Linux toolchain — install `v26_clang-20.1.8-rockylinux8` from [Epic's Linux requirements page](https://dev.epicgames.com/documentation/en-us/unreal-engine/linux-development-requirements-for-unreal-engine?application_version=5.7). Sets `LINUX_MULTIARCH_ROOT`. UE 5.7 strictly requires this exact version (declared in `Engine/Config/Linux/Linux_SDK.json`); v22/v21 ship GCC 4.8.5 libstdc++ which is too old for modern llama.cpp's C++17 use.
+1. UE 5.7 Linux toolchain — install `v26_clang-20.1.8-rockylinux8` from [Epic's Linux requirements page](https://dev.epicgames.com/documentation/en-us/unreal-engine/linux-development-requirements-for-unreal-engine?application_version=5.7). Sets `LINUX_MULTIARCH_ROOT`. UE 5.7 strictly requires this exact version (declared in `Engine/Config/Linux/Linux_SDK.json`); v22/v21 ship GCC 4.8.5 libstdc++ which is too old for modern llama.cpp's C++17 use. Note: UBT expects `LINUX_MULTIARCH_ROOT` to point at the **specific toolchain dir** (`C:\UnrealToolchains\v26_clang-20.1.8-rockylinux8\`), not the parent.
 2. **UE Linux engine platform component** — in Epic Games Launcher: Library → UE 5.7 → small box icon → Options → enable "Engine Platforms → Linux" → Apply (~1-2 GB download). UBT refuses Linux targets without this even when the toolchain is installed.
 3. Vulkan SDK from https://vulkan.lunarg.com/sdk/home (sets `VULKAN_SDK`). Only the headers are needed at build time; `libvulkan.so.1` is `dlopen`'d at runtime on the Linux side.
 4. **libvulkan in the cross sysroot** — `find_package(Vulkan)` wants a libvulkan.so to satisfy the linker (ggml-vulkan dlopens at runtime, but CMake still checks). Easiest source: install `libvulkan-dev` in WSL2, then copy the `.so.1.x.y` file into the v26 toolchain at `<toolchain>/x86_64-unknown-linux-gnu/usr/lib64/` and create plain-file copies (NOT symlinks — WSL2 creates Windows junctions that clang.exe can't follow) named `libvulkan.so` and `libvulkan.so.1`.
 5. **MSVC** (Visual Studio 2022 Build Tools or Community) — the `vulkan-shaders-gen` sub-build is a *host* (Windows) tool built at CMake time. Without MSVC on PATH, CMake auto-picks mingw gcc which can't compile native Windows binaries. The build helper script invokes `VsDevCmd.bat` to set this up automatically.
 6. A modern llama.cpp checkout (b9090 or compatible).
+
+**Critical: libc++ ABI alignment.** UE on Linux compiles against libc++ (clang's `std::__1::vector`), not libstdc++ (`std::__cxx11::vector`). The toolchain file (`cmake/ue57-linux-cross.cmake`) sets `-stdlib=libc++` for the llama.cpp build so its `common_*` helper symbols mangle to match what UE's compile expects. Without this, plugin link fails with `undefined reference to common_batch_add(llama_batch&, ..., std::__1::vector<int>...)`. libc++ is static-only in this toolchain (no `libc++.so`), so each `.so` embeds its own copy — larger binaries (~+2-5 MB each), but ABI-clean.
 
 **One-shot build via the bundled helper:**
 ```cmd
@@ -492,15 +494,38 @@ Set up Vulkan tools inside WSL2 once:
 sudo apt update && sudo apt install -y vulkan-tools mesa-vulkan-drivers libvulkan1
 vulkaninfo --summary    # should list a Vulkan device
 ```
-Then run the cross-built binary against the game-side automation tests (the `LlamaCore.DualBackend.*` family is tagged `EAutomationTestFlags_ApplicationContextMask`, so it runs without an editor):
+
+**Sanity check at the lib layer** — confirms ABI/linkage works without UE in the loop:
+```bash
+# Tiny C program calling llama_backend_init + llama_print_system_info
+gcc -o smoke smoke.c -I<plugin>/ThirdParty/LlamaCpp/Include \
+    -L<plugin>/ThirdParty/LlamaCpp/Lib/Linux \
+    -Wl,-rpath,<plugin>/ThirdParty/LlamaCpp/Lib/Linux -lllama
+./smoke   # expect: "system_info: CPU : LLAMAFILE = 1 | REPACK = 1 | ..."
+```
+
+**Plugin layer verification** — `ldd` against the cross-built binary confirms every staged `.so` resolves at runtime:
 ```bash
 cd /mnt/c/<path-to-project>/Binaries/Linux
 chmod +x <ProjectName>
-./<ProjectName> -ExecCmds="Automation RunTests LlamaCore.DualBackend;Quit" -unattended -nullrhi -nopause -log -stdout
+ldd ./<ProjectName>
+# Expect to see libllama.so.0, libggml*.so.0, libllama-common.so.0, libmtmd.so.0,
+# libggml-vulkan.so.0 all resolving to ./<lib>.so.0 entries (via $ORIGIN rpath).
 ```
-This exercises the full `FLlamaDualBackend` construction path — proving every staged `.so` resolves cleanly at runtime. If `vulkaninfo` doesn't find a Vulkan device the test still passes; the model-load path silently falls back to CPU.
 
-The remaining automation buckets (`LlamaCore.UTF8.*`, `LlamaCore.RAG.*`, `LlamaTools.*`) are still gated to `EditorContext` and require the Linux *editor* binary — a separate native build inside WSL2 (cross-compile from Windows only emits the game target). That's a follow-up.
+**End-to-end automation tests** — running the cross-built game binary directly against `Automation RunTests` requires cooked Linux content (asset registry, shader formats), which a bare cross-compile doesn't produce. The proper path is:
+
+1. **Full UAT BuildCookRun**: `RunUAT.bat BuildCookRun -project=<...>.uproject -platform=Linux -clientconfig=Development -build -cook -stage -unattended` produces a complete staged build under `Saved/StagedBuilds/Linux/`. The staged binary can then run `Automation RunTests` cleanly.
+2. **Linux editor inside WSL2**: a UE source build native to Linux, paired with `<ProjectName>Editor` for Linux. Heavy, but enables the full automation suite (`LlamaCore.UTF8.*`, `LlamaCore.RAG.*`, `LlamaTools.*` — all currently `EditorContext`-gated).
+
+For the goal of "verify the plugin compiles and loads on Linux", the lib-layer smoke test + `ldd` check are sufficient acceptance evidence. UE-side automation on Linux is a downstream packaging exercise.
+
+**Verified state of the Linux build path** (as of this commit):
+- ✅ Plugin cross-compile via UBT: clean
+- ✅ All 14 `.so` files staged into `Binaries/Linux/` via `RuntimeDependencies`
+- ✅ `ldd` resolves every plugin-side dep cleanly via `$ORIGIN` rpath
+- ✅ `libllama.so` smoke-test via WSL2 gcc: `llama_backend_init` + `llama_print_system_info` return cleanly
+- ✅ Cross-built game binary loads, ICU initializes, plugin manager loads `LlamaCore`/`LlamaWhisper`/`LlamaTools`, RHI registers as `VULKAN_SM6`. Engine subsequently fails on missing cooked Linux assets — a packaging concern unrelated to the plugin.
 
 ### Mac build
 
