@@ -182,10 +182,12 @@ Both functions accept `Role`, `bAddAssistantBOS`, and `bGenerateReply` parameter
 
 ### Audio Prompts
 
-Audio must be provided as mono float PCM at the model's expected sample rate (use `GetAudioSampleRate()` to check - typically 16 kHz). Use `ULlamaAudioUtils` to convert Unreal `USoundWave` assets:
+Audio must be provided as mono float PCM at the model's expected sample rate (use `GetAudioSampleRate()` to check - typically 16 kHz).
+
+**From a USoundWave asset** - use `ULlamaAudioUtils` to convert:
 
 ```
-// One-shot convenience: converts SoundWave → 16 kHz mono float PCM
+// One-shot convenience: converts SoundWave -> 16 kHz mono float PCM
 TArray<float> PCM;
 ULlamaAudioUtils::SoundWaveToLLMAudio(MySoundWave, PCM, GetAudioSampleRate());
 
@@ -195,8 +197,10 @@ InsertTemplateAudioPrompt(PCM, "Transcribe this audio.")
 
 `ULlamaAudioUtils` also exposes lower-level steps if you need finer control:
 - `SoundWaveToPCMFloat` - raw PCM decode (returns source sample rate and channel count)
-- `PCMFloatToMono` - stereo/multichannel → mono downmix
+- `PCMFloatToMono` - stereo/multichannel to mono downmix
 - `ResamplePCMFloat` - arbitrary sample rate conversion
+
+**From a live microphone** - assign a [`ULlamaAudioCaptureComponent`](#audio-capture-and-vad) to `ULlamaComponent::AudioSource`. The capture component handles mic capture, VAD, and 16 kHz resampling; each speech segment is fed to the LLM via `AudioPromptTemplate` (default `"<__media__>\nRespond to what was said."`, settable per-prompt with `SetAudioPromptTemplate`). The same capture component can simultaneously feed a `UWhisperComponent` (see [LlamaWhisper Module](#llamawhisper-module)) for parallel transcription off the same mic stream.
 
 ### Multiple Media in One Message
 
@@ -292,28 +296,41 @@ A fetch script for the test fixture lives at [`Source/LlamaTools/Private/Tests/f
 
 ---
 
+# Audio capture and VAD
+
+Microphone capture and voice activity detection are provided by [`ULlamaAudioCaptureComponent`](Source/LlamaCore/Public/LlamaAudioCaptureComponent.h), which lives in `LlamaCore` and is shared across consumers. It captures from the system mic, resamples to 16 kHz mono, runs VAD, and dispatches speech segments to any number of registered consumers. Currently the two first-party consumers are `ULlamaComponent` (audio prompts on multimodal models, see the [Multimodal section](#multimodal-vision--audio)) and `UWhisperComponent` (speech-to-text, see [LlamaWhisper Module](#llamawhisper-module) below). Both subscribe in the same way and can run concurrently against a single capture.
+
+1. Drop a `ULlamaAudioCaptureComponent` on your actor (or spawn one and assign it from code).
+2. Pick a VAD mode via the `VADMode` property:
+   - `Disabled` - no VAD; audio buffers from `StartCapture` to `StopCapture` and dispatches as one segment. If a session exceeds `MaxSpeechSegmentSec` (default 15s) it auto-chunks with `NonVADOverlapSec` overlap (default 0.5s).
+   - `EnergyBased` *(default)* - RMS energy onset/offset detection. Tunable via `VADThreshold` (default 0.02), `VADHoldTimeSec` (default 0.8s), and `VADPreRollSec` (default 0.15s). Zero extra model files; works best in quiet environments.
+   - `Silero` - neural VAD using a ggml-converted Silero model. Robust in noisy environments. Requires a separate model file at `PathToVADModel` (default `./ggml-silero-v6.2.0.bin`). Tunable via `SileroThreshold` (default 0.5; lower = more sensitive) and `SileroHoldTimeSec` (default 0.2s; shorter than the EnergyBased default because Silero's detection is more precise).
+
+   Silero models: download v6 from https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v6.2.0.bin and place under `Saved/Models/` with the path prefixed `.` (e.g. `./ggml-silero-v6.2.0.bin`). The Silero model loads on the first call to `StartCapture` when `VADMode == Silero`.
+
+3. Wire up consumers. Either:
+   - From C++: implement `ILlamaAudioConsumer` and call `AddConsumer(this)`. Segments arrive directly on the BG thread (zero game-thread hop).
+   - From Blueprint: bind `OnAudioSegmentReady` (set `bEnableGameThreadDelegate = true`) for raw segments, or use `AddConsumerComponent(MyComponent)` to subscribe a sibling component such as `UWhisperComponent` or `ULlamaComponent` (both implement `ILlamaAudioConsumer`).
+
+4. Call `StartCapture` to begin listening; `StopCapture` to end. `SetMuted(true)` discards incoming audio without tearing down the capture. Bind `OnVADStateChanged(bool bIsSpeechDetected)` for onset/offset UI.
+
+`SnapshotAudio(Seconds)` returns the last N seconds from the ring buffer as a one-shot segment, useful for "transcribe what just got said" UX flows that don't need streaming.
+
 # LlamaWhisper Module
 
-Whisper.cpp embedded into the plugin, using the same ggml backend. 
+Whisper.cpp embedded into the plugin using the same ggml backend as the LLM side. Exposed via [`UWhisperComponent`](Source/LlamaWhisper/Public/WhisperComponent.h) wrapping `FWhisperNative`; the native class can be embedded directly if you don't need the actor-component layer.
 
-Exposed via `UWhisperComponent` wrapping `FWhisperNative` which can be optionally embedded in your own class instead. The basic api is the following:
+Model file: place a `ggml-*.bin` whisper model under `Saved/Models/` (e.g. `ggml-small.en.bin` from https://huggingface.co/ggerganov/whisper.cpp/tree/main) and set `ModelParams.PathToModel = "./ggml-small.en.bin"`. The model loads on `BeginPlay` when `ModelParams.bAutoLoadModelOnStartup = true` (default); set to `false` and call `LoadModel()` manually for explicit control. Bind `OnModelLoaded` to react when the model is ready.
 
-1. Add `UWhisperComponent` to your actor of choice. Model defined in `ModelParams` will load on startup, '.' before any path denotes relative to `Saved/Models`. Grab e.g. `ggml-small.en.bin` from  https://huggingface.co/ggerganov/whisper.cpp/tree/main
-2. Model will load on begin play, disable `bAutoLoadModelOnStartup` on the component if you wish to load manually.
-3. Choose a VAD mode via `StreamParams.VADMode`:
-   - **Disabled** - no VAD; audio buffers from `StartMicrophoneCapture` to `StopMicrophoneCapture` and is dispatched as one chunk. If audio exceeds `MaxSpeechSegmentSec` (default 15s) it is auto-chunked with `NonVADOverlapSec` overlap (default 0.5s) - you may need to de-duplicate words at boundaries manually.
-   - **Energy-Based (RMS)** *(default)* - lightweight onset/offset detection using an RMS energy threshold. Configurable via `VADThreshold`, `VADHoldTimeSec`, and `VADPreRollSec`. Fast, zero extra model files, works best in quiet environments.
-   - **Silero Neural VAD** - neural VAD using a ggml-converted Silero model. More robust in noisy environments. Requires a separate model file pointed to by `StreamParams.PathToVADModel` (default `./ggml-silero-v6.2.0.bin`). The model loads automatically after the whisper model loads. Silero-specific stream params:
-     - `SileroThreshold` (default 0.5) - speech probability threshold per window. Lower values are more sensitive; raise to reduce false positives in noisy environments.
-     - `SileroHoldTimeSec` (default 0.2s) - silence duration before speech offset. Shorter than the EnergyBased default (0.8s) because Silero's neural detection is more precise.
+Three usage shapes:
 
-   Download Silero VAD models from:
-     - v6: https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v6.2.0.bin
+1. **One-shot PCM**: call `TranscribeAudioData(PCMSamples, SampleRate)` with float32 mono or stereo audio (stereo gets averaged to mono). Resamples to 16 kHz internally if needed. Bind `OnTranscriptionResult(FString Text, bool bIsFinal)`.
 
-   Place the file in your project's `Saved/Models/` folder and set the path with a leading `.` (e.g. `./ggml-silero-v6.2.0.bin`). Bind `OnVADModelLoaded` to react when the Silero model is ready.
+2. **One-shot WAV file**: `TranscribeWaveFile(FilePath)` reads a 16-bit PCM mono/stereo `.wav` from disk and transcribes it. Same `OnTranscriptionResult` delegate.
 
-   In all VAD modes, start the microphone with `StartMicrophoneCapture` and stop with `StopMicrophoneCapture`. Any in-progress speech at stop time is always flushed and dispatched.
-4. Listen to `OnTranscriptionResult` for transcriptions. Bind `OnVADStateChanged` for speech onset/offset events.
+3. **Streaming from microphone**: assign a `ULlamaAudioCaptureComponent` (see [Audio capture and VAD](#audio-capture-and-vad) above) to `ExternalAudioSource`. Each VAD-gated segment from the capture component fires `OnTranscriptionResult` with `bIsFinal = true`. This is the recommended path because the same capture can simultaneously feed an audio-capable LLM via `ULlamaComponent::AudioSource`, giving you live transcription and multimodal audio prompts off one mic stream.
+
+Errors land on `OnError(int32 Code, FString Message)`.
 
 
 # Automation Tests
