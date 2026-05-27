@@ -39,8 +39,6 @@ Everything is wrapped inside a [`ULlamaComponent`](Source/LlamaCore/Public/Llama
 
 2) Call [`InsertTemplatedPrompt`](Source/LlamaCore/Public/LlamaComponent.h) with your message and role (typically User) along with whether you want your prompt to generate a response or not. Optionally use [`InsertRawPrompt`](Source/LlamaCore/Public/LlamaComponent.h) if you're doing raw input style without chat formatting. Note that you can safely chain requests and they will queue up one after another, responses will return in order.
 
-  **Assistant prefill / prepend**: `InsertTemplatedPrompt` and the `FLlamaChatPrompt` struct accept an optional `AssistantPrefill` argument. When non-empty (and `bAddAssistantBOS = true`), the text is inserted into the assistant turn after the BOS header but before sampling - the model continues from it without an intervening end-of-turn token. The prefill is treated as if the model produced it: streamed via `OnTokenGenerated` / `OnPartialGenerated`, returned in `OnResponseGenerated`, and stored in chat history. Useful for steering first-token behavior (`"Answer: "`) or for hard-suppressing thinking on a thinking-capable model (`"<think></think>\n\n"`). Currently a local-only feature; a warning is emitted in remote mode.
-
 3) You should receive replies via [`OnResponseGenerated`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaComponent.h#L36) when full response has been generated. If you need streaming information, listen to [`OnNewTokenGenerated`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaComponent.h#L32) and optionally `OnPartialGenerated` (sentence-level) or `OnMarkdownPartialGenerated` (formatting-aware partials tagged with `EMarkdownStreamState`: Text, Italic, Bold, Heading, Quote, Emphasis, **Thinking**). Markdown emission requires `Advanced.Markdown.bSplitMarkdown = true`. Thinking-capable models (Qwen3, DeepSeek-R1) auto-route content between `<think>...</think>` tags into the `Thinking` category - tag chars are stripped, content is delivered separately so you can route it to a "thinking" UI panel.
 
 `OnPartialGenerated` fires per-sentence using `Advanced.Output.PartialsSeparators`, which by default covers `.` `?` `!` `\n` `…` plus CJK (`。 ？ ！`), Devanagari danda (`।`), and Arabic question mark (`؟`). The matcher reads `Sep[0]` so only single-character entries are effective - replace or extend the array if your content needs different break points (clauses on `;` `:` etc.).
@@ -51,6 +49,10 @@ Explore [LlamaComponent.h](https://github.com/getnamo/Llama-Unreal/blob/ae243df8
 
 Call `RebuildContextFromHistory(FStructuredChatHistory)` to wipe the model's KV cache and re-ingest a saved conversation. The model's KV state is rebuilt so the next prompt continues correctly. State-only fallback is used when no native backend is available (e.g. running purely remote).
 
+
+### Assistant prefill / prepend
+
+`InsertTemplatedPrompt` and the `FLlamaChatPrompt` struct accept an optional `AssistantPrefill` argument. When non-empty (and `bAddAssistantBOS = true`), the text is inserted into the assistant turn after the BOS header but before sampling - the model continues from it without an intervening end-of-turn token. The prefill is treated as if the model produced it: streamed via `OnTokenGenerated` / `OnPartialGenerated`, returned in `OnResponseGenerated`, and stored in chat history. Useful for steering first-token behavior (`"Answer: "`) or for hard-suppressing thinking on a thinking-capable model (`"<think></think>\n\n"`). Currently a local-only feature; a warning is emitted in remote mode.
 
 # Remote routing
 
