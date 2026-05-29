@@ -6,48 +6,14 @@
 
 #include "Embedding/RagStore.h"
 #include "Tests/RagAskTestSink.h"
+#include "RagTestHelpers.h"
 #include "Misc/Paths.h"
-#include "HAL/PlatformProcess.h"
-#include "HAL/PlatformTime.h"
-#include "Containers/Ticker.h"
+
+// Shared model/corpus discovery + ticker-pump helpers (unity-safe; see RagTestHelpers.h).
+using namespace LlamaRagTestHelpers;
 
 namespace
 {
-    static FString FindEmbeddingModel()
-    {
-        const FString Root = FPaths::ProjectSavedDir() / TEXT("Models");
-        const TArray<FString> Candidates = {
-            TEXT("nomic-embed-text-v1.5.Q4_K_M.gguf"),
-            TEXT("bge-small-en-v1.5-q4_k_m.gguf"),
-            TEXT("multilingual-e5-large-instruct-q8_0.gguf"),
-        };
-        for (const FString& F : Candidates)
-        {
-            const FString Full = Root / F;
-            if (FPaths::FileExists(Full)) return FPaths::ConvertRelativePathToFull(Full);
-        }
-        return FString();
-    }
-
-    static FString FindCorpusDir()
-    {
-        const FString C = FPaths::ConvertRelativePathToFull(
-            FPaths::ProjectDir() / TEXT("Notes") / TEXT("RagDocs"));
-        return FPaths::DirectoryExists(C) ? C : FString();
-    }
-
-    static bool WaitFor(double TimeoutSec, TFunctionRef<bool()> Predicate)
-    {
-        const double Deadline = FPlatformTime::Seconds() + TimeoutSec;
-        while (FPlatformTime::Seconds() < Deadline)
-        {
-            FTSTicker::GetCoreTicker().Tick(0.016f);
-            if (Predicate()) return true;
-            FPlatformProcess::Sleep(0.016f);
-        }
-        return Predicate();
-    }
-
     /** Pulls the substring strictly between the FIRST <think>…</think> pair in `Text`.
      *  Returns the inner content (whitespace included). If no closing tag, returns
      *  everything after the opening tag. If no opening tag, returns empty. */
