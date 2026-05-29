@@ -455,7 +455,7 @@ to workaround CURL and generate .pdbs for debugging
 6. Build plugin
 
 ### Current Version
-Current Plugin [Llama.cpp](https://github.com/ggml-org/llama.cpp) was built from git has/tag: [b8586](https://github.com/ggml-org/llama.cpp/releases/tag/b8586)
+Current Plugin [Llama.cpp](https://github.com/ggml-org/llama.cpp) was built from git hash/tag: [b9404](https://github.com/ggml-org/llama.cpp/releases/tag/b9404)
 
 NB: use `-DGGML_NATIVE=OFF` to ensure wider portability.
 
@@ -507,7 +507,7 @@ Cross-compile llama.cpp using UE 5.7's bundled clang toolchain (`v26_clang-20.1.
 3. Vulkan SDK from https://vulkan.lunarg.com/sdk/home (sets `VULKAN_SDK`). Only the headers are needed at build time; `libvulkan.so.1` is `dlopen`'d at runtime on the Linux side.
 4. **libvulkan in the cross sysroot** - `find_package(Vulkan)` wants a libvulkan.so to satisfy the linker (ggml-vulkan dlopens at runtime, but CMake still checks). Easiest source: install `libvulkan-dev` in WSL2, then copy the `.so.1.x.y` file into the v26 toolchain at `<toolchain>/x86_64-unknown-linux-gnu/usr/lib64/` and create plain-file copies (NOT symlinks - WSL2 creates Windows junctions that clang.exe can't follow) named `libvulkan.so` and `libvulkan.so.1`.
 5. **MSVC** (Visual Studio 2022 Build Tools or Community) - the `vulkan-shaders-gen` sub-build is a *host* (Windows) tool built at CMake time. Without MSVC on PATH, CMake auto-picks mingw gcc which can't compile native Windows binaries. The build helper script invokes `VsDevCmd.bat` to set this up automatically.
-6. A modern llama.cpp checkout (b9090 or compatible).
+6. A modern llama.cpp checkout (b9404 or compatible).
 
 **Critical: libc++ ABI alignment.** UE on Linux compiles against libc++ (clang's `std::__1::vector`), not libstdc++ (`std::__cxx11::vector`). The toolchain file (`cmake/ue57-linux-cross.cmake`) sets `-stdlib=libc++` for the llama.cpp build so its `common_*` helper symbols mangle to match what UE's compile expects. Without this, plugin link fails with `undefined reference to common_batch_add(llama_batch&, ..., std::__1::vector<int>...)`. libc++ is static-only in this toolchain (no `libc++.so`), so each `.so` embeds its own copy - larger binaries (~+2-5 MB each), but ABI-clean.
 
