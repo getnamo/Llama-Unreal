@@ -221,6 +221,7 @@ bool FLlamaInternal::LoadModelFromParams(const FLLMModelParams& InModelParams)
             InModelParams.Advanced.Sampling.PenaltyPresence != 0.f)
         {
             llama_sampler_chain_add(Sampler, llama_sampler_init_penalties(
+                llama_vocab_n_tokens(llama_model_get_vocab(LlamaModel)),
                 InModelParams.Advanced.Sampling.PenaltyLastN, InModelParams.Advanced.Sampling.PenaltyRepeat,
                 InModelParams.Advanced.Sampling.PenaltyFrequency, InModelParams.Advanced.Sampling.PenaltyPresence));
         }
@@ -1263,6 +1264,8 @@ int32 FLlamaInternal::ProcessMultimodalPrompt(const std::string& FormattedPrompt
     // 1. Build bitmaps from media entries
     TArray<mtmd_bitmap*> Bitmaps;
     TArray<const mtmd_bitmap*> BitmapPtrs;
+    // Video contexts returned by the file helper must outlive tokenize/eval; freed on scope exit
+    std::vector<mtmd_helper::video_ptr> VideoContexts;
 
     for (const FLlamaMediaEntry& Entry : MediaEntries)
     {
@@ -1271,7 +1274,13 @@ int32 FLlamaInternal::ProcessMultimodalPrompt(const std::string& FormattedPrompt
         if (!Entry.FilePath.IsEmpty())
         {
             std::string FilePath = TCHAR_TO_UTF8(*FLlamaPaths::ParsePathIntoFullPath(Entry.FilePath));
-            Bmp = mtmd_helper_bitmap_init_from_file(MtmdContext, FilePath.c_str());
+            mtmd_helper_bitmap_wrapper Result = mtmd_helper_bitmap_init_from_file(
+                MtmdContext, FilePath.c_str(), false, mtmd_helper_init_opt_default());
+            Bmp = Result.bitmap;
+            if (Result.video_ctx)
+            {
+                VideoContexts.emplace_back(Result.video_ctx);
+            }
         }
         else if (Entry.MediaType == ELlamaMediaType::Image)
         {
