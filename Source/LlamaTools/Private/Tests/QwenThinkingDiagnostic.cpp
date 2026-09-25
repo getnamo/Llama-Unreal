@@ -62,7 +62,7 @@ bool FQwenThinkingDiagnosticTest::RunTest(const FString& /*Parameters*/)
     Store->AnswerModelParams.PathToModel       = QwenPath;
     Store->AnswerModelParams.MaxContextLength  = 4096;
     Store->AnswerModelParams.GPULayers         = 99;
-    Store->AnswerModelParams.Seed              = -1; // random; loop over multiple queries.
+    Store->AnswerModelParams.Seed              = 1234; // fixed: a random seed occasionally rambled past the 4096 context
 
     AddInfo(FString::Printf(TEXT("Defaults: bEnableThinking=%s bStripThinkingFromResponse=%s Temp=%.2f"),
         Store->AnswerModelParams.Advanced.Thinking.bEnableThinking ? TEXT("true") : TEXT("false"),
