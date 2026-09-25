@@ -37,9 +37,12 @@ public:
     //NB basic error codes: 1x == Load Error, 2x == Process Prompt error, 3x == Generate error. 1xx == Misc errors
     TFunction<void(const FString& ErrorMessage, int32 ErrorCode)> OnError = nullptr;     //doesn't use std::string due to expected consumer
 
-    //Messaging state
+    //Messaging state (message content is strdup'd; remove entries via ClearMessages)
     std::vector<llama_chat_message> Messages;
     std::vector<char> ContextHistory;
+
+    //Frees and removes Messages[FromIndex..end)
+    void ClearMessages(size_t FromIndex = 0);
 
     //Loaded state
     std::string Template;

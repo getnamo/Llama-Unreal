@@ -227,6 +227,11 @@ protected:
     void WireBackendCallbacks();
     void SyncBackendConfig();
 
+    /** Engine subsystems outlive PIE sessions: stop generation and drop queued work when a PIE world
+     *  tears down so nothing runs or broadcasts into the dead session. */
+    void HandleWorldCleanup(UWorld* World, bool bSessionEnded, bool bCleanupResources);
+
 private:
     FLlamaDualBackend* Backend = nullptr;
+    FDelegateHandle WorldCleanupHandle;
 };

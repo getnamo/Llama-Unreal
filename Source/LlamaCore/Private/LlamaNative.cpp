@@ -333,25 +333,43 @@ void FLlamaNative::SetModelParams(const FLLMModelParams& Params)
 	ModelParams = Params;
 }
 
+//True if two param sets would load the same model/context/samplers. The system prompt is excluded:
+//it's re-applied by the history reset of a non-forced LoadModel anyway.
+static bool IsSameLoadConfiguration(const FLLMModelParams& Loaded, const FLLMModelParams& Requested)
+{
+    FLLMModelParams RequestedCompare = Requested;
+    RequestedCompare.SystemPrompt = Loaded.SystemPrompt;
+    return FLLMModelParams::StaticStruct()->CompareScriptStruct(&Loaded, &RequestedCompare, PPF_None);
+}
+
 void FLlamaNative::LoadModel(bool bForceReload, TFunction<void(const FString&, int32 StatusCode)> ModelLoadedCallback)
 {
-    if (IsModelLoaded() && !bForceReload)
-    {
-        //already loaded, we're done
-        return ModelLoadedCallback(ModelParams.PathToModel, 0);
-    }
     bModelLoadInitiated = true;
 
     //Copy so these dont get modified during enqueue op
     const FLLMModelParams ParamsAtLoad = ModelParams;
 
-    EnqueueBGTask([this, ParamsAtLoad, ModelLoadedCallback](int64 TaskId)
+    //Decided on the BG thread so it's ordered after any load still in flight
+    EnqueueBGTask([this, ParamsAtLoad, bForceReload, ModelLoadedCallback](int64 TaskId)
     {
-        //Unload first if any is loaded
-        Internal->UnloadModel();
+        //Non-forced load of an identical configuration: keep the model, start a fresh conversation
+        const bool bReuseLoadedModel = !bForceReload && Internal->IsModelLoaded() &&
+            IsSameLoadConfiguration(Internal->LastLoadedParams, ParamsAtLoad);
 
-        //Now load it
-        bool bSuccess = Internal->LoadModelFromParams(ParamsAtLoad);
+        bool bSuccess = true;
+        if (bReuseLoadedModel)
+        {
+            Internal->ResetContextHistory(false);
+            Internal->LastLoadedParams = ParamsAtLoad;
+        }
+        else
+        {
+            //Unload first if any is loaded (this also clears all conversation state)
+            Internal->UnloadModel();
+
+            //Now load it
+            bSuccess = Internal->LoadModelFromParams(ParamsAtLoad);
+        }
 
         //Sync model state
         if (bSuccess)
@@ -366,14 +384,23 @@ void FLlamaNative::LoadModel(bool bForceReload, TFunction<void(const FString&, i
                 Internal->InsertTemplatedPrompt(FLlamaString::ToStd(ParamsAtLoad.SystemPrompt), EChatTemplateRole::System, false, false);
             }
 
+            //Capture the (fresh) conversation state for the game thread copies
+            FStructuredChatHistory ChatHistory;
+            FString ContextHistory;
+            GetStructuredChatHistory(ChatHistory);
+            RawContextHistory(ContextHistory);
+
             //Callback on game thread for data sync
-            EnqueueGTTask([this, TemplateString, TemplateSource, ModelLoadedCallback]
+            EnqueueGTTask([this, TemplateString, TemplateSource, ChatHistory, ContextHistory, ModelLoadedCallback]
             {
                 FJinjaChatTemplate ChatTemplate;
                 ChatTemplate.TemplateSource = TemplateSource;
                 ChatTemplate.Jinja = TemplateString;
 
                 ModelState.ChatTemplateInUse = ChatTemplate;
+                ModelState.ChatHistory = ChatHistory;
+                ModelState.ContextHistory = ContextHistory;
+                ModelState.LastRole = ChatHistory.History.Num() > 0 ? ChatHistory.History.Last().Role : EChatTemplateRole::Unknown;
                 ModelState.bModelIsLoaded = true;
 
                 bModelLoadInitiated = false;

@@ -5,6 +5,7 @@
 #include "LlamaDualBackend.h"
 #include "LlamaNative.h"
 #include "LlamaUtility.h"
+#include "Engine/World.h"
 
 void ULlamaSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
@@ -36,10 +37,29 @@ void ULlamaSubsystem::Initialize(FSubsystemCollectionBase& Collection)
     }
 
     WireBackendCallbacks();
+
+    WorldCleanupHandle = FWorldDelegates::OnWorldCleanup.AddUObject(this, &ULlamaSubsystem::HandleWorldCleanup);
+}
+
+void ULlamaSubsystem::HandleWorldCleanup(UWorld* World, bool bSessionEnded, bool bCleanupResources)
+{
+    //Only PIE: in a packaged game the subsystem is meant to keep running across level changes
+    if (!Backend || !World || World->WorldType != EWorldType::PIE)
+    {
+        return;
+    }
+
+    Backend->StopGeneration();
+    if (FLlamaNative* Native = Backend->GetLlamaNative())
+    {
+        Native->ClearPendingTasks(true);
+    }
 }
 
 void ULlamaSubsystem::Deinitialize()
 {
+    FWorldDelegates::OnWorldCleanup.Remove(WorldCleanupHandle);
+
     if (Backend)
     {
         if (Backend->GetLlamaNative())

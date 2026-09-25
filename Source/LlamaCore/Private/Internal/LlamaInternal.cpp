@@ -368,10 +368,29 @@ void FLlamaInternal::UnloadModel()
         common_sampler_free(CommonSampler);
         CommonSampler = nullptr;
     }
-    
+
+    //A reload must start from a clean conversation: stale Messages would be re-templated
+    //and re-ingested on the next prompt insert (history duplicated per reload, #53)
+    ClearMessages();
     ContextHistory.clear();
+    FilledContextCharLength = 0;
+    NextGenerationNPast = 0;
 
     bIsModelLoaded = false;
+}
+
+void FLlamaInternal::ClearMessages(size_t FromIndex)
+{
+    if (FromIndex >= Messages.size())
+    {
+        return;
+    }
+    for (size_t i = FromIndex; i < Messages.size(); i++)
+    {
+        //Roles are static strings, content is LLAMA_STRDUP'd
+        free(const_cast<char*>(Messages[i].content));
+    }
+    Messages.resize(FromIndex);
 }
 
 std::string FLlamaInternal::WrapPromptForRole(const std::string& Text, EChatTemplateRole Role, const std::string& OverrideTemplate, bool bAddAssistantBoS)
@@ -392,6 +411,8 @@ std::string FLlamaInternal::WrapPromptForRole(const std::string& Text, EChatTemp
     {
         NewLen = ApplyTemplateFromMessagesToBuffer(OverrideTemplate, MessageListWrapper, Buffer, bAddAssistantBoS);
     }
+
+    free(const_cast<char*>(MessageListWrapper[0].content));
 
     if(NewLen > 0)
     {
@@ -472,10 +493,11 @@ void FLlamaInternal::ResetContextHistory(bool bKeepSystemsPrompt)
 
     //Full Reset
     ContextHistory.clear();
-    Messages.clear();
+    ClearMessages();
 
     llama_memory_clear(llama_get_memory(Context), false);
     FilledContextCharLength = 0;
+    NextGenerationNPast = 0;
 }
 
 void FLlamaInternal::RollbackContextHistoryByTokens(int32 NTokensToErase)
@@ -505,9 +527,9 @@ void FLlamaInternal::RollbackContextHistoryByMessages(int32 NMessagesToErase)
         StopGeneration();
     }
 
-    if (NMessagesToErase <= Messages.size()) 
+    if (NMessagesToErase <= Messages.size())
     {
-        Messages.resize(Messages.size() - NMessagesToErase);
+        ClearMessages(Messages.size() - NMessagesToErase);
     }
 
     //Obtain full prompt before it gets deleted
@@ -647,9 +669,10 @@ void FLlamaInternal::RebuildContextFromHistory(const TArray<FStructuredChatMessa
 
     //Cheap KV+state wipe (mirrors ResetContextHistory full-reset path)
     ContextHistory.clear();
-    Messages.clear();
+    ClearMessages();
     llama_memory_clear(llama_get_memory(Context), false);
     FilledContextCharLength = 0;
+    NextGenerationNPast = 0;
 
     //Replay each message through the existing template+decode pipeline without generating
     for (const FStructuredChatMessage& Msg : InMessages)
@@ -768,9 +791,10 @@ int32 FLlamaInternal::ProcessPrompt(const std::string& Prompt, EChatTemplateRole
 {
     const auto StartTime = ggml_time_us();
 
-    //Grab vocab
+    //Grab vocab. seq_pos_max is -1 for an empty cache (0 means one token is already in it).
     const llama_vocab* Vocab = llama_model_get_vocab(LlamaModel);
-    const bool IsFirst = llama_memory_seq_pos_max(llama_get_memory(Context), 0) == 0;
+    const llama_pos SeqPosMax = llama_memory_seq_pos_max(llama_get_memory(Context), 0);
+    const bool IsFirst = SeqPosMax < 0;
 
     // tokenize the prompt
     const int NPromptTokens = -llama_tokenize(Vocab, Prompt.c_str(), Prompt.size(), NULL, 0, IsFirst, true);
@@ -781,79 +805,42 @@ int32 FLlamaInternal::ProcessPrompt(const std::string& Prompt, EChatTemplateRole
         return NPromptTokens;
     }
 
-    //All in one batch
-    if (LastLoadedParams.Advanced.Output.PromptProcessingPacingSleep == 0.f)
+    //check sizing before running prompt decode
+    const int32 NContext = llama_n_ctx(Context);
+    const int32 NContextUsed = SeqPosMax + 1;
+    if (NContextUsed + NPromptTokens > NContext)
     {
-        // prepare a batch for the prompt
-        llama_batch Batch = llama_batch_get_one(PromptTokens.data(), PromptTokens.size());
+        EmitErrorMessage(FString::Printf(
+            TEXT("Failed to insert, tried to insert %d tokens to currently used %d tokens which is more than the max %d context size. Try increasing the context size and re-run prompt."),
+            NPromptTokens, NContextUsed, NContext
+        ), 22, __func__);
+        return 0;
+    }
 
-        //check sizing before running prompt decode
-        int NContext = llama_n_ctx(Context);
-        int NContextUsed = llama_memory_seq_pos_max(llama_get_memory(Context), 0);
+    //llama_decode aborts the process if a batch exceeds n_batch (#53), so always feed the
+    //prompt in n_batch-sized chunks. Pacing optionally splits further and sleeps in between.
+    int32 ChunkSize = (int32)llama_n_batch(Context);
+    const float PacingSleep = LastLoadedParams.Advanced.Output.PromptProcessingPacingSleep;
+    if (PacingSleep > 0.f && LastLoadedParams.Advanced.Output.PromptProcessingPacingSplitN > 1)
+    {
+        const int32 SplitN = LastLoadedParams.Advanced.Output.PromptProcessingPacingSplitN;
+        ChunkSize = FMath::Min(ChunkSize, FMath::Max(1, (NPromptTokens + SplitN - 1) / SplitN));
+    }
 
-        if (NContextUsed + NPromptTokens > NContext)
-        {
-            EmitErrorMessage(FString::Printf(
-                TEXT("Failed to insert, tried to insert %d tokens to currently used %d tokens which is more than the max %d context size. Try increasing the context size and re-run prompt."),
-                NPromptTokens, NContextUsed, NContext
-            ), 22, __func__);
-            return 0;
-        }
+    for (int32 StartIndex = 0; StartIndex < NPromptTokens; StartIndex += ChunkSize)
+    {
+        const int32 CurrentBatchSize = FMath::Min(ChunkSize, NPromptTokens - StartIndex);
+        llama_batch Batch = llama_batch_get_one(PromptTokens.data() + StartIndex, CurrentBatchSize);
 
-        // run it through the decode (input)
         if (llama_decode(Context, Batch))
         {
             EmitErrorMessage(TEXT("Failed to decode, could not find a KV slot for the batch (try reducing the size of the batch or increase the context)."), 23, __func__);
-            return NPromptTokens;
+            return StartIndex;
         }
-    }
-    //Split it and sleep between batches for pacing purposes
-    else
-    {
-        int32 BatchCount = LastLoadedParams.Advanced.Output.PromptProcessingPacingSplitN;
 
-        int32 TotalTokens = PromptTokens.size();
-        int32 TokensPerBatch = TotalTokens / BatchCount;
-        int32 Remainder = TotalTokens % BatchCount;
-
-        int32 StartIndex = 0;
-
-        for (int32 i = 0; i < BatchCount; i++)
+        if (PacingSleep > 0.f && StartIndex + CurrentBatchSize < NPromptTokens)
         {
-            // Calculate how many tokens to put in this batch
-            int32 CurrentBatchSize = TokensPerBatch + (i < Remainder ? 1 : 0);
-
-            // Slice the relevant tokens for this batch
-            std::vector<llama_token> BatchTokens(
-                PromptTokens.begin() + StartIndex,
-                PromptTokens.begin() + StartIndex + CurrentBatchSize
-            );
-
-            // Prepare the batch
-            llama_batch Batch = llama_batch_get_one(BatchTokens.data(), BatchTokens.size());
-
-            // Check context before running decode
-            int NContext = llama_n_ctx(Context);
-            int NContextUsed = llama_memory_seq_pos_max(llama_get_memory(Context), 0);
-
-            if (NContextUsed + BatchTokens.size() > NContext)
-            {
-                EmitErrorMessage(FString::Printf(
-                    TEXT("Failed to insert, tried to insert %d tokens to currently used %d tokens which is more than the max %d context size. Try increasing the context size and re-run prompt."),
-                    BatchTokens.size(), NContextUsed, NContext
-                ), 22, __func__);
-                return 0;
-            }
-
-            // Decode this batch
-            if (llama_decode(Context, Batch))
-            {
-                EmitErrorMessage(TEXT("Failed to decode, could not find a KV slot for the batch (try reducing the size of the batch or increase the context)."), 23, __func__);
-                return BatchTokens.size();
-            }
-
-            StartIndex += CurrentBatchSize;
-            FPlatformProcess::Sleep(LastLoadedParams.Advanced.Output.PromptProcessingPacingSleep);
+            FPlatformProcess::Sleep(PacingSleep);
         }
     }
 
@@ -949,8 +936,10 @@ std::string FLlamaInternal::Generate(const std::string& Prompt, bool bAppendToMe
         Response += Piece;
         NDecoded += 1;
 
-        if (NPast + NDecoded > NContext)
+        //NPast is the position this token is about to be decoded at
+        if (NPast >= NContext)
         {
+            bGenerationActive = false;
             FString ErrorMessage = FString::Printf(TEXT("Context size %d exceeded on generation. Try increasing the context size and re-run prompt"), NContext);
 
             EmitErrorMessage(ErrorMessage, 31, __func__);
