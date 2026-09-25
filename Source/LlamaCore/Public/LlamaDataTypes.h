@@ -274,7 +274,12 @@ enum class ELLMSpeculativeMode : uint8
     //model; helps with repetitive output (lists, code, echoed text)
     NGram,
     //N-gram proposals first, falling back to the draft model
-    DraftModelAndNGram
+    DraftModelAndNGram,
+    //Multi-token prediction: the main model's own MTP heads propose tokens. No extra model, but the
+    //GGUF must include the MTP (nextn) tensors, e.g. Qwen3.5/3.6/3.8 MTP conversions
+    MTP,
+    //N-gram proposals first, falling back to the MTP heads
+    MTPAndNGram
 };
 
 //Speculative decoding: tokens are proposed cheaply and verified by the main model in a single batch.
@@ -294,7 +299,8 @@ struct FLLMSpeculativeParams
     FString DraftModelPath;
 
     //Max tokens proposed per verification step (1-64). Small values (3, llama.cpp's default) usually
-    //win: acceptance drops with each extra position while drafting cost grows
+    //win: acceptance drops with each extra position while drafting cost grows. For recurrent/hybrid
+    //models (e.g. Qwen3.5+) this is also the rollback depth reserved in the context
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Speculative")
     int32 DraftMaxTokens = 3;
 

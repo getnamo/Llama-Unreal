@@ -251,6 +251,140 @@ bool FLlamaSpeculativeConversationTest::RunTest(const FString& /*Parameters*/)
     return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FLlamaSpeculativeMTPTest,
+    "LlamaCore.Speculative.MTP",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FLlamaSpeculativeMTPTest::RunTest(const FString& /*Parameters*/)
+{
+    using namespace LlamaSpeculativeTests;
+
+    //Qwen3.5 is hybrid (attention + recurrent), so this also covers snapshot-based draft rollback
+    const FString ModelPath = FindModel(TEXT("Qwen3.5-4B-MTP-Q4_K_M.gguf"));
+    if (ModelPath.IsEmpty())
+    {
+        AddInfo(TEXT("Skipping: Qwen3.5-4B-MTP-Q4_K_M.gguf not found in Saved/Models"));
+        return true;
+    }
+
+    FLLMModelParams Params;
+    Params.PathToModel = ModelPath;
+    Params.MaxContextLength = 4096;
+    Params.Advanced.Sampling.Temp = 0.f;
+    Params.Advanced.Thinking.bEnableThinking = false;
+
+    const TCHAR* Prompt = TEXT("In one paragraph of about 120 words, explain how a lighthouse helps ships at night.");
+    const FString EchoPrompt = FString::Printf(TEXT("Repeat the following paragraph back word for word, with nothing else:\n\n%s"), Passage);
+
+    FRunResult Normal, MTP, NormalEcho, NGramHybrid;
+    if (!RunOnce(*this, Params, Prompt, Normal) || !RunOnce(*this, Params, *EchoPrompt, NormalEcho))
+    {
+        return false;
+    }
+
+    Params.Advanced.Speculative.Mode = ELLMSpeculativeMode::MTP;
+    if (!RunOnce(*this, Params, Prompt, MTP))
+    {
+        return false;
+    }
+    CompareRuns(*this, TEXT("mtp"), Normal, MTP);
+
+    Params.Advanced.Speculative.Mode = ELLMSpeculativeMode::NGram;
+    Params.Advanced.Speculative.DraftMaxTokens = 8;
+    if (!RunOnce(*this, Params, *EchoPrompt, NGramHybrid))
+    {
+        return false;
+    }
+    CompareRuns(*this, TEXT("ngram on hybrid"), NormalEcho, NGramHybrid);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FLlamaSpeculativeMTPConversationTest,
+    "LlamaCore.Speculative.MTPConversation",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FLlamaSpeculativeMTPConversationTest::RunTest(const FString& /*Parameters*/)
+{
+    using namespace LlamaSpeculativeTests;
+
+    const FString ModelPath = FindModel(TEXT("Qwen3.5-4B-MTP-Q4_K_M.gguf"));
+    if (ModelPath.IsEmpty())
+    {
+        AddInfo(TEXT("Skipping: Qwen3.5-4B-MTP-Q4_K_M.gguf not found in Saved/Models"));
+        return true;
+    }
+
+    FLLMModelParams Params;
+    Params.PathToModel = ModelPath;
+    Params.MaxContextLength = 4096;
+    Params.SystemPrompt = TEXT("You are a concise assistant.");
+    Params.Advanced.Sampling.Temp = 0.f;
+    Params.Advanced.Thinking.bEnableThinking = false;
+    Params.Advanced.Speculative.Mode = ELLMSpeculativeMode::MTPAndNGram;
+
+    FLlamaInternal Internal;
+    if (!TestTrue(TEXT("load"), Internal.LoadModelFromParams(Params)) || !TestTrue(TEXT("speculative active"), Internal.IsSpeculativeActive()))
+    {
+        return false;
+    }
+    Internal.InsertTemplatedPrompt(TCHAR_TO_UTF8(*Params.SystemPrompt), EChatTemplateRole::System, false, false);
+
+    const TCHAR* Turns[] = {
+        TEXT("List three primary colors, comma separated."),
+        TEXT("Now list them again in reverse order."),
+        TEXT("And once more, in uppercase."),
+    };
+    for (const TCHAR* Turn : Turns)
+    {
+        const std::string Reply = Internal.InsertTemplatedPrompt(TCHAR_TO_UTF8(Turn), EChatTemplateRole::User, true, true);
+        AddInfo(FString::Printf(TEXT("'%s' -> '%s' (accepted %d/%d)"), Turn, *FString(UTF8_TO_TCHAR(Reply.c_str())).TrimStartAndEnd(),
+            Internal.LastSpeculativeStats.AcceptedTokens, Internal.LastSpeculativeStats.DraftedTokens));
+        TestFalse(TEXT("reply not empty"), Reply.empty());
+        TestTrue(TEXT("speculation used"), Internal.LastSpeculativeStats.VerificationSteps > 0);
+        TestTrue(TEXT("mirror consistent after turn"), Internal.IsTokenMirrorConsistent());
+    }
+
+    Internal.ResetContextHistory(false);
+    TestTrue(TEXT("mirror empty after reset"), Internal.IsTokenMirrorConsistent());
+    const std::string AfterReset = Internal.InsertTemplatedPrompt("Name one planet. Reply with a single word.", EChatTemplateRole::User, true, true);
+    TestFalse(TEXT("reply after reset"), AfterReset.empty());
+    TestTrue(TEXT("speculation used after reset"), Internal.LastSpeculativeStats.VerificationSteps > 0);
+    Internal.UnloadModel();
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FLlamaSpeculativeMTPMissingHeadsTest,
+    "LlamaCore.Speculative.MTPWithoutHeadsFallsBack",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FLlamaSpeculativeMTPMissingHeadsTest::RunTest(const FString& /*Parameters*/)
+{
+    using namespace LlamaSpeculativeTests;
+
+    const FString ModelPath = FindModel(TEXT("google_gemma-3-4b-it-Q4_K_L.gguf"));
+    if (ModelPath.IsEmpty())
+    {
+        AddInfo(TEXT("Skipping: test model not found in Saved/Models"));
+        return true;
+    }
+
+    FLLMModelParams Params;
+    Params.PathToModel = ModelPath;
+    Params.MaxContextLength = 2048;
+    Params.Advanced.Sampling.Temp = 0.f;
+    Params.Advanced.Speculative.Mode = ELLMSpeculativeMode::MTP;
+
+    AddExpectedError(TEXT("no MTP heads"), EAutomationExpectedErrorFlags::Contains, 1);
+    FRunResult Result;
+    if (!RunOnce(*this, Params, TEXT("Name one planet in the solar system. Reply with a single word."), Result))
+    {
+        return false;
+    }
+    TestFalse(TEXT("still generates"), Result.Response.IsEmpty());
+    TestEqual(TEXT("no speculation used"), Result.Stats.VerificationSteps, 0);
+    return true;
+}
+
 // Not part of LlamaCore.*: sweeps draft settings on a 14B target and logs a table (slow)
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FLlamaSpeculativeBenchmark,
     "LlamaBenchmark.Speculative.Qwen3",
@@ -292,6 +426,7 @@ bool FLlamaSpeculativeBenchmark::RunTest(const FString& /*Parameters*/)
     {
         FLLMModelParams Params;
         Params.PathToModel = Target;
+        Params.GPULayers = 999; //all layers: the plugin default (50) leaves part of a 27B on the CPU
         Params.MaxContextLength = 4096;
         Params.Advanced.Sampling.Temp = 0.f;
         Params.Advanced.Thinking.bEnableThinking = false;
@@ -328,6 +463,78 @@ bool FLlamaSpeculativeBenchmark::RunTest(const FString& /*Parameters*/)
                 return false;
             }
             AddInfo(FString::Printf(TEXT("%-18s %6.1f t/s  x%.2f  accepted %3d/%3d (%3.0f%%)  %.2f tok/pass"),
+                Config.Name, Spec.TokensPerSecond, Spec.TokensPerSecond / FMath::Max(Normal.TokensPerSecond, 0.01f),
+                Spec.Stats.AcceptedTokens, Spec.Stats.DraftedTokens, Spec.Stats.AcceptanceRate * 100.f, Spec.Stats.TokensPerStep));
+        }
+    }
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FLlamaSpeculativeMTPBenchmark,
+    "LlamaBenchmark.Speculative.MTP",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FLlamaSpeculativeMTPBenchmark::RunTest(const FString& /*Parameters*/)
+{
+    using namespace LlamaSpeculativeTests;
+
+    const FString Target = FindModel(TEXT("Qwen3.8-27B-UD-Q4_K_M.gguf"));
+    if (Target.IsEmpty())
+    {
+        AddInfo(TEXT("Skipping: Qwen3.8-27B-UD-Q4_K_M.gguf not found in Saved/Models"));
+        return true;
+    }
+
+    struct FConfig { const TCHAR* Name; ELLMSpeculativeMode Mode; int32 NMax; };
+    const FConfig Configs[] = {
+        { TEXT("mtp n1"),       ELLMSpeculativeMode::MTP, 1 },
+        { TEXT("mtp n2"),       ELLMSpeculativeMode::MTP, 2 },
+        { TEXT("mtp n3"),       ELLMSpeculativeMode::MTP, 3 },
+        { TEXT("mtp+ngram n1"), ELLMSpeculativeMode::MTPAndNGram, 1 },
+        { TEXT("ngram n8"),     ELLMSpeculativeMode::NGram, 8 },
+    };
+    const TCHAR* Prompts[] = {
+        TEXT("In one paragraph of about 120 words, explain how a lighthouse helps ships at night."),
+        TEXT("Write a Python function that parses a CSV file into a list of dictionaries using the csv module, with a docstring and type hints. Only output the code."),
+    };
+
+    for (const TCHAR* Prompt : Prompts)
+    {
+        FLLMModelParams Params;
+        Params.PathToModel = Target;
+        Params.GPULayers = 999; //all layers: the plugin default (50) leaves part of a 27B on the CPU
+        Params.MaxContextLength = 4096;
+        Params.Advanced.Sampling.Temp = 0.f;
+        Params.Advanced.Thinking.bEnableThinking = false;
+
+        auto BestOfTwo = [&](FRunResult& Out) -> bool
+        {
+            FRunResult A, B;
+            if (!RunOnce(*this, Params, Prompt, A) || !RunOnce(*this, Params, Prompt, B))
+            {
+                return false;
+            }
+            Out = A.TokensPerSecond >= B.TokensPerSecond ? A : B;
+            return true;
+        };
+
+        FRunResult Normal;
+        if (!BestOfTwo(Normal))
+        {
+            return false;
+        }
+        AddInfo(FString::Printf(TEXT("--- %.40s... | baseline %d tok @ %.1f t/s"), Prompt, Normal.Tokens, Normal.TokensPerSecond));
+
+        for (const FConfig& Config : Configs)
+        {
+            Params.Advanced.Speculative.Mode = Config.Mode;
+            Params.Advanced.Speculative.DraftMaxTokens = Config.NMax;
+            FRunResult Spec;
+            if (!BestOfTwo(Spec))
+            {
+                return false;
+            }
+            AddInfo(FString::Printf(TEXT("%-14s %6.1f t/s  x%.2f  accepted %3d/%3d (%3.0f%%)  %.2f tok/pass"),
                 Config.Name, Spec.TokensPerSecond, Spec.TokensPerSecond / FMath::Max(Normal.TokensPerSecond, 0.01f),
                 Spec.Stats.AcceptedTokens, Spec.Stats.DraftedTokens, Spec.Stats.AcceptanceRate * 100.f, Spec.Stats.TokensPerStep));
         }

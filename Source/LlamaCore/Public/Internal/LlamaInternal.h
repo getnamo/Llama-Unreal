@@ -176,8 +176,13 @@ protected:
     //Speculative token loop; same contract as Generate's normal loop (emits tokens, advances NPast)
     void GenerateSpeculative(std::string& Response, int32& NDecoded, llama_pos& NPast, bool& bEOGExit);
 
-    //Decodes a text prompt chunk (auto positions), mirrors it into ContextTokens and feeds the draft side
+    //Decodes a text prompt chunk, mirrors it into ContextTokens and feeds the draft side
     int32 DecodePromptChunk(const llama_token* Tokens, int32 NTokens);
+
+    //Decodes tokens at explicit positions through TrackedBatch (logits for the last token only), then
+    //mirrors + feeds the draft side. Speculative implementations (e.g. MTP) read the batch's positions
+    //and sequence ids, which llama_batch_get_one leaves null.
+    int32 DecodeTracked(const llama_token* Tokens, int32 NTokens, llama_pos StartPos);
 
     //Removes KV / token mirror entries from position FromPos onward on the target and draft contexts
     void TrimContextFrom(llama_pos FromPos);
@@ -193,6 +198,7 @@ protected:
     //only ever write into existing capacity (it push_backs / resizes within it), never reallocate ours
     std::vector<llama_token> DraftTokens;
     llama_batch SpeculativeBatch = {};
+    llama_batch TrackedBatch = {};
 
     FThreadSafeBool bIsModelLoaded = false;
     int32 FilledContextCharLength = 0;

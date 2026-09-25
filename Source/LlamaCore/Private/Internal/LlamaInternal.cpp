@@ -118,7 +118,7 @@ bool FLlamaInternal::LoadModelFromParams(const FLLMModelParams& InModelParams)
     // only print errors
     llama_log_set([](enum ggml_log_level level, const char* text, void* /* user_data */)
     {
-        if (level >= GGML_LOG_LEVEL_ERROR) {
+        if (level == GGML_LOG_LEVEL_ERROR) { // >= would also match GGML_LOG_LEVEL_CONT (progress dots)
             // Route to UE log so it appears in editor Output Log, not just stderr
             UE_LOG(LlamaLog, Warning, TEXT("[llama] %hs"), text);
         }
@@ -133,6 +133,11 @@ bool FLlamaInternal::LoadModelFromParams(const FLLMModelParams& InModelParams)
     //Regular init
     llama_model_params LlamaModelParams = llama_model_default_params();
     LlamaModelParams.n_gpu_layers = InModelParams.GPULayers;
+
+    //MTP heads are skipped at load unless requested
+    const ELLMSpeculativeMode SpecMode = InModelParams.Advanced.Speculative.Mode;
+    LlamaModelParams.load_mtp = !InModelParams.Advanced.bEmbeddingMode &&
+        (SpecMode == ELLMSpeculativeMode::MTP || SpecMode == ELLMSpeculativeMode::MTPAndNGram);
 
     LlamaModel = llama_model_load_from_file(ModelPath.c_str(), LlamaModelParams);
     if (!LlamaModel)
@@ -164,6 +169,13 @@ bool FLlamaInternal::LoadModelFromParams(const FLLMModelParams& InModelParams)
     if (InModelParams.Advanced.Speculative.Mode != ELLMSpeculativeMode::None && !InModelParams.Advanced.bEmbeddingMode)
     {
         ContextParams.n_outputs_max_per_seq = 0; //0 = up to n_outputs_max (n_batch)
+
+        //Recurrent/hybrid state can't simply drop a rejected draft tail: keep enough per-token
+        //snapshots to roll back a full draft
+        if (llama_model_is_recurrent(LlamaModel) || llama_model_is_hybrid(LlamaModel))
+        {
+            ContextParams.n_rs_seq = (uint32_t)FMath::Clamp(InModelParams.Advanced.Speculative.DraftMaxTokens, 1, 64);
+        }
     }
 
     SavedFlashAttnType = ContextParams.flash_attn_type;
@@ -470,15 +482,17 @@ bool FLlamaInternal::InitSpeculative(const FLLMModelParams& InModelParams)
         return false;
     }
 
-    //Recurrent/hybrid models can't drop a rejected draft tail from their state (needs checkpoints)
-    if (llama_model_is_recurrent(LlamaModel) || llama_model_is_hybrid(LlamaModel))
+    //Recurrent/hybrid targets roll back through the n_rs_seq snapshots reserved at context creation
+    if ((llama_model_is_recurrent(LlamaModel) || llama_model_is_hybrid(LlamaModel)) && llama_n_rs_seq(Context) == 0)
     {
-        EmitErrorMessage(TEXT("Speculative decoding isn't supported for recurrent/hybrid models yet, generating normally."), 13, __func__);
+        EmitErrorMessage(TEXT("Speculative decoding needs rollback snapshots for this recurrent/hybrid model, generating normally."), 13, __func__);
         return false;
     }
 
     const bool bUseDraftModel = Spec.Mode == ELLMSpeculativeMode::DraftModel || Spec.Mode == ELLMSpeculativeMode::DraftModelAndNGram;
-    const bool bUseNGram = Spec.Mode == ELLMSpeculativeMode::NGram || Spec.Mode == ELLMSpeculativeMode::DraftModelAndNGram;
+    const bool bUseMTP = Spec.Mode == ELLMSpeculativeMode::MTP || Spec.Mode == ELLMSpeculativeMode::MTPAndNGram;
+    const bool bUseNGram = Spec.Mode == ELLMSpeculativeMode::NGram || Spec.Mode == ELLMSpeculativeMode::DraftModelAndNGram ||
+        Spec.Mode == ELLMSpeculativeMode::MTPAndNGram;
 
     if (bUseDraftModel)
     {
@@ -506,10 +520,42 @@ bool FLlamaInternal::InitSpeculative(const FLLMModelParams& InModelParams)
         DraftContextParams.n_batch = llama_n_batch(Context);
         DraftContextParams.n_threads = InModelParams.Threads;
         DraftContextParams.n_threads_batch = InModelParams.Threads;
+        if (llama_model_is_recurrent(DraftModel) || llama_model_is_hybrid(DraftModel))
+        {
+            //Drafting runs ahead by up to n_max + 1 tokens before being rewound
+            DraftContextParams.n_rs_seq = (uint32_t)FMath::Clamp(Spec.DraftMaxTokens, 1, 64) + 1;
+        }
         DraftContext = llama_init_from_model(DraftModel, DraftContextParams);
         if (!DraftContext)
         {
             EmitErrorMessage(TEXT("Unable to create the draft model context, generating without speculation."), 13, __func__);
+            FreeSpeculative();
+            return false;
+        }
+    }
+
+    if (bUseMTP)
+    {
+        if (llama_model_n_layer_nextn(LlamaModel) <= 0)
+        {
+            EmitErrorMessage(TEXT("Model has no MTP heads (needs a GGUF converted with its nextn/MTP tensors), generating without speculation."), 13, __func__);
+            FreeSpeculative();
+            return false;
+        }
+
+        //Second context on the same model running the MTP head (mirrors common_speculative_init_result)
+        llama_context_params MTPContextParams = llama_context_default_params();
+        MTPContextParams.ctx_type = LLAMA_CONTEXT_TYPE_MTP;
+        MTPContextParams.n_ctx = llama_n_ctx(Context);
+        MTPContextParams.n_batch = llama_n_batch(Context);
+        MTPContextParams.n_rs_seq = 0;
+        MTPContextParams.ctx_other = Context;
+        MTPContextParams.n_threads = InModelParams.Threads;
+        MTPContextParams.n_threads_batch = InModelParams.Threads;
+        DraftContext = llama_init_from_model(LlamaModel, MTPContextParams);
+        if (!DraftContext)
+        {
+            EmitErrorMessage(TEXT("Unable to create the MTP context, generating without speculation."), 13, __func__);
             FreeSpeculative();
             return false;
         }
@@ -524,6 +570,10 @@ bool FLlamaInternal::InitSpeculative(const FLLMModelParams& InModelParams)
     if (bUseDraftModel)
     {
         SpeculativeParams->types.push_back(COMMON_SPECULATIVE_TYPE_DRAFT_SIMPLE);
+    }
+    if (bUseMTP)
+    {
+        SpeculativeParams->types.push_back(COMMON_SPECULATIVE_TYPE_DRAFT_MTP);
     }
     SpeculativeParams->draft.n_max = FMath::Clamp(Spec.DraftMaxTokens, 1, 64);
     SpeculativeParams->draft.n_min = FMath::Max(0, Spec.DraftMinTokens);
@@ -550,6 +600,7 @@ bool FLlamaInternal::InitSpeculative(const FLLMModelParams& InModelParams)
     DraftTokens.clear();
     DraftTokens.reserve(512);
     SpeculativeBatch = llama_batch_init(1 + 64, 0, 1);
+    TrackedBatch = llama_batch_init(llama_n_batch(Context), 0, 1);
 
     UE_LOG(LlamaLog, Log, TEXT("Speculative decoding enabled (%s), max %d draft tokens%s"),
         *UEnum::GetDisplayValueAsText(Spec.Mode).ToString(), SpeculativeParams->draft.n_max,
@@ -581,6 +632,11 @@ void FLlamaInternal::FreeSpeculative()
         llama_batch_free(SpeculativeBatch);
     }
     SpeculativeBatch = {};
+    if (TrackedBatch.token)
+    {
+        llama_batch_free(TrackedBatch);
+    }
+    TrackedBatch = {};
 }
 
 bool FLlamaInternal::IsTokenMirrorConsistent() const
@@ -596,17 +652,42 @@ bool FLlamaInternal::CanSpeculate() const
 
 int32 FLlamaInternal::DecodePromptChunk(const llama_token* Tokens, int32 NTokens)
 {
+    if (Speculative && bSpeculativeInSync)
+    {
+        return DecodeTracked(Tokens, NTokens, llama_memory_seq_pos_max(llama_get_memory(Context), 0) + 1);
+    }
+
     llama_batch Batch = llama_batch_get_one(const_cast<llama_token*>(Tokens), NTokens);
     const int32 Result = llama_decode(Context, Batch);
+    if (Result == 0)
+    {
+        ContextTokens.insert(ContextTokens.end(), Tokens, Tokens + NTokens);
+    }
+    return Result;
+}
+
+int32 FLlamaInternal::DecodeTracked(const llama_token* Tokens, int32 NTokens, llama_pos StartPos)
+{
+    TrackedBatch.n_tokens = NTokens;
+    for (int32 i = 0; i < NTokens; i++)
+    {
+        TrackedBatch.token[i] = Tokens[i];
+        TrackedBatch.pos[i] = StartPos + i;
+        TrackedBatch.n_seq_id[i] = 1;
+        TrackedBatch.seq_id[i][0] = 0;
+        TrackedBatch.logits[i] = (i == NTokens - 1);
+    }
+
+    const int32 Result = llama_decode(Context, TrackedBatch);
     if (Result != 0)
     {
         return Result;
     }
 
     ContextTokens.insert(ContextTokens.end(), Tokens, Tokens + NTokens);
-    if (Speculative && bSpeculativeInSync && !common_speculative_process(Speculative, Batch))
+    if (Speculative && bSpeculativeInSync && !common_speculative_process(Speculative, TrackedBatch))
     {
-        UE_LOG(LlamaLog, Warning, TEXT("Speculative: draft side failed to process the prompt, disabled until the next context reset."));
+        UE_LOG(LlamaLog, Warning, TEXT("Speculative: draft side failed to process a batch, disabled until the next context reset."));
         bSpeculativeInSync = false;
     }
     return 0;
@@ -808,15 +889,8 @@ void FLlamaInternal::GenerateSpeculative(std::string& Response, int32& NDecoded,
     //Stopped early: decode the last emitted token so the KV matches the normal loop's end state
     if (bIdLastPending && !bEOGExit && NPast < NContext)
     {
-        llama_batch SingleBatch = llama_batch_get_one(&IdLast, 1);
-        SingleBatch.pos = &NPast;
-        if (llama_decode(Context, SingleBatch) == 0)
+        if (DecodeTracked(&IdLast, 1, NPast) == 0)
         {
-            ContextTokens.push_back(IdLast);
-            if (!common_speculative_process(Speculative, SingleBatch))
-            {
-                bSpeculativeInSync = false;
-            }
             NPast++;
         }
     }
@@ -1461,7 +1535,8 @@ std::string FLlamaInternal::Generate(const std::string& Prompt, bool bAppendToMe
         llama_batch SingleBatch = llama_batch_get_one(&NewTokenId, 1);
         SingleBatch.pos = &NPast;  // override auto-position with tracked n_past
 
-        if (llama_decode(Context, SingleBatch))
+        const bool bTracked = Speculative && bSpeculativeInSync;
+        if (bTracked ? DecodeTracked(&NewTokenId, 1, NPast) != 0 : llama_decode(Context, SingleBatch) != 0)
         {
             bGenerationActive = false;
             FString ErrorMessage = TEXT("Failed to decode. Could not find a KV slot for the batch (try reducing the size of the batch or increase the context)");
@@ -1470,10 +1545,9 @@ std::string FLlamaInternal::Generate(const std::string& Prompt, bool bAppendToMe
             return Response;
         }
 
-        ContextTokens.push_back(NewTokenId);
-        if (Speculative && bSpeculativeInSync && !common_speculative_process(Speculative, SingleBatch))
+        if (!bTracked)
         {
-            bSpeculativeInSync = false;
+            ContextTokens.push_back(NewTokenId);
         }
         NPast++;
 
@@ -1710,7 +1784,7 @@ bool FLlamaInternal::InitMultimodal(const FString& MmprojPath)
     // Route mtmd-helper logs (image/audio batch errors) through UE log
     mtmd_helper_log_set([](enum ggml_log_level level, const char* text, void* /*user_data*/)
     {
-        if (level >= GGML_LOG_LEVEL_ERROR) {
+        if (level == GGML_LOG_LEVEL_ERROR) { // >= would also match GGML_LOG_LEVEL_CONT (progress dots)
             UE_LOG(LlamaLog, Warning, TEXT("[mtmd] %hs"), text);
         }
     }, nullptr);

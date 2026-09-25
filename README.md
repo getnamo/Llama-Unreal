@@ -75,12 +75,16 @@ Each new reply starts the grammar fresh. An invalid grammar is reported through 
 | `DraftModel` | A small model with the **same tokenizer** (`DraftModelPath`), e.g. Qwen3-0.6B for a Qwen3-14B | Predictable text such as code |
 | `NGram` | Continuations of token sequences already in the context; no extra model | Repetitive output: echoed/quoted text, lists, code edits |
 | `DraftModelAndNGram` | N-gram first, draft model as fallback | Both |
+| `MTP` | The main model's own multi-token-prediction heads; no extra model. Needs a GGUF that includes the MTP (`nextn`) tensors, e.g. Qwen3.5/3.6/3.8 conversions from unsloth | Any text, on models that ship MTP heads |
+| `MTPAndNGram` | N-gram first, MTP heads as fallback | Both |
 
 - `DraftMaxTokens` (default 3) caps proposals per pass. Keep it small for draft models; for `NGram` alone, 8-16 works better since n-gram proposals are nearly free.
 - `DraftMinProbability` stops drafting once the draft model is unsure; `DraftGPULayers` offloads the draft model.
 - After each response, `ModelState.LastSpeculativeStats` reports drafted/accepted tokens, acceptance rate and tokens per main-model pass (also logged with the TGS line).
-- The draft model should be much smaller than the main model (~1/10 the size or less); a draft model that is too large costs more than it saves. Gains depend heavily on content and backend: on the Vulkan build, a 0.6B draft for a 14B model gives ~1.15x on code and no gain on free-form prose, while n-gram speculation on echoed text gives ~1.2-1.3x.
-- Not used for turns containing images/audio (the draft side can't see them) or with recurrent/hybrid models such as Qwen3.5 (reported through `OnError`, generation continues normally).
+- `MTP` gives the most consistent gains when the model ships MTP heads. Measured on the Vulkan build with Qwen3.8-27B (all layers on GPU, greedy): 1.25-1.33x on prose and 1.45-1.76x on code, with 2-3 draft tokens.
+- A draft model should be much smaller than the main model (~1/10 the size or less); one that is too large costs more than it saves. Gains depend heavily on content and backend: on the Vulkan build, a 0.6B draft for a 14B model gives ~1.15x on code and no gain on free-form prose, while n-gram speculation on echoed text gives ~1.2-1.3x.
+- Recurrent/hybrid models (e.g. Qwen3.5+) are supported: `DraftMaxTokens` rollback snapshots are reserved in the context so rejected drafts can be undone.
+- Not used for turns containing images/audio (the draft side can't see them). A missing draft model, mismatched tokenizer or missing MTP heads is reported through `OnError` and generation continues normally.
 
 ### LoadModel and reloading
 
