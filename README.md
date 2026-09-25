@@ -66,6 +66,22 @@ digit ::= [0-9]
 
 Each new reply starts the grammar fresh. An invalid grammar is reported through `OnError` (code 12) and generation continues unconstrained. To change the grammar, temperature or any other sampling setting at runtime without reloading the model or losing the conversation, call `UpdateSamplingParams`. The grammar is also forwarded to llama-server in remote mode.
 
+### Speculative decoding
+
+`ModelParams.Advanced.Speculative` makes generation propose several tokens cheaply and verify them with the main model in one pass. Every emitted token still comes from the main model's sampler, so output quality is unchanged (with greedy sampling, batched verification can flip rare near-tie word choices, the same as llama.cpp).
+
+| `Mode` | How tokens are proposed | Good for |
+|---|---|---|
+| `DraftModel` | A small model with the **same tokenizer** (`DraftModelPath`), e.g. Qwen3-0.6B for a Qwen3-14B | Predictable text such as code |
+| `NGram` | Continuations of token sequences already in the context; no extra model | Repetitive output: echoed/quoted text, lists, code edits |
+| `DraftModelAndNGram` | N-gram first, draft model as fallback | Both |
+
+- `DraftMaxTokens` (default 3) caps proposals per pass. Keep it small for draft models; for `NGram` alone, 8-16 works better since n-gram proposals are nearly free.
+- `DraftMinProbability` stops drafting once the draft model is unsure; `DraftGPULayers` offloads the draft model.
+- After each response, `ModelState.LastSpeculativeStats` reports drafted/accepted tokens, acceptance rate and tokens per main-model pass (also logged with the TGS line).
+- The draft model should be much smaller than the main model (~1/10 the size or less); a draft model that is too large costs more than it saves. Gains depend heavily on content and backend: on the Vulkan build, a 0.6B draft for a 14B model gives ~1.15x on code and no gain on free-form prose, while n-gram speculation on echoed text gives ~1.2-1.3x.
+- Not used for turns containing images/audio (the draft side can't see them) or with recurrent/hybrid models such as Qwen3.5 (reported through `OnError`, generation continues normally).
+
 ### LoadModel and reloading
 
 `LoadModel(bForceReload = true)` always does a clean reload. With `bForceReload = false`, if the same model and context settings are already loaded, the model is kept and the conversation is reset to the system prompt instead (near-instant); changed sampling params are applied in place. Any other change triggers a real reload.

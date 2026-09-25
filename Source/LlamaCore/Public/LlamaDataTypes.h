@@ -263,10 +263,87 @@ struct FLLMOutputParams
     int32 PromptProcessingPacingSplitN = 4;
 };
 
+UENUM(BlueprintType)
+enum class ELLMSpeculativeMode : uint8
+{
+    //Normal one-token-at-a-time generation
+    None,
+    //A small draft model with the same tokenizer proposes tokens that the main model verifies in one batch
+    DraftModel,
+    //Self-speculation: proposes continuations of token sequences already seen in the context. No extra
+    //model; helps with repetitive output (lists, code, echoed text)
+    NGram,
+    //N-gram proposals first, falling back to the draft model
+    DraftModelAndNGram
+};
+
+//Speculative decoding: tokens are proposed cheaply and verified by the main model in a single batch.
+//Output is identical to normal sampling (every emitted token comes from the main model's sampler),
+//only faster when proposals are accepted. Skipped for turns with images/audio.
+USTRUCT(BlueprintType)
+struct FLLMSpeculativeParams
+{
+    GENERATED_USTRUCT_BODY();
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Speculative")
+    ELLMSpeculativeMode Mode = ELLMSpeculativeMode::None;
+
+    //Draft model (DraftModel modes). Must share the main model's tokenizer, e.g. a small model of the
+    //same family. Paths beginning with . are relative to Saved/Models.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Speculative")
+    FString DraftModelPath;
+
+    //Max tokens proposed per verification step (1-64). Small values (3, llama.cpp's default) usually
+    //win: acceptance drops with each extra position while drafting cost grows
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Speculative")
+    int32 DraftMaxTokens = 3;
+
+    //Drafts shorter than this are discarded
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Speculative")
+    int32 DraftMinTokens = 0;
+
+    //Stop drafting once the draft model's top candidate falls below this probability (0 = never)
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Speculative")
+    float DraftMinProbability = 0.f;
+
+    //GPU layers for the draft model (-1 = all)
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Speculative")
+    int32 DraftGPULayers = -1;
+};
+
+USTRUCT(BlueprintType)
+struct FLLMSpeculativeStats
+{
+    GENERATED_USTRUCT_BODY();
+
+    //Tokens proposed (draft model / n-gram) during the last response
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Speculative")
+    int32 DraftedTokens = 0;
+
+    //Proposed tokens the main model accepted
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Speculative")
+    int32 AcceptedTokens = 0;
+
+    //Batched verification passes of the main model
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Speculative")
+    int32 VerificationSteps = 0;
+
+    //AcceptedTokens / DraftedTokens
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Speculative")
+    float AcceptanceRate = 0.f;
+
+    //Average tokens emitted per main-model pass (1 = no speedup)
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Speculative")
+    float TokensPerStep = 0.f;
+};
+
 USTRUCT(BlueprintType)
 struct FLLMModelAdvancedParams
 {
     GENERATED_USTRUCT_BODY();
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
+    FLLMSpeculativeParams Speculative;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Advanced Params")
     FLLMSamplingParams Sampling;
@@ -465,6 +542,10 @@ struct FLLMModelState
     //Updates after each prompt processing
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model State")
     float LastPromptProcessingSpeed = 0.f;
+
+    //Speculative decoding stats for the last response (zero when speculation wasn't used)
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model State")
+    FLLMSpeculativeStats LastSpeculativeStats;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model State")
     EChatTemplateRole LastRole = EChatTemplateRole::Unknown;

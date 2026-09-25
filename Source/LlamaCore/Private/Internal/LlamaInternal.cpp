@@ -3,6 +3,7 @@
 #include "Internal/LlamaInternal.h"
 #include "common/common.h"
 #include "common/sampling.h"
+#include "common/speculative.h"
 #include "mtmd/mtmd.h"
 #include "mtmd/mtmd-helper.h"
 #include "LlamaDataTypes.h"
@@ -159,6 +160,12 @@ bool FLlamaInternal::LoadModelFromParams(const FLLMModelParams& InModelParams)
         ContextParams.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_AUTO;
     }
 
+    //Speculative verification needs logits for every token of the [last, draft...] batch
+    if (InModelParams.Advanced.Speculative.Mode != ELLMSpeculativeMode::None && !InModelParams.Advanced.bEmbeddingMode)
+    {
+        ContextParams.n_outputs_max_per_seq = 0; //0 = up to n_outputs_max (n_batch)
+    }
+
     SavedFlashAttnType = ContextParams.flash_attn_type;
     Context = llama_init_from_model(LlamaModel, ContextParams);
     
@@ -176,6 +183,9 @@ bool FLlamaInternal::LoadModelFromParams(const FLLMModelParams& InModelParams)
 
         //NB: this is just a starting heuristic, 
         ContextHistory.reserve(1024);
+
+        //Optional; failures are reported and generation falls back to the normal path
+        InitSpeculative(InModelParams);
     }//End non-embedding mode
 
     //empty by default
@@ -415,8 +425,420 @@ void FLlamaInternal::ResetGrammarForNewResponse()
     BuildSamplers(LastLoadedParams.Advanced.Sampling, LastLoadedParams.Seed);
 }
 
+//Port of llama.cpp's common_speculative_are_compatible (not exported): same vocab type, matching
+//BOS/EOS where the model adds them, sizes within 128 and identical token text from id 5 on
+static bool AreSpeculativeVocabsCompatible(const llama_vocab* Target, const llama_vocab* Draft)
+{
+    if (llama_vocab_type(Target) != llama_vocab_type(Draft))
+    {
+        return false;
+    }
+    if (llama_vocab_get_add_bos(Target) != llama_vocab_get_add_bos(Draft) ||
+        (llama_vocab_get_add_bos(Target) && llama_vocab_bos(Target) != llama_vocab_bos(Draft)))
+    {
+        return false;
+    }
+    if (llama_vocab_get_add_eos(Target) != llama_vocab_get_add_eos(Draft) ||
+        (llama_vocab_get_add_eos(Target) && llama_vocab_eos(Target) != llama_vocab_eos(Draft)))
+    {
+        return false;
+    }
+    const int32 NTarget = llama_vocab_n_tokens(Target);
+    const int32 NDraft = llama_vocab_n_tokens(Draft);
+    if (FMath::Abs(NTarget - NDraft) > 128)
+    {
+        return false;
+    }
+    for (int32 i = 5; i < FMath::Min(NTarget, NDraft); i++)
+    {
+        if (strcmp(llama_vocab_get_text(Target, i), llama_vocab_get_text(Draft, i)) != 0)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool FLlamaInternal::InitSpeculative(const FLLMModelParams& InModelParams)
+{
+    const FLLMSpeculativeParams& Spec = InModelParams.Advanced.Speculative;
+    bSpeculativeInSync = true;
+    ContextTokens.clear();
+
+    if (Spec.Mode == ELLMSpeculativeMode::None)
+    {
+        return false;
+    }
+
+    //Recurrent/hybrid models can't drop a rejected draft tail from their state (needs checkpoints)
+    if (llama_model_is_recurrent(LlamaModel) || llama_model_is_hybrid(LlamaModel))
+    {
+        EmitErrorMessage(TEXT("Speculative decoding isn't supported for recurrent/hybrid models yet, generating normally."), 13, __func__);
+        return false;
+    }
+
+    const bool bUseDraftModel = Spec.Mode == ELLMSpeculativeMode::DraftModel || Spec.Mode == ELLMSpeculativeMode::DraftModelAndNGram;
+    const bool bUseNGram = Spec.Mode == ELLMSpeculativeMode::NGram || Spec.Mode == ELLMSpeculativeMode::DraftModelAndNGram;
+
+    if (bUseDraftModel)
+    {
+        const std::string DraftPath = TCHAR_TO_UTF8(*FLlamaPaths::ParsePathIntoFullPath(Spec.DraftModelPath));
+        llama_model_params DraftModelParams = llama_model_default_params();
+        DraftModelParams.n_gpu_layers = Spec.DraftGPULayers;
+
+        DraftModel = Spec.DraftModelPath.IsEmpty() ? nullptr : llama_model_load_from_file(DraftPath.c_str(), DraftModelParams);
+        if (!DraftModel)
+        {
+            EmitErrorMessage(FString::Printf(TEXT("Unable to load draft model at <%hs>, generating without speculation."), DraftPath.c_str()), 13, __func__);
+            FreeSpeculative();
+            return false;
+        }
+
+        if (!AreSpeculativeVocabsCompatible(llama_model_get_vocab(LlamaModel), llama_model_get_vocab(DraftModel)))
+        {
+            EmitErrorMessage(TEXT("Draft model tokenizer doesn't match the main model (use a model from the same family), generating without speculation."), 13, __func__);
+            FreeSpeculative();
+            return false;
+        }
+
+        llama_context_params DraftContextParams = llama_context_default_params();
+        DraftContextParams.n_ctx = llama_n_ctx(Context);
+        DraftContextParams.n_batch = llama_n_batch(Context);
+        DraftContextParams.n_threads = InModelParams.Threads;
+        DraftContextParams.n_threads_batch = InModelParams.Threads;
+        DraftContext = llama_init_from_model(DraftModel, DraftContextParams);
+        if (!DraftContext)
+        {
+            EmitErrorMessage(TEXT("Unable to create the draft model context, generating without speculation."), 13, __func__);
+            FreeSpeculative();
+            return false;
+        }
+    }
+
+    SpeculativeParams = new common_params_speculative();
+    SpeculativeParams->types.clear();
+    if (bUseNGram)
+    {
+        SpeculativeParams->types.push_back(COMMON_SPECULATIVE_TYPE_NGRAM_MAP_K); //tried first
+    }
+    if (bUseDraftModel)
+    {
+        SpeculativeParams->types.push_back(COMMON_SPECULATIVE_TYPE_DRAFT_SIMPLE);
+    }
+    SpeculativeParams->draft.n_max = FMath::Clamp(Spec.DraftMaxTokens, 1, 64);
+    SpeculativeParams->draft.n_min = FMath::Max(0, Spec.DraftMinTokens);
+    SpeculativeParams->draft.p_min = Spec.DraftMinProbability;
+    SpeculativeParams->draft.ctx_tgt = Context;
+    SpeculativeParams->draft.ctx_dft = DraftContext;
+
+    try
+    {
+        Speculative = common_speculative_init(*SpeculativeParams, 1);
+    }
+    catch (const std::exception& Error)
+    {
+        EmitErrorMessage(FString::Printf(TEXT("Speculative decoding init failed (%hs), generating without speculation."), Error.what()), 13, __func__);
+        Speculative = nullptr;
+    }
+    if (!Speculative)
+    {
+        FreeSpeculative();
+        return false;
+    }
+
+    //Largest proposal any enabled drafter writes before we clamp it (ngram-mod: n_match + n_max)
+    DraftTokens.clear();
+    DraftTokens.reserve(512);
+    SpeculativeBatch = llama_batch_init(1 + 64, 0, 1);
+
+    UE_LOG(LlamaLog, Log, TEXT("Speculative decoding enabled (%s), max %d draft tokens%s"),
+        *UEnum::GetDisplayValueAsText(Spec.Mode).ToString(), SpeculativeParams->draft.n_max,
+        bUseDraftModel ? *FString::Printf(TEXT(", draft model %s"), *FPaths::GetCleanFilename(Spec.DraftModelPath)) : TEXT(""));
+    return true;
+}
+
+void FLlamaInternal::FreeSpeculative()
+{
+    if (Speculative)
+    {
+        common_speculative_free(Speculative);
+        Speculative = nullptr;
+    }
+    delete SpeculativeParams;
+    SpeculativeParams = nullptr;
+    if (DraftContext)
+    {
+        llama_free(DraftContext);
+        DraftContext = nullptr;
+    }
+    if (DraftModel)
+    {
+        llama_model_free(DraftModel);
+        DraftModel = nullptr;
+    }
+    if (SpeculativeBatch.token)
+    {
+        llama_batch_free(SpeculativeBatch);
+    }
+    SpeculativeBatch = {};
+}
+
+bool FLlamaInternal::IsTokenMirrorConsistent() const
+{
+    return Context && (int64)ContextTokens.size() == (int64)llama_memory_seq_pos_max(llama_get_memory(Context), 0) + 1;
+}
+
+bool FLlamaInternal::CanSpeculate() const
+{
+    //Verification uses the common sampler; the draft side must have seen everything in the KV
+    return Speculative && CommonSampler && bSpeculativeInSync;
+}
+
+int32 FLlamaInternal::DecodePromptChunk(const llama_token* Tokens, int32 NTokens)
+{
+    llama_batch Batch = llama_batch_get_one(const_cast<llama_token*>(Tokens), NTokens);
+    const int32 Result = llama_decode(Context, Batch);
+    if (Result != 0)
+    {
+        return Result;
+    }
+
+    ContextTokens.insert(ContextTokens.end(), Tokens, Tokens + NTokens);
+    if (Speculative && bSpeculativeInSync && !common_speculative_process(Speculative, Batch))
+    {
+        UE_LOG(LlamaLog, Warning, TEXT("Speculative: draft side failed to process the prompt, disabled until the next context reset."));
+        bSpeculativeInSync = false;
+    }
+    return 0;
+}
+
+void FLlamaInternal::TrimContextFrom(llama_pos FromPos)
+{
+    llama_memory_seq_rm(llama_get_memory(Context), 0, FromPos, -1);
+    if (DraftContext)
+    {
+        llama_memory_seq_rm(llama_get_memory(DraftContext), 0, FromPos, -1);
+    }
+    if (ContextTokens.size() > (size_t)FromPos)
+    {
+        ContextTokens.resize(FromPos);
+    }
+    if (FromPos == 0)
+    {
+        //Empty context: the draft side is trivially back in sync
+        bSpeculativeInSync = true;
+    }
+}
+
+void FLlamaInternal::GenerateSpeculative(std::string& Response, int32& NDecoded, llama_pos& NPast, bool& bEOGExit)
+{
+    const llama_vocab* Vocab = llama_model_get_vocab(LlamaModel);
+    const int32 NContext = llama_n_ctx(Context);
+    const int32 MaxDraft = FMath::Min(SpeculativeParams->draft.n_max, (int32)llama_n_batch(Context) - 1);
+    const float PacingSleep = LastLoadedParams.Advanced.Output.TokenGenerationPacingSleep;
+
+    //Streams one token like the normal loop; false on end-of-generation
+    auto Emit = [&](llama_token Token) -> bool
+    {
+        if (llama_vocab_is_eog(Vocab, Token))
+        {
+            bEOGExit = true;
+            return false;
+        }
+        const std::string Piece = SafeTokenToPiece(Vocab, Token, true);
+        Response += Piece;
+        NDecoded += 1;
+        if (OnTokenGenerated)
+        {
+            OnTokenGenerated(Piece);
+        }
+        return true;
+    };
+
+    auto AddToBatch = [this](llama_token Token, llama_pos Pos)
+    {
+        const int32 i = SpeculativeBatch.n_tokens++;
+        SpeculativeBatch.token[i] = Token;
+        SpeculativeBatch.pos[i] = Pos;
+        SpeculativeBatch.n_seq_id[i] = 1;
+        SpeculativeBatch.seq_id[i][0] = 0;
+        SpeculativeBatch.logits[i] = true; //every position is verified
+    };
+
+    //First token from the prompt's logits. IdLast is always emitted but not yet decoded.
+    llama_token IdLast = common_sampler_sample(CommonSampler, Context, -1);
+    common_sampler_accept(CommonSampler, IdLast, true);
+    if (!Emit(IdLast))
+    {
+        return;
+    }
+
+    common_speculative_begin(Speculative, 0, ContextTokens);
+
+    int32 Drafted = 0;
+    int32 Accepted = 0;
+    int32 Steps = 0;
+    bool bIdLastPending = true;
+    int64 DraftUs = 0, VerifyUs = 0, SyncUs = 0, SampleUs = 0;
+
+    while (bGenerationActive)
+    {
+        if (NPast + 1 >= NContext)
+        {
+            bGenerationActive = false;
+            EmitErrorMessage(FString::Printf(TEXT("Context size %d exceeded on generation. Try increasing the context size and re-run prompt"), NContext), 31, __func__);
+            break;
+        }
+
+        //Draft. The library appends into DraftTokens' reserved capacity.
+        DraftTokens.clear();
+        const int32 NDraftMax = FMath::Min(MaxDraft, NContext - (int32)NPast - 2);
+        if (NDraftMax > 0)
+        {
+            common_speculative_draft_params& DraftParams = common_speculative_get_draft_params(Speculative, 0);
+            DraftParams.drafting = true;
+            DraftParams.n_max = NDraftMax;
+            DraftParams.pos0 = NPast;
+            DraftParams.id_last = IdLast;
+            DraftParams.prompt = &ContextTokens;
+            DraftParams.result = &DraftTokens;
+            const int64 T0 = ggml_time_us();
+            common_speculative_draft(Speculative);
+            DraftUs += ggml_time_us() - T0;
+            if ((int32)DraftTokens.size() > NDraftMax)
+            {
+                DraftTokens.resize(NDraftMax);
+            }
+        }
+        //Drafting advanced the draft KV; rewind it so it re-ingests the verified batch below
+        if (DraftContext)
+        {
+            llama_memory_seq_rm(llama_get_memory(DraftContext), 0, NPast, -1);
+        }
+
+        //Verify [IdLast, d0..dn-1] in one pass
+        const int32 NDraft = (int32)DraftTokens.size();
+        SpeculativeBatch.n_tokens = 0;
+        AddToBatch(IdLast, NPast);
+        for (int32 i = 0; i < NDraft; i++)
+        {
+            AddToBatch(DraftTokens[i], NPast + 1 + i);
+        }
+        int64 T0 = ggml_time_us();
+        if (llama_decode(Context, SpeculativeBatch))
+        {
+            bGenerationActive = false;
+            EmitErrorMessage(TEXT("Failed to decode. Could not find a KV slot for the batch (try reducing the size of the batch or increase the context)"), 32, __func__);
+            return;
+        }
+        int64 T1 = ggml_time_us();
+        VerifyUs += T1 - T0;
+        const bool bProcessed = common_speculative_process(Speculative, SpeculativeBatch);
+        T0 = ggml_time_us();
+        SyncUs += T0 - T1;
+        if (!bProcessed)
+        {
+            UE_LOG(LlamaLog, Warning, TEXT("Speculative: draft side failed to process a batch, disabled until the next context reset."));
+            bSpeculativeInSync = false;
+        }
+
+        //Sample each position with the main sampler; stop at the first disagreement. Same as
+        //common_sampler_sample_and_accept_n, which can't be used here (returns a std::vector
+        //allocated on llama-common's heap).
+        int32 NAccepted = 0;
+        llama_token Next = 0;
+        for (int32 i = 0; ; i++)
+        {
+            Next = common_sampler_sample(CommonSampler, Context, i);
+            common_sampler_accept(CommonSampler, Next, true);
+            if (i < NDraft && Next == DraftTokens[i])
+            {
+                NAccepted++;
+                continue;
+            }
+            break;
+        }
+        SampleUs += ggml_time_us() - T0;
+
+        //Never keep tokens after an end-of-generation in the context
+        int32 NKeep = NAccepted;
+        for (int32 i = 0; i < NAccepted; i++)
+        {
+            if (llama_vocab_is_eog(Vocab, DraftTokens[i]))
+            {
+                NKeep = i;
+                break;
+            }
+        }
+
+        //Commit IdLast + kept drafts; drop the rejected tail on both contexts
+        ContextTokens.push_back(IdLast);
+        ContextTokens.insert(ContextTokens.end(), DraftTokens.begin(), DraftTokens.begin() + NKeep);
+        NPast += 1 + NKeep;
+        llama_memory_seq_rm(llama_get_memory(Context), 0, NPast, -1);
+        if (DraftContext)
+        {
+            llama_memory_seq_rm(llama_get_memory(DraftContext), 0, NPast, -1);
+        }
+        bIdLastPending = false;
+
+        common_speculative_accept(Speculative, 0, (uint16_t)NKeep);
+        Steps++;
+        Drafted += NDraft;
+        Accepted += NKeep;
+
+        for (int32 i = 0; i < NKeep; i++)
+        {
+            Emit(DraftTokens[i]);
+        }
+        if (NKeep < NAccepted || !Emit(Next))
+        {
+            bEOGExit = true;
+            break;
+        }
+        IdLast = Next;
+        bIdLastPending = true;
+
+        if (PacingSleep > 0.f)
+        {
+            FPlatformProcess::Sleep(PacingSleep);
+        }
+    }
+
+    //Stopped early: decode the last emitted token so the KV matches the normal loop's end state
+    if (bIdLastPending && !bEOGExit && NPast < NContext)
+    {
+        llama_batch SingleBatch = llama_batch_get_one(&IdLast, 1);
+        SingleBatch.pos = &NPast;
+        if (llama_decode(Context, SingleBatch) == 0)
+        {
+            ContextTokens.push_back(IdLast);
+            if (!common_speculative_process(Speculative, SingleBatch))
+            {
+                bSpeculativeInSync = false;
+            }
+            NPast++;
+        }
+    }
+
+    LastSpeculativeStats.DraftedTokens = Drafted;
+    LastSpeculativeStats.AcceptedTokens = Accepted;
+    LastSpeculativeStats.VerificationSteps = Steps;
+    LastSpeculativeStats.AcceptanceRate = Drafted > 0 ? (float)Accepted / Drafted : 0.f;
+    LastSpeculativeStats.TokensPerStep = Steps > 0 ? (float)(Steps + Accepted) / Steps : 0.f;
+
+    if (Steps > 0)
+    {
+        UE_LOG(LlamaLog, Verbose, TEXT("Speculative timing per pass: draft %.2fms, verify %.2fms, draft sync %.2fms, sampling %.2fms"),
+            DraftUs / 1000.0 / Steps, VerifyUs / 1000.0 / Steps, SyncUs / 1000.0 / Steps, SampleUs / 1000.0 / Steps);
+    }
+}
+
 void FLlamaInternal::UnloadModel()
 {
+    //Speculative state references the target context, free it first
+    FreeSpeculative();
+
     //Free mtmd before context/model since it holds references to them
     FreeMultimodal();
 
@@ -445,6 +867,7 @@ void FLlamaInternal::UnloadModel()
     //and re-ingested on the next prompt insert (history duplicated per reload, #53)
     ClearMessages();
     ContextHistory.clear();
+    ContextTokens.clear();
     FilledContextCharLength = 0;
     NextGenerationNPast = 0;
     ActiveGrammar.clear();
@@ -569,6 +992,7 @@ void FLlamaInternal::ResetContextHistory(bool bKeepSystemsPrompt)
     ClearMessages();
 
     llama_memory_clear(llama_get_memory(Context), false);
+    TrimContextFrom(0);
     FilledContextCharLength = 0;
     NextGenerationNPast = 0;
 }
@@ -579,7 +1003,7 @@ void FLlamaInternal::RollbackContextHistoryByTokens(int32 NTokensToErase)
     // seq_pos_max returns the max position (0-indexed), so token count = seq_pos_max + 1
     int32 TokenCount = llama_memory_seq_pos_max(llama_get_memory(Context), 0) + 1;
 
-    llama_memory_seq_rm(llama_get_memory(Context), 0, TokenCount - NTokensToErase, -1);
+    TrimContextFrom(FMath::Max(0, TokenCount - NTokensToErase));
 
     //FilledContextCharLength -= NTokensToErase;
 
@@ -746,6 +1170,7 @@ void FLlamaInternal::RebuildContextFromHistory(const TArray<FStructuredChatMessa
     ContextHistory.clear();
     ClearMessages();
     llama_memory_clear(llama_get_memory(Context), false);
+    TrimContextFrom(0);
     FilledContextCharLength = 0;
     NextGenerationNPast = 0;
 
@@ -905,9 +1330,7 @@ int32 FLlamaInternal::ProcessPrompt(const std::string& Prompt, EChatTemplateRole
     for (int32 StartIndex = 0; StartIndex < NPromptTokens; StartIndex += ChunkSize)
     {
         const int32 CurrentBatchSize = FMath::Min(ChunkSize, NPromptTokens - StartIndex);
-        llama_batch Batch = llama_batch_get_one(PromptTokens.data() + StartIndex, CurrentBatchSize);
-
-        if (llama_decode(Context, Batch))
+        if (DecodePromptChunk(PromptTokens.data() + StartIndex, CurrentBatchSize))
         {
             EmitErrorMessage(TEXT("Failed to decode, could not find a KV slot for the batch (try reducing the size of the batch or increase the context)."), 23, __func__);
             return StartIndex;
@@ -974,8 +1397,15 @@ std::string FLlamaInternal::Generate(const std::string& Prompt, bool bAppendToMe
         (int32)NPast, (int32)SeqPosMaxAtGenStart,
         (NPast != SeqPosMaxAtGenStart + 1) ? TEXT("yes") : TEXT("no"));
 
+    LastSpeculativeStats = FLLMSpeculativeStats();
+    const bool bSpeculate = CanSpeculate() && NPast == SeqPosMaxAtGenStart + 1;
+    if (bSpeculate)
+    {
+        GenerateSpeculative(Response, NDecoded, NPast, bEOGExit);
+    }
+
     bool bFirstToken = true;
-    while (bGenerationActive) //processing can be aborted by flipping the boolean
+    while (!bSpeculate && bGenerationActive) //processing can be aborted by flipping the boolean
     {
         //Common sampler is a bit faster
         if (CommonSampler)
@@ -1040,6 +1470,11 @@ std::string FLlamaInternal::Generate(const std::string& Prompt, bool bAppendToMe
             return Response;
         }
 
+        ContextTokens.push_back(NewTokenId);
+        if (Speculative && bSpeculativeInSync && !common_speculative_process(Speculative, SingleBatch))
+        {
+            bSpeculativeInSync = false;
+        }
         NPast++;
 
         //sleep pacing
@@ -1323,6 +1758,9 @@ int32 FLlamaInternal::GetAudioSampleRate()
 
 int32 FLlamaInternal::ProcessMultimodalPrompt(const std::string& FormattedPrompt, const TArray<FLlamaMediaEntry>& MediaEntries, EChatTemplateRole Role, bool bLogitsLast)
 {
+    //Image/audio chunks can't be mirrored to the draft side: speculate again after the next reset
+    bSpeculativeInSync = false;
+
     const auto StartTime = ggml_time_us();
 
     // 1. Build bitmaps from media entries

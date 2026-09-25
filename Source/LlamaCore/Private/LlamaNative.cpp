@@ -95,18 +95,25 @@ FLlamaNative::FLlamaNative()
 
     Internal->OnGenerationComplete = [this](const std::string& Response, float Duration, int32 TokensGenerated, float SpeedTps)
     {
+        const FLLMSpeculativeStats SpecStats = Internal->LastSpeculativeStats;
         if (ModelParams.Advanced.Output.bLogGenerationStats)
         {
             UE_LOG(LlamaLog, Log, TEXT("TGS - Generated %d tokens in %1.2fs (%1.2ftps)"), TokensGenerated, Duration, SpeedTps);
+            if (SpecStats.VerificationSteps > 0)
+            {
+                UE_LOG(LlamaLog, Log, TEXT("TGS - Speculative: accepted %d/%d drafted tokens (%.0f%%), %.2f tokens per main-model pass"),
+                    SpecStats.AcceptedTokens, SpecStats.DraftedTokens, SpecStats.AcceptanceRate * 100.f, SpecStats.TokensPerStep);
+            }
         }
 
         int32 UsedContext = UsedContextLength();
 
         //Sync history data on bg thread
-        SyncModelStateToInternal([this, UsedContext, SpeedTps]
+        SyncModelStateToInternal([this, UsedContext, SpeedTps, SpecStats]
         {
             ModelState.ContextUsed = UsedContext;
             ModelState.LastTokenGenerationSpeed = SpeedTps;
+            ModelState.LastSpeculativeStats = SpecStats;
         });
 
         FString Partial;

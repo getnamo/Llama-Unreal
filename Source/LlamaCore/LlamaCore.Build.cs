@@ -87,6 +87,9 @@ public class LlamaCore : ModuleRules
 	{
 		PCHUsage = ModuleRules.PCHUsageMode.UseExplicitOrSharedPCHs;
 
+		//llama.cpp common helpers (e.g. common_speculative_init) report config errors by throwing
+		bEnableExceptions = true;
+
         	PublicIncludePaths.AddRange(
 			new string[] {
 				// ... add public include paths required here ...

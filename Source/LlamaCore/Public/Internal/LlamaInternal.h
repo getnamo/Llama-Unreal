@@ -11,6 +11,8 @@
 #include "llama.h"
 
 struct mtmd_context;
+struct common_speculative;
+struct common_params_speculative;
 
 /** 
 * Uses mostly Llama.cpp native API, meant to be embedded in LlamaNative that wraps 
@@ -24,6 +26,13 @@ public:
     llama_context* Context = nullptr;
     llama_sampler* Sampler = nullptr;
     struct common_sampler* CommonSampler = nullptr;
+
+    //Speculative decoding state (see FLLMSpeculativeParams)
+    llama_model* DraftModel = nullptr;
+    llama_context* DraftContext = nullptr;
+    common_speculative* Speculative = nullptr;
+    common_params_speculative* SpeculativeParams = nullptr;
+    FLLMSpeculativeStats LastSpeculativeStats;
 
     //Multimodal state
     mtmd_context* MtmdContext = nullptr;
@@ -47,6 +56,10 @@ public:
     //Swap sampling params (incl. grammar) on a loaded model without reloading or touching history
     bool UpdateSamplingParams(const FLLMSamplingParams& Sampling);
     bool HasActiveGrammar() const { return !ActiveGrammar.empty(); }
+
+    //Speculative decoding state checks (the token mirror must track the text KV exactly)
+    bool IsSpeculativeActive() const { return Speculative != nullptr; }
+    bool IsTokenMirrorConsistent() const;
 
     //Loaded state
     std::string Template;
@@ -155,6 +168,31 @@ protected:
 
     //Grammar actually applied (validated) by the current samplers; empty if none/invalid
     std::string ActiveGrammar;
+
+    //Speculative decoding
+    bool InitSpeculative(const FLLMModelParams& InModelParams);
+    void FreeSpeculative();
+    bool CanSpeculate() const;
+    //Speculative token loop; same contract as Generate's normal loop (emits tokens, advances NPast)
+    void GenerateSpeculative(std::string& Response, int32& NDecoded, llama_pos& NPast, bool& bEOGExit);
+
+    //Decodes a text prompt chunk (auto positions), mirrors it into ContextTokens and feeds the draft side
+    int32 DecodePromptChunk(const llama_token* Tokens, int32 NTokens);
+
+    //Removes KV / token mirror entries from position FromPos onward on the target and draft contexts
+    void TrimContextFrom(llama_pos FromPos);
+
+    //Tokens currently in the text KV cache (seq 0), in order. N-gram drafting looks up proposals in
+    //it; kept in step with every decode / rollback / reset
+    std::vector<llama_token> ContextTokens;
+
+    //False once the KV holds content the draft side didn't see (image/audio chunks) until the next reset
+    bool bSpeculativeInSync = true;
+
+    //Draft output buffer. Reserved up front: llama-common is a separate DLL/heap, so the library must
+    //only ever write into existing capacity (it push_backs / resizes within it), never reallocate ours
+    std::vector<llama_token> DraftTokens;
+    llama_batch SpeculativeBatch = {};
 
     FThreadSafeBool bIsModelLoaded = false;
     int32 FilledContextCharLength = 0;
