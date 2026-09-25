@@ -426,7 +426,6 @@ bool FLlamaSpeculativeBenchmark::RunTest(const FString& /*Parameters*/)
     {
         FLLMModelParams Params;
         Params.PathToModel = Target;
-        Params.GPULayers = 999; //all layers: the plugin default (50) leaves part of a 27B on the CPU
         Params.MaxContextLength = 4096;
         Params.Advanced.Sampling.Temp = 0.f;
         Params.Advanced.Thinking.bEnableThinking = false;
@@ -502,7 +501,6 @@ bool FLlamaSpeculativeMTPBenchmark::RunTest(const FString& /*Parameters*/)
     {
         FLLMModelParams Params;
         Params.PathToModel = Target;
-        Params.GPULayers = 999; //all layers: the plugin default (50) leaves part of a 27B on the CPU
         Params.MaxContextLength = 4096;
         Params.Advanced.Sampling.Temp = 0.f;
         Params.Advanced.Thinking.bEnableThinking = false;

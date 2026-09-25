@@ -33,7 +33,7 @@ Everything is wrapped inside a [`ULlamaComponent`](Source/LlamaCore/Public/Llama
   - `PathToModel` - where your [*.gguf](https://huggingface.co/docs/hub/en/gguf) is placed. If path begins with a . it's considered relative to Saved/Models path, otherwise it's an absolute path.
   - `SystemPrompt` - this will be autoinserted on load by default
   - `MaxContextLength` - this should match your model, default is 4096
-  - `GPULayers` - how many layers to offload to GPU. Specifying more layers than the model needs works fine, e.g. use 99 if you want all of them to be offloaded for various practical model sizes. NB: Typically an 8B model will have about 33 layers. Loading more layers will eat up more VRAM, fitting the entire model inside of your target GPU will greatly increase generation speed.
+  - `GPULayers` - how many layers to offload to GPU. Defaults to `-1` (all layers, same as llama.cpp); fitting the entire model inside your target GPU greatly increases generation speed. If the model doesn't fit in VRAM, set a lower number to keep the remaining layers on the CPU (e.g. an 8B model has about 33 layers).
 
 3) Call [`LoadModel`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaComponent.h#L78). Consider listening to the [`OnModelLoaded`](https://github.com/getnamo/Llama-Unreal/blob/ae243df80150b94219911f8a9f36012373336dd9/Source/LlamaCore/Public/LlamaComponent.h#L54) callback to deal with post loading operations.
 

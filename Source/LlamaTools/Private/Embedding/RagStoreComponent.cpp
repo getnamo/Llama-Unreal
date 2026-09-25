@@ -14,7 +14,7 @@ URagStoreComponent::URagStoreComponent()
     // ./model.gguf would shadow them when the component syncs config to the store).
     EmbeddingModelParams.PathToModel              = TEXT("./nomic-embed-text-v1.5.Q4_K_M.gguf");
     EmbeddingModelParams.MaxContextLength         = 2048;
-    EmbeddingModelParams.GPULayers                = 99;
+    EmbeddingModelParams.GPULayers                = -1;
     EmbeddingModelParams.MaxBatchLength           = 2048;
     EmbeddingModelParams.bAutoLoadModelOnStartup  = false;
     EmbeddingModelParams.bAutoInsertSystemPromptOnLoad = false;
@@ -23,7 +23,7 @@ URagStoreComponent::URagStoreComponent()
 
     AnswerModelParams.PathToModel                 = TEXT("./google_gemma-3-4b-it-Q4_K_L.gguf");
     AnswerModelParams.MaxContextLength            = 8192;
-    AnswerModelParams.GPULayers                   = 99;
+    AnswerModelParams.GPULayers                   = -1;
     AnswerModelParams.MaxBatchLength              = 1024;
     AnswerModelParams.bAutoLoadModelOnStartup     = false;
     AnswerModelParams.bAutoInsertSystemPromptOnLoad = true;

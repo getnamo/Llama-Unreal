@@ -500,8 +500,10 @@ struct FLLMModelParams
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
     int32 MaxContextLength = 4096;
 
+    //Layers offloaded to the GPU. -1 = all (llama.cpp's default); lower it to keep part of a model
+    //that doesn't fit in VRAM on the CPU
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
-    int32 GPULayers = 50;
+    int32 GPULayers = -1;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Params")
     int32 Threads = 8;
