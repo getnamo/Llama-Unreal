@@ -70,6 +70,7 @@ public:
 
 	//Context change - not yet implemented
 	void ResetContextHistory(bool bKeepSystemPrompt = false);	//full reset
+	void UpdateSamplingParams(const FLLMSamplingParams& Sampling);	//swap sampling/grammar without reloading; keeps history
 	void RemoveLastUserInput();		//chat rollback to undo last user input
 	void RemoveLastReply();		//chat rollback to undo last assistant input.
 	void RegenerateLastReply(); //removes last reply and regenerates (changing seed?)

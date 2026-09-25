@@ -333,12 +333,13 @@ void FLlamaNative::SetModelParams(const FLLMModelParams& Params)
 	ModelParams = Params;
 }
 
-//True if two param sets would load the same model/context/samplers. The system prompt is excluded:
-//it's re-applied by the history reset of a non-forced LoadModel anyway.
+//True if two param sets would load the same model/context. The system prompt and sampling params
+//are excluded: a non-forced LoadModel re-applies both without reloading the model.
 static bool IsSameLoadConfiguration(const FLLMModelParams& Loaded, const FLLMModelParams& Requested)
 {
     FLLMModelParams RequestedCompare = Requested;
     RequestedCompare.SystemPrompt = Loaded.SystemPrompt;
+    RequestedCompare.Advanced.Sampling = Loaded.Advanced.Sampling;
     return FLLMModelParams::StaticStruct()->CompareScriptStruct(&Loaded, &RequestedCompare, PPF_None);
 }
 
@@ -360,6 +361,7 @@ void FLlamaNative::LoadModel(bool bForceReload, TFunction<void(const FString&, i
         if (bReuseLoadedModel)
         {
             Internal->ResetContextHistory(false);
+            Internal->UpdateSamplingParams(ParamsAtLoad.Advanced.Sampling);
             Internal->LastLoadedParams = ParamsAtLoad;
         }
         else
@@ -429,6 +431,17 @@ void FLlamaNative::LoadModel(bool bForceReload, TFunction<void(const FString&, i
                 }
             }, TaskId);
         }
+    });
+}
+
+void FLlamaNative::UpdateSamplingParams(const FLLMSamplingParams& Sampling)
+{
+    ModelParams.Advanced.Sampling = Sampling;
+
+    EnqueueBGTask([this, Sampling](int64 TaskId)
+    {
+        //No-op if the model isn't loaded yet: the next load uses ModelParams
+        Internal->UpdateSamplingParams(Sampling);
     });
 }
 

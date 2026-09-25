@@ -56,6 +56,7 @@ namespace
             W->WriteValue(TEXT("mirostat_tau"), S.MirostatTau);
             W->WriteValue(TEXT("mirostat_eta"), S.MirostatEta);
         }
+        if (!S.Grammar.IsEmpty()) W->WriteValue(TEXT("grammar"), S.Grammar); //llama-server GBNF extension
         if (P.Seed >= 0) W->WriteValue(TEXT("seed"), P.Seed);
         if (P.StopSequences.Num() > 0)
         {

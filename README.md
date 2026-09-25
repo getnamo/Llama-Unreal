@@ -54,6 +54,22 @@ Call `RebuildContextFromHistory(FStructuredChatHistory)` to wipe the model's KV 
 
 `InsertTemplatedPrompt` and the `FLlamaChatPrompt` struct accept an optional `AssistantPrefill` argument. When non-empty (and `bAddAssistantBOS = true`), the text is inserted into the assistant turn after the BOS header but before sampling - the model continues from it without an intervening end-of-turn token. The prefill is treated as if the model produced it: streamed via `OnTokenGenerated` / `OnPartialGenerated`, returned in `OnResponseGenerated`, and stored in chat history. Useful for steering first-token behavior (`"Answer: "`) or for hard-suppressing thinking on a thinking-capable model (`"<think></think>\n\n"`). Currently a local-only feature; a warning is emitted in remote mode.
 
+### Grammar-constrained output (GBNF)
+
+Set `ModelParams.Advanced.Sampling.Grammar` to a [GBNF grammar](https://github.com/ggml-org/llama.cpp/blob/master/grammars/README.md) to constrain every response, e.g. to a fixed set of answers or a JSON shape (the start rule must be named `root`):
+
+```
+root  ::= "{\"mood\": " mood ", \"intensity\": " digit "}"
+mood  ::= "\"happy\"" | "\"sad\"" | "\"angry\""
+digit ::= [0-9]
+```
+
+Each new reply starts the grammar fresh. An invalid grammar is reported through `OnError` (code 12) and generation continues unconstrained. To change the grammar, temperature or any other sampling setting at runtime without reloading the model or losing the conversation, call `UpdateSamplingParams`. The grammar is also forwarded to llama-server in remote mode.
+
+### LoadModel and reloading
+
+`LoadModel(bForceReload = true)` always does a clean reload. With `bForceReload = false`, if the same model and context settings are already loaded, the model is kept and the conversation is reset to the system prompt instead (near-instant); changed sampling params are applied in place. Any other change triggers a real reload.
+
 # Remote routing
 
 The plugin is local-first, but every `ULlamaComponent` and `ULlamaSubsystem` can route inference through an OpenAI-compatible HTTP endpoint (e.g. [llama-server](https://github.com/ggml-org/llama.cpp/tree/master/tools/server), LM Studio, Ollama, vLLM, OpenAI itself) by setting `bUseRemote = true`. The shared dual-backend ([`FLlamaDualBackend`](Source/LlamaCore/Public/LlamaDualBackend.h)) keeps a local `FLlamaNative` and a remote HTTP client side-by-side and routes each call to whichever is active. All delegates (`OnTokenGenerated`, `OnResponseGenerated`, `OnPartialGenerated`, `OnMarkdownPartialGenerated`, `OnEndOfStream`) fire on both paths; same chat history, same multimodal entry points, same rollback helpers.

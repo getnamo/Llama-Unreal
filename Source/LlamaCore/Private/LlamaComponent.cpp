@@ -177,6 +177,12 @@ void ULlamaComponent::SetUseRemote(bool bNewUseRemote)
 
 // ── Chat ────────────────────────────────────────────────────────────────────
 
+void ULlamaComponent::UpdateSamplingParams(const FLLMSamplingParams& Sampling)
+{
+    ModelParams.Advanced.Sampling = Sampling;
+    if (Backend) Backend->UpdateSamplingParams(Sampling);
+}
+
 void ULlamaComponent::ResetContextHistory(bool bKeepSystemPrompt)
 {
     if (Backend) Backend->ResetContextHistory(bKeepSystemPrompt);

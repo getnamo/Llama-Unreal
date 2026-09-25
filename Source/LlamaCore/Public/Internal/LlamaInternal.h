@@ -44,6 +44,10 @@ public:
     //Frees and removes Messages[FromIndex..end)
     void ClearMessages(size_t FromIndex = 0);
 
+    //Swap sampling params (incl. grammar) on a loaded model without reloading or touching history
+    bool UpdateSamplingParams(const FLLMSamplingParams& Sampling);
+    bool HasActiveGrammar() const { return !ActiveGrammar.empty(); }
+
     //Loaded state
     std::string Template;
     std::string TemplateSource;
@@ -141,6 +145,16 @@ protected:
     int32 ApplyTemplateFromMessagesToBuffer(const std::string& Template, std::vector<llama_chat_message>& FromMessages, std::vector<char>& ToBuffer, bool bAddAssistantBoS = false);
 
     const char* RoleForEnum(EChatTemplateRole Role);
+
+    //(Re)builds Sampler + CommonSampler from the given params; frees any existing ones first
+    void BuildSamplers(const FLLMSamplingParams& Sampling, int32 Seed);
+
+    //Grammar samplers are stateful across a response: restart them at the start of each new reply.
+    //(common_sampler_reset doesn't reset the grammar, so the common sampler is rebuilt.)
+    void ResetGrammarForNewResponse();
+
+    //Grammar actually applied (validated) by the current samplers; empty if none/invalid
+    std::string ActiveGrammar;
 
     FThreadSafeBool bIsModelLoaded = false;
     int32 FilledContextCharLength = 0;

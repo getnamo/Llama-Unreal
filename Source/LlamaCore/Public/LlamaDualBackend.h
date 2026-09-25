@@ -112,6 +112,7 @@ public:
     void StopGeneration();
     void ResumeGeneration();
     void ResetContextHistory(bool bKeepSystemPrompt);
+    void UpdateSamplingParams(const FLLMSamplingParams& Sampling);
     void RebuildContextFromHistory(const FStructuredChatHistory& History);
 
     void RemoveLastReply();

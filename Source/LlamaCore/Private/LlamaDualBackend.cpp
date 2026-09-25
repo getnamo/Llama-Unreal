@@ -476,6 +476,13 @@ void FLlamaDualBackend::ResumeGeneration()
     }
 }
 
+void FLlamaDualBackend::UpdateSamplingParams(const FLLMSamplingParams& Sampling)
+{
+    ModelParams.Advanced.Sampling = Sampling;
+    //Remote requests read ModelParams per call; the local model swaps its samplers in place
+    if (LlamaNative) LlamaNative->UpdateSamplingParams(Sampling);
+}
+
 void FLlamaDualBackend::ResetContextHistory(bool bKeepSystemPrompt)
 {
     if (!bUseRemote)

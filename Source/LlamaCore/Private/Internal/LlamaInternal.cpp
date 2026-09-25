@@ -172,96 +172,10 @@ bool FLlamaInternal::LoadModelFromParams(const FLLMModelParams& InModelParams)
     //Only standard mode uses sampling
     if (!InModelParams.Advanced.bEmbeddingMode)
     {
-        //common sampler strategy
-        if (InModelParams.Advanced.Sampling.bUseCommonSampler)
-        {
-            common_params_sampling SamplingParams;
-
-            if (InModelParams.Advanced.Sampling.MinP != -1.f)
-            {
-                SamplingParams.min_p = InModelParams.Advanced.Sampling.MinP;
-            }
-            if (InModelParams.Advanced.Sampling.TopK != -1.f)
-            {
-                SamplingParams.top_k = InModelParams.Advanced.Sampling.TopK;
-            }
-            if (InModelParams.Advanced.Sampling.TopP != -1.f)
-            {
-                SamplingParams.top_p = InModelParams.Advanced.Sampling.TopP;
-            }
-            if (InModelParams.Advanced.Sampling.TypicalP != -1.f)
-            {
-                SamplingParams.typ_p = InModelParams.Advanced.Sampling.TypicalP;
-            }
-            if (InModelParams.Advanced.Sampling.Mirostat != -1)
-            {
-                SamplingParams.mirostat = InModelParams.Advanced.Sampling.Mirostat;
-                SamplingParams.mirostat_eta = InModelParams.Advanced.Sampling.MirostatEta;
-                SamplingParams.mirostat_tau = InModelParams.Advanced.Sampling.MirostatTau;
-            }
-
-            //Seed is either default or the one specifically passed in for deterministic results
-            if (InModelParams.Seed != -1)
-            {
-                SamplingParams.seed = InModelParams.Seed;
-            }
-
-            CommonSampler = common_sampler_init(LlamaModel, SamplingParams);
-        }
-
-        Sampler = llama_sampler_chain_init(llama_sampler_chain_default_params());
-
-        //Temperature is always applied
-        llama_sampler_chain_add(Sampler, llama_sampler_init_temp(InModelParams.Advanced.Sampling.Temp));
-
-        //If any of the repeat penalties are set, apply penalties to sampler
-        if (InModelParams.Advanced.Sampling.PenaltyLastN != 0 ||
-            InModelParams.Advanced.Sampling.PenaltyRepeat != 1.f ||
-            InModelParams.Advanced.Sampling.PenaltyFrequency != 0.f ||
-            InModelParams.Advanced.Sampling.PenaltyPresence != 0.f)
-        {
-            llama_sampler_chain_add(Sampler, llama_sampler_init_penalties(
-                llama_vocab_n_tokens(llama_model_get_vocab(LlamaModel)),
-                InModelParams.Advanced.Sampling.PenaltyLastN, InModelParams.Advanced.Sampling.PenaltyRepeat,
-                InModelParams.Advanced.Sampling.PenaltyFrequency, InModelParams.Advanced.Sampling.PenaltyPresence));
-        }
-
-        //Optional sampling strategies - MinP should be applied by default of 0.05f
-        if (InModelParams.Advanced.Sampling.MinP != -1.f)
-        {
-            llama_sampler_chain_add(Sampler, llama_sampler_init_min_p(InModelParams.Advanced.Sampling.MinP, 1));
-        }
-        if (InModelParams.Advanced.Sampling.TopK != -1.f)
-        {
-            llama_sampler_chain_add(Sampler, llama_sampler_init_top_k(InModelParams.Advanced.Sampling.TopK));
-        }
-        if (InModelParams.Advanced.Sampling.TopP != -1.f)
-        {
-            llama_sampler_chain_add(Sampler, llama_sampler_init_top_p(InModelParams.Advanced.Sampling.TopP, 1));
-        }
-        if (InModelParams.Advanced.Sampling.TypicalP != -1.f)
-        {
-            llama_sampler_chain_add(Sampler, llama_sampler_init_typical(InModelParams.Advanced.Sampling.TypicalP, 1));
-        }
-        if (InModelParams.Advanced.Sampling.Mirostat != -1)
-        {
-            llama_sampler_chain_add(Sampler, llama_sampler_init_mirostat_v2(
-                InModelParams.Advanced.Sampling.Mirostat, InModelParams.Advanced.Sampling.MirostatTau, InModelParams.Advanced.Sampling.MirostatEta));
-        }
-
-        //Seed is either default or the one specifically passed in for deterministic results
-        if (InModelParams.Seed == -1)
-        {
-            llama_sampler_chain_add(Sampler, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
-        }
-        else
-        {
-            llama_sampler_chain_add(Sampler, llama_sampler_init_dist(InModelParams.Seed));
-        }
+        BuildSamplers(InModelParams.Advanced.Sampling, InModelParams.Seed);
 
         //NB: this is just a starting heuristic, 
         ContextHistory.reserve(1024);
-
     }//End non-embedding mode
 
     //empty by default
@@ -343,6 +257,164 @@ bool FLlamaInternal::LoadModelFromParams(const FLLMModelParams& InModelParams)
     return true;
 }
 
+void FLlamaInternal::BuildSamplers(const FLLMSamplingParams& Sampling, int32 Seed)
+{
+    if (Sampler)
+    {
+        llama_sampler_free(Sampler);
+        Sampler = nullptr;
+    }
+    if (CommonSampler)
+    {
+        common_sampler_free(CommonSampler);
+        CommonSampler = nullptr;
+    }
+
+    const llama_vocab* Vocab = llama_model_get_vocab(LlamaModel);
+
+    //Validate the grammar through the C API first: it returns null on a parse error, whereas
+    //common_sampler_init throws (and this module doesn't catch C++ exceptions)
+    ActiveGrammar.clear();
+    llama_sampler* GrammarSampler = nullptr;
+    if (!Sampling.Grammar.IsEmpty())
+    {
+        const std::string GrammarStd = FLlamaString::ToStd(Sampling.Grammar);
+        GrammarSampler = llama_sampler_init_grammar(Vocab, GrammarStd.c_str(), "root");
+        if (GrammarSampler)
+        {
+            ActiveGrammar = GrammarStd;
+        }
+        else
+        {
+            EmitErrorMessage(TEXT("Invalid GBNF grammar (see [llama] log for the parse error). Generating without a grammar."), 12, __func__);
+        }
+    }
+
+    //common sampler strategy
+    if (Sampling.bUseCommonSampler)
+    {
+        common_params_sampling SamplingParams;
+
+        //Plugin defaults for these match llama.cpp's (temp 0.8, penalties off)
+        SamplingParams.temp = Sampling.Temp;
+        SamplingParams.penalty_last_n = Sampling.PenaltyLastN;
+        SamplingParams.penalty_repeat = Sampling.PenaltyRepeat;
+        SamplingParams.penalty_freq = Sampling.PenaltyFrequency;
+        SamplingParams.penalty_present = Sampling.PenaltyPresence;
+
+        if (Sampling.MinP != -1.f)
+        {
+            SamplingParams.min_p = Sampling.MinP;
+        }
+        if (Sampling.TopK != -1.f)
+        {
+            SamplingParams.top_k = Sampling.TopK;
+        }
+        if (Sampling.TopP != -1.f)
+        {
+            SamplingParams.top_p = Sampling.TopP;
+        }
+        if (Sampling.TypicalP != -1.f)
+        {
+            SamplingParams.typ_p = Sampling.TypicalP;
+        }
+        if (Sampling.Mirostat != -1)
+        {
+            SamplingParams.mirostat = Sampling.Mirostat;
+            SamplingParams.mirostat_eta = Sampling.MirostatEta;
+            SamplingParams.mirostat_tau = Sampling.MirostatTau;
+        }
+
+        //Seed is either default or the one specifically passed in for deterministic results
+        if (Seed != -1)
+        {
+            SamplingParams.seed = Seed;
+        }
+
+        if (!ActiveGrammar.empty())
+        {
+            SamplingParams.grammar = common_grammar(COMMON_GRAMMAR_TYPE_USER, ActiveGrammar);
+        }
+
+        CommonSampler = common_sampler_init(LlamaModel, SamplingParams);
+    }
+
+    Sampler = llama_sampler_chain_init(llama_sampler_chain_default_params());
+
+    //Grammar goes first so every later sampler only sees grammar-valid tokens (chain takes ownership)
+    if (GrammarSampler)
+    {
+        llama_sampler_chain_add(Sampler, GrammarSampler);
+    }
+
+    //Temperature is always applied
+    llama_sampler_chain_add(Sampler, llama_sampler_init_temp(Sampling.Temp));
+
+    //If any of the repeat penalties are set, apply penalties to sampler
+    if (Sampling.PenaltyLastN != 0 ||
+        Sampling.PenaltyRepeat != 1.f ||
+        Sampling.PenaltyFrequency != 0.f ||
+        Sampling.PenaltyPresence != 0.f)
+    {
+        llama_sampler_chain_add(Sampler, llama_sampler_init_penalties(
+            llama_vocab_n_tokens(Vocab),
+            Sampling.PenaltyLastN, Sampling.PenaltyRepeat,
+            Sampling.PenaltyFrequency, Sampling.PenaltyPresence));
+    }
+
+    //Optional sampling strategies - MinP should be applied by default of 0.05f
+    if (Sampling.MinP != -1.f)
+    {
+        llama_sampler_chain_add(Sampler, llama_sampler_init_min_p(Sampling.MinP, 1));
+    }
+    if (Sampling.TopK != -1.f)
+    {
+        llama_sampler_chain_add(Sampler, llama_sampler_init_top_k(Sampling.TopK));
+    }
+    if (Sampling.TopP != -1.f)
+    {
+        llama_sampler_chain_add(Sampler, llama_sampler_init_top_p(Sampling.TopP, 1));
+    }
+    if (Sampling.TypicalP != -1.f)
+    {
+        llama_sampler_chain_add(Sampler, llama_sampler_init_typical(Sampling.TypicalP, 1));
+    }
+    if (Sampling.Mirostat != -1)
+    {
+        llama_sampler_chain_add(Sampler, llama_sampler_init_mirostat_v2(
+            Sampling.Mirostat, Sampling.MirostatTau, Sampling.MirostatEta));
+    }
+
+    //Seed is either default or the one specifically passed in for deterministic results
+    llama_sampler_chain_add(Sampler, llama_sampler_init_dist(Seed == -1 ? LLAMA_DEFAULT_SEED : (uint32_t)Seed));
+}
+
+bool FLlamaInternal::UpdateSamplingParams(const FLLMSamplingParams& Sampling)
+{
+    if (!bIsModelLoaded || LastLoadedParams.Advanced.bEmbeddingMode)
+    {
+        return false;
+    }
+    if (IsGenerating())
+    {
+        StopGeneration();
+    }
+    BuildSamplers(Sampling, LastLoadedParams.Seed);
+    LastLoadedParams.Advanced.Sampling = Sampling;
+    return true;
+}
+
+void FLlamaInternal::ResetGrammarForNewResponse()
+{
+    if (ActiveGrammar.empty())
+    {
+        return;
+    }
+    //Rebuild rather than reset: common_sampler_reset leaves the grammar in its end state, which
+    //only allows end-of-generation (empty second responses)
+    BuildSamplers(LastLoadedParams.Advanced.Sampling, LastLoadedParams.Seed);
+}
+
 void FLlamaInternal::UnloadModel()
 {
     //Free mtmd before context/model since it holds references to them
@@ -375,6 +447,7 @@ void FLlamaInternal::UnloadModel()
     ContextHistory.clear();
     FilledContextCharLength = 0;
     NextGenerationNPast = 0;
+    ActiveGrammar.clear();
 
     bIsModelLoaded = false;
 }
@@ -572,6 +645,7 @@ std::string FLlamaInternal::InsertRawPrompt(const std::string& Prompt, bool bGen
 
     if (bGenerateReply)
     {
+        ResetGrammarForNewResponse();
         std::string Response = Generate("", false);
         FLlamaString::AppendToCharVector(ContextHistory, Response);
     }
@@ -648,6 +722,7 @@ std::string FLlamaInternal::InsertTemplatedPrompt(const std::string& Prompt, ECh
     {
         //Run generation. AssistantPrefill is forwarded so Generate() can seed the response
         //accumulator and emit the prefill through OnTokenGenerated before sampling resumes.
+        ResetGrammarForNewResponse();
         Response = Generate("", true, bAddAssistantBoS ? AssistantPrefill : std::string());
     }
 
@@ -1442,6 +1517,7 @@ std::string FLlamaInternal::InsertMultimodalPrompt(const std::string& TextWithMa
     std::string Response;
     if (bGenerateReply)
     {
+        ResetGrammarForNewResponse();
         Response = Generate();
     }
 

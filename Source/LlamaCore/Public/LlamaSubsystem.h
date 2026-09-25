@@ -125,6 +125,11 @@ public:
     UFUNCTION(BlueprintCallable, Category = "LLM Model Subsystem")
     void ResetContextHistory(bool bKeepSystemPrompt = false);
 
+    /** Swap sampling params (temperature, penalties, grammar...) on the loaded model without
+     *  reloading it or touching the conversation. Also updates ModelParams for future loads. */
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Subsystem")
+    void UpdateSamplingParams(const FLLMSamplingParams& Sampling);
+
     UFUNCTION(BlueprintCallable, Category = "LLM Model Subsystem")
     void RebuildContextFromHistory(const FStructuredChatHistory& History);
 

@@ -172,9 +172,18 @@ struct FLLMSamplingParams
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Mirostat")
     float MirostatEta = 0.1f;
 
-    //if true sampling params won't be passed (v0.8)
+    //Use llama.cpp's common sampler (default). Temp, penalties and the values above that aren't -1 are
+    //applied; values left at -1 fall back to llama.cpp's defaults (e.g. TopK 40, TopP 0.95).
+    //If false, a plain sampler chain is built from exactly the values above.
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sampling")
     bool bUseCommonSampler = true;
+
+    //Optional GBNF grammar that constrains every generated response, e.g. to JSON or a fixed set of
+    //answers. Empty = unconstrained. The start rule must be named "root". Syntax:
+    //https://github.com/ggml-org/llama.cpp/blob/master/grammars/README.md
+    //An invalid grammar is reported through OnError and generation continues unconstrained.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Grammar", meta = (MultiLine = true))
+    FString Grammar;
 };
 
 USTRUCT(BlueprintType)

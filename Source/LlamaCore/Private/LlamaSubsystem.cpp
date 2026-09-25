@@ -165,6 +165,12 @@ void ULlamaSubsystem::SetUseRemote(bool bNewUseRemote)
 
 // ── Chat ────────────────────────────────────────────────────────────────────
 
+void ULlamaSubsystem::UpdateSamplingParams(const FLLMSamplingParams& Sampling)
+{
+    ModelParams.Advanced.Sampling = Sampling;
+    if (Backend) Backend->UpdateSamplingParams(Sampling);
+}
+
 void ULlamaSubsystem::ResetContextHistory(bool bKeepSystemPrompt)
 {
     if (Backend) Backend->ResetContextHistory(bKeepSystemPrompt);
