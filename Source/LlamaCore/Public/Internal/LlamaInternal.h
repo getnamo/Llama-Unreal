@@ -11,9 +11,9 @@
 #include "llama.h"
 
 struct mtmd_context;
-struct common_speculative;
-struct common_params_speculative;
-struct common_batch;
+struct llu_sampler;
+struct llu_speculative;
+struct llu_chat_templates;
 
 /** 
 * Uses mostly Llama.cpp native API, meant to be embedded in LlamaNative that wraps 
@@ -26,13 +26,13 @@ public:
     llama_model* LlamaModel = nullptr;
     llama_context* Context = nullptr;
     llama_sampler* Sampler = nullptr;
-    struct common_sampler* CommonSampler = nullptr;
+    //llama.cpp's common sampler, through llama-unreal-common (ThirdParty/LlamaCpp/LlamaUnrealCommon)
+    llu_sampler* CommonSampler = nullptr;
 
     //Speculative decoding state (see FLLMSpeculativeParams)
     llama_model* DraftModel = nullptr;
     llama_context* DraftContext = nullptr;
-    common_speculative* Speculative = nullptr;
-    common_params_speculative* SpeculativeParams = nullptr;
+    llu_speculative* Speculative = nullptr;
     FLLMSpeculativeStats LastSpeculativeStats;
 
     //Multimodal state
@@ -67,8 +67,8 @@ public:
     std::string TemplateSource;
 
     //Set when llama_chat_apply_template doesn't recognize Template (e.g. Gemma 4's Jinja-only template):
-    //Template is then rendered by llama.cpp's Jinja engine through the llama-unreal-chat shim
-    struct llu_chat_templates* JinjaTemplates = nullptr;
+    //Template is then rendered by llama.cpp's Jinja engine through llama-unreal-common
+    llu_chat_templates* JinjaTemplates = nullptr;
     bool IsUsingJinjaTemplate() const { return JinjaTemplates != nullptr; }
 
     //Thinking mode state (auto-detected from template)
@@ -188,13 +188,9 @@ protected:
     //Decodes a text prompt chunk, mirrors it into ContextTokens and feeds the draft side
     int32 DecodePromptChunk(const llama_token* Tokens, int32 NTokens);
 
-    //Decodes tokens at explicit positions through TrackedBatch (logits for the last token only), then
-    //mirrors + feeds the draft side, which reads the batch's positions and sequence ids.
+    //Decodes tokens at explicit positions (logits for the last token only), then mirrors them and
+    //feeds the same batch to the draft side
     int32 DecodeTracked(const llama_token* Tokens, int32 NTokens, llama_pos StartPos);
-
-    //Appends a seq-0 text token to a common_batch from this module, so the token vector is only ever
-    //(re)allocated and freed on our heap (common_batch::add lives in llama-common's DLL/heap)
-    static void AddBatchToken(common_batch& Batch, llama_token Token, llama_pos Pos, bool bOutput);
 
     //Removes KV / token mirror entries from position FromPos onward on the target and draft contexts
     void TrimContextFrom(llama_pos FromPos);
@@ -206,14 +202,11 @@ protected:
     //False once the KV holds content the draft side didn't see (image/audio chunks) until the next reset
     bool bSpeculativeInSync = true;
 
-    //Draft output buffer. Reserved up front: llama-common is a separate DLL/heap, so the library must
-    //only ever write into existing capacity (it push_backs / resizes within it), never reallocate ours
+    //Speculative buffers (sized at init): the draft, the [last, draft...] verify batch, and the tokens
+    //accepted by verification. llama-unreal-common copies into them; it never resizes them.
     std::vector<llama_token> DraftTokens;
-
-    //Batches fed to both the target decode (llama_process) and common_speculative_process.
-    //Created/destroyed here and filled with AddBatchToken, never with common_batch's own methods.
-    common_batch* SpeculativeBatch = nullptr;
-    common_batch* TrackedBatch = nullptr;
+    std::vector<llama_token> VerifyTokens;
+    std::vector<llama_token> AcceptedTokens;
 
     FThreadSafeBool bIsModelLoaded = false;
     int32 FilledContextCharLength = 0;

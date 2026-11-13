@@ -32,7 +32,7 @@ public class LlamaCore : ModuleRules
 	// "ggml" covers all ggml-base/cpu/vulkan variants; cuda/cublas entries omitted (Vulkan backend).
 	private static readonly string[] ManagedDllPrefixes = new[]
 	{
-		"ggml", "llama.", "mtmd.", "llama-unreal-chat."
+		"ggml", "llama.", "mtmd.", "llama-unreal-"
 	};
 
 	private static bool IsManagedDll(string FileName)
@@ -87,7 +87,8 @@ public class LlamaCore : ModuleRules
 	{
 		PCHUsage = ModuleRules.PCHUsageMode.UseExplicitOrSharedPCHs;
 
-		//llama.cpp common helpers (e.g. common_speculative_init) report config errors by throwing
+		//Left on for standard-library code; llama-common errors come back as return codes from
+		//llama-unreal-common, which catches its exceptions
 		bEnableExceptions = true;
 
         	PublicIncludePaths.AddRange(
@@ -152,8 +153,9 @@ public class LlamaCore : ModuleRules
 		//Includes
 		PublicIncludePaths.Add(LlamaCppIncludePath);
 
-		//C API over llama.cpp's Jinja chat templating, built with llama.cpp (see ThirdParty/LlamaCpp/ChatShim)
-		PrivateIncludePaths.Add(Path.GetFullPath(Path.Combine(ModuleDirectory, "../../ThirdParty/LlamaCpp/ChatShim")));
+		//llama-unreal-common: the C API this module uses for llama-common (chat templates, sampling,
+		//speculative decoding), built with llama.cpp. See ThirdParty/LlamaCpp/LlamaUnrealCommon.
+		PrivateIncludePaths.Add(Path.GetFullPath(Path.Combine(ModuleDirectory, "../../ThirdParty/LlamaCpp/LlamaUnrealCommon")));
 
 		if (Target.Platform == UnrealTargetPlatform.Linux)
 		{
@@ -167,8 +169,8 @@ public class LlamaCore : ModuleRules
 			// Win64's split into llama-common + llama-common-base does not apply here
 			// because BUILD_SHARED_LIBS=ON consolidates the static sub-archive into
 			// the parent shared library):
-			//   libllama.so, libggml{,-base,-cpu}.so, libllama-common.so, libmtmd.so,
-			//   libllama-unreal-chat.so (Jinja chat-template shim, ThirdParty/LlamaCpp/ChatShim)
+			//   libllama.so, libggml{,-base,-cpu}.so, libmtmd.so, libllama-unreal-common.so (linked),
+			//   libllama-common.so (runtime only: llama-unreal-common's dependency)
 			//   libggml-vulkan.so (optional; Vulkan backend)
 			//
 			// Each .so is staged twice — as `libfoo.so` (linker resolves -llama →
@@ -182,9 +184,8 @@ public class LlamaCore : ModuleRules
 				PublicAdditionalLibraries.Add(Path.Combine(LinuxLibPath, "libggml.so"));
 				PublicAdditionalLibraries.Add(Path.Combine(LinuxLibPath, "libggml-base.so"));
 				PublicAdditionalLibraries.Add(Path.Combine(LinuxLibPath, "libggml-cpu.so"));
-				PublicAdditionalLibraries.Add(Path.Combine(LinuxLibPath, "libllama-common.so"));
 				PublicAdditionalLibraries.Add(Path.Combine(LinuxLibPath, "libmtmd.so"));
-				PublicAdditionalLibraries.Add(Path.Combine(LinuxLibPath, "libllama-unreal-chat.so"));
+				PublicAdditionalLibraries.Add(Path.Combine(LinuxLibPath, "libllama-unreal-common.so"));
 
 				string VulkanSo = Path.Combine(LinuxLibPath, "libggml-vulkan.so");
 				if (File.Exists(VulkanSo))
@@ -294,10 +295,9 @@ public class LlamaCore : ModuleRules
 			PublicAdditionalLibraries.Add(Path.Combine(LlamaLibPath, "ggml-base.lib"));
 			PublicAdditionalLibraries.Add(Path.Combine(LlamaLibPath, "ggml-cpu.lib"));
 
-			PublicAdditionalLibraries.Add(Path.Combine(LlamaLibPath, "llama-common.lib"));
-			PublicAdditionalLibraries.Add(Path.Combine(LlamaLibPath, "llama-common-base.lib"));
 			PublicAdditionalLibraries.Add(Path.Combine(LlamaLibPath, "mtmd.lib"));
-			PublicAdditionalLibraries.Add(Path.Combine(LlamaLibPath, "llama-unreal-chat.lib"));
+			//llama-common is only used through llama-unreal-common (llama-common.dll still ships as its dependency)
+			PublicAdditionalLibraries.Add(Path.Combine(LlamaLibPath, "llama-unreal-common.lib"));
 
 			// Stage every DLL found in the source dir. $(BinaryOutputDir) resolves correctly
 			// for both editor (Project/Binaries/Win64) and packaged builds — UBT handles the rest.

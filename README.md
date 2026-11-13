@@ -88,7 +88,7 @@ Each new reply starts the grammar fresh. An invalid grammar is reported through 
 
 ### Chat templates
 
-Prompts are formatted with the model's chat template (`tokenizer.chat_template` in the GGUF), or with `ModelParams.CustomChatTemplate.Jinja` when set. Templates that llama.cpp's built-in templater recognizes (ChatML/Qwen, Llama 3, Gemma 1-3, Mistral, DeepSeek, ...) are formatted by it, as before. Any other template, such as Gemma 4's, is rendered by llama.cpp's Jinja engine through the bundled `llama-unreal-chat` library, and the log says `rendered with llama.cpp's Jinja engine` on load.
+Prompts are formatted with the model's chat template (`tokenizer.chat_template` in the GGUF), or with `ModelParams.CustomChatTemplate.Jinja` when set. Templates that llama.cpp's built-in templater recognizes (ChatML/Qwen, Llama 3, Gemma 1-3, Mistral, DeepSeek, ...) are formatted by it, as before. Any other template, such as Gemma 4's, is rendered by llama.cpp's Jinja engine through the bundled `llama-unreal-common` library, and the log says `rendered with llama.cpp's Jinja engine` on load.
 
 With Jinja templates, `Advanced.Thinking.bEnableThinking` is passed to the template as `enable_thinking`, so models with their own reasoning format (e.g. Gemma 4's `<|channel>thought ... <channel|>`) switch reasoning on and off the way they were trained to, and `bStripThinkingFromResponse` uses the tags the template reports. A template that is neither recognized nor valid Jinja is reported through `OnError` and no reply is generated.
 
@@ -462,11 +462,11 @@ SN: curl issues: https://github.com/ggml-org/llama.cpp/issues/9937
 ```
 mkdir build
 cd build/
-cmake .. -DGGML_VULKAN=ON -DGGML_NATIVE=OFF -DLLAMA_CURL=OFF "-DCMAKE_PROJECT_llama.cpp_INCLUDE={plugin root}/ThirdParty/LlamaCpp/ChatShim/llama-unreal-chat.cmake"
-cmake --build . --config Release -j --target llama ggml ggml-base ggml-cpu ggml-vulkan llama-common mtmd llama-unreal-chat
+cmake .. -DGGML_VULKAN=ON -DGGML_NATIVE=OFF -DLLAMA_CURL=OFF "-DCMAKE_PROJECT_llama.cpp_INCLUDE={plugin root}/ThirdParty/LlamaCpp/LlamaUnrealCommon/llama-unreal-common.cmake"
+cmake --build . --config Release -j --target llama ggml ggml-base ggml-cpu ggml-vulkan llama-common mtmd llama-unreal-common
 ```
 
-The `CMAKE_PROJECT_llama.cpp_INCLUDE` option adds the plugin's `llama-unreal-chat` library (Jinja chat templates behind a C API, see [Chat templates](#chat-templates)) to the llama.cpp build without modifying llama.cpp.
+The `CMAKE_PROJECT_llama.cpp_INCLUDE` option adds the plugin's `llama-unreal-common` library to the llama.cpp build without modifying llama.cpp. It is the C API the plugin uses for everything from llama.cpp's C++ helper library llama-common: chat templates (see [Chat templates](#chat-templates)), sampling and speculative decoding. The plugin itself only links C APIs (`llama.h`, `mtmd.h`, `llama-unreal-common.h`), because llama-common's C++ API passes STL containers across the DLL boundary, which Unreal's per-module allocator can't free. Add `-DLLU_BUILD_TEST=ON` and build `llama-unreal-common-test` for a CPU-only check of the library (sampling, speculative decoding, templates; see `ThirdParty/LlamaCpp/LlamaUnrealCommon/test`).
 
 also in newer builds consider
 
@@ -479,23 +479,20 @@ to workaround CURL and generate .pdbs for debugging
 - Copy `{llama.cpp root}/include`
 - Copy `{llama.cpp root}/ggml/include`
 - into `{plugin root}/ThirdParty/LlamaCpp/Include`
-- Copy `{llama.cpp root}/common/` `common.h`, `sampling.h` and `speculative.h`
-- into `{plugin root}/ThirdParty/LlamaCpp/Include/common`
 - *(Multimodal)* Copy `{llama.cpp root}/tools/mtmd/mtmd.h` and `mtmd-helper.h`
 - *(Multimodal)* into `{plugin root}/ThirdParty/LlamaCpp/Include/mtmd`
 
 4. Libs: Assuming `{llama.cpp root}/build` as `{build root}`.
 
 - Copy `{build root}/src/Release/llama.lib`,
-- Copy `{build root}/common/Release/` `llama-common.lib` & `llama-common-base.lib`,
-- Copy `{build root}/Release/llama-unreal-chat.lib`,
+- Copy `{build root}/Release/llama-unreal-common.lib`,
 - Copy `{build root}/ggml/src/Release/` `ggml.lib`, `ggml-base.lib` & `ggml-cpu.lib`,
 - Copy `{build root}/ggml/src/Release/ggml-vulkan/Release/ggml-vulkan.lib`
 - *(Multimodal)* Copy `{build root}/tools/mtmd/Release/mtmd.lib`
 - into `{plugin root}/ThirdParty/LlamaCpp/Lib/Win64`
 
 5. Dlls:
-- Copy `{build root}/bin/Release/` `ggml.dll`, `ggml-base.dll`, `ggml-cpu.dll`, `ggml-vulkan.dll`, `llama.dll`, `llama-common.dll` & `llama-unreal-chat.dll`
+- Copy `{build root}/bin/Release/` `ggml.dll`, `ggml-base.dll`, `ggml-cpu.dll`, `ggml-vulkan.dll`, `llama.dll`, `llama-common.dll` & `llama-unreal-common.dll`
 - *(Multimodal)* Copy `{build root}/bin/Release/mtmd.dll`
 - into `{plugin root}/ThirdParty/LlamaCpp/Binaries/Win64`
 6. Build plugin
@@ -557,7 +554,7 @@ Cross-compile llama.cpp using UE 5.7's bundled clang toolchain (`v26_clang-20.1.
 5. **MSVC** (Visual Studio 2022 Build Tools or Community) - the `vulkan-shaders-gen` sub-build is a *host* (Windows) tool built at CMake time. Without MSVC on PATH, CMake auto-picks mingw gcc which can't compile native Windows binaries. The build helper script invokes `VsDevCmd.bat` to set this up automatically.
 6. A modern llama.cpp checkout (v1.0.0 or compatible). UE 5.8 uses the same `v26_clang-20.1.8-rockylinux8` toolchain as 5.7.
 
-**Critical: libc++ ABI alignment.** UE on Linux compiles against libc++ (clang's `std::__1::vector`), not libstdc++ (`std::__cxx11::vector`). The toolchain file (`cmake/ue57-linux-cross.cmake`) sets `-stdlib=libc++` for the llama.cpp build so its `common_*` helper symbols mangle to match what UE's compile expects. Without this, plugin link fails with `undefined reference to common_batch_add(llama_batch&, ..., std::__1::vector<int>...)`. libc++ is static-only in this toolchain (no `libc++.so`), so each `.so` embeds its own copy - larger binaries (~+2-5 MB each), but ABI-clean.
+**Critical: libc++ ABI alignment.** UE on Linux compiles against libc++ (clang's `std::__1::vector`), not libstdc++ (`std::__cxx11::vector`). The toolchain file (`cmake/ue57-linux-cross.cmake`) sets `-stdlib=libc++` for the llama.cpp build so its `common_*` helper symbols mangle to match what UE's compile expects. Since 1.7.0 the plugin itself only links C symbols (llama-common's C++ API is used inside `libllama-unreal-common.so`), but llama-common and llama-unreal-common still need to agree, so keep the setting. libc++ is static-only in this toolchain (no `libc++.so`), so each `.so` embeds its own copy - larger binaries (~+2-5 MB each), but ABI-clean.
 
 **One-shot build via the bundled helper:**
 ```cmd
@@ -595,9 +592,9 @@ The toolchain file (`cmake/ue57-linux-cross.cmake` in the llama.cpp clone) bakes
 | `libggml-base.so` | ggml core |
 | `libggml-cpu.so` | CPU backend |
 | `libggml-vulkan.so` | Vulkan backend (optional but recommended) |
-| `libllama-common.so` | common helpers (Win64's `llama-common-base.lib` is consolidated into this single shared lib on Linux because `BUILD_SHARED_LIBS=ON` merges static sub-archives into the parent - no separate `libllama-common-base.so`) |
+| `libllama-common.so` | common helpers, loaded at runtime by `libllama-unreal-common.so` (Win64's `llama-common-base.lib` is consolidated into this single shared lib on Linux because `BUILD_SHARED_LIBS=ON` merges static sub-archives into the parent - no separate `libllama-common-base.so`) |
 | `libmtmd.so` | multimodal helper |
-| `libllama-unreal-chat.so` | Jinja chat-template shim (built from `ThirdParty/LlamaCpp/ChatShim` via `CMAKE_PROJECT_llama.cpp_INCLUDE`) |
+| `libllama-unreal-common.so` | the plugin's C API over llama-common: chat templates, sampling, speculative decoding (built from `ThirdParty/LlamaCpp/LlamaUnrealCommon` via `CMAKE_PROJECT_llama.cpp_INCLUDE`) |
 
 The `.so` files are linked with `-Wl,-rpath,$ORIGIN` (via `CMAKE_INSTALL_RPATH=$ORIGIN` in the toolchain file), so once staged in the same directory at runtime they find each other without `LD_LIBRARY_PATH`.
 
