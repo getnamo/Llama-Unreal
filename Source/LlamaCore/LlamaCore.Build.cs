@@ -32,7 +32,7 @@ public class LlamaCore : ModuleRules
 	// "ggml" covers all ggml-base/cpu/vulkan variants; cuda/cublas entries omitted (Vulkan backend).
 	private static readonly string[] ManagedDllPrefixes = new[]
 	{
-		"ggml", "llama.", "mtmd."
+		"ggml", "llama.", "mtmd.", "llama-unreal-chat."
 	};
 
 	private static bool IsManagedDll(string FileName)
@@ -152,6 +152,9 @@ public class LlamaCore : ModuleRules
 		//Includes
 		PublicIncludePaths.Add(LlamaCppIncludePath);
 
+		//C API over llama.cpp's Jinja chat templating, built with llama.cpp (see ThirdParty/LlamaCpp/ChatShim)
+		PrivateIncludePaths.Add(Path.GetFullPath(Path.Combine(ModuleDirectory, "../../ThirdParty/LlamaCpp/ChatShim")));
+
 		if (Target.Platform == UnrealTargetPlatform.Linux)
 		{
 			// Linux build — cross-compiled via UE's v26_clang-20.1.8-rockylinux8 toolchain.
@@ -160,11 +163,12 @@ public class LlamaCore : ModuleRules
 			// ThirdParty/LlamaCpp/Lib/Linux/. See plugin README "Linux build (cross-compile)"
 			// for the llama.cpp CMake invocation that produces these artifacts.
 			//
-			// Required .so files (7 total — note Linux ships ONE libllama-common.so;
+			// Required .so files (8 total — note Linux ships ONE libllama-common.so;
 			// Win64's split into llama-common + llama-common-base does not apply here
 			// because BUILD_SHARED_LIBS=ON consolidates the static sub-archive into
 			// the parent shared library):
-			//   libllama.so, libggml{,-base,-cpu}.so, libllama-common.so, libmtmd.so
+			//   libllama.so, libggml{,-base,-cpu}.so, libllama-common.so, libmtmd.so,
+			//   libllama-unreal-chat.so (Jinja chat-template shim, ThirdParty/LlamaCpp/ChatShim)
 			//   libggml-vulkan.so (optional; Vulkan backend)
 			//
 			// Each .so is staged twice — as `libfoo.so` (linker resolves -llama →
@@ -180,6 +184,7 @@ public class LlamaCore : ModuleRules
 				PublicAdditionalLibraries.Add(Path.Combine(LinuxLibPath, "libggml-cpu.so"));
 				PublicAdditionalLibraries.Add(Path.Combine(LinuxLibPath, "libllama-common.so"));
 				PublicAdditionalLibraries.Add(Path.Combine(LinuxLibPath, "libmtmd.so"));
+				PublicAdditionalLibraries.Add(Path.Combine(LinuxLibPath, "libllama-unreal-chat.so"));
 
 				string VulkanSo = Path.Combine(LinuxLibPath, "libggml-vulkan.so");
 				if (File.Exists(VulkanSo))
@@ -292,6 +297,7 @@ public class LlamaCore : ModuleRules
 			PublicAdditionalLibraries.Add(Path.Combine(LlamaLibPath, "llama-common.lib"));
 			PublicAdditionalLibraries.Add(Path.Combine(LlamaLibPath, "llama-common-base.lib"));
 			PublicAdditionalLibraries.Add(Path.Combine(LlamaLibPath, "mtmd.lib"));
+			PublicAdditionalLibraries.Add(Path.Combine(LlamaLibPath, "llama-unreal-chat.lib"));
 
 			// Stage every DLL found in the source dir. $(BinaryOutputDir) resolves correctly
 			// for both editor (Project/Binaries/Win64) and packaged builds — UBT handles the rest.

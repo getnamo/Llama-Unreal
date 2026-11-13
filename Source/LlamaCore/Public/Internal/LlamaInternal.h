@@ -66,12 +66,19 @@ public:
     std::string Template;
     std::string TemplateSource;
 
+    //Set when llama_chat_apply_template doesn't recognize Template (e.g. Gemma 4's Jinja-only template):
+    //Template is then rendered by llama.cpp's Jinja engine through the llama-unreal-chat shim
+    struct llu_chat_templates* JinjaTemplates = nullptr;
+    bool IsUsingJinjaTemplate() const { return JinjaTemplates != nullptr; }
+
     //Thinking mode state (auto-detected from template)
     std::string ThinkingOpenTag;
     std::string ThinkingCloseTag;
     bool bThinkingEnabled = true;
     bool bStripThinkingFromResponse = false;
     bool bModelSupportsThinking = false;
+    //The template itself switches reasoning off via enable_thinking, so no empty think block is injected
+    bool bTemplateHandlesThinking = false;
 
     //Cached params, should be accessed on BT
     FLLMModelParams LastLoadedParams;
@@ -126,6 +133,7 @@ public:
     //Multimodal
     bool InitMultimodal(const FString& MmprojPath);
     void FreeMultimodal();
+    void FreeJinjaTemplates();
     bool IsMultimodalLoaded();
     bool SupportsVision();
     bool SupportsAudio();

@@ -86,6 +86,12 @@ Each new reply starts the grammar fresh. An invalid grammar is reported through 
 - Recurrent/hybrid models (e.g. Qwen3.5+) are supported: `DraftMaxTokens` rollback snapshots are reserved in the context so rejected drafts can be undone.
 - Not used for turns containing images/audio (the draft side can't see them). A missing draft model, mismatched tokenizer or missing MTP heads is reported through `OnError` and generation continues normally.
 
+### Chat templates
+
+Prompts are formatted with the model's chat template (`tokenizer.chat_template` in the GGUF), or with `ModelParams.CustomChatTemplate.Jinja` when set. Templates that llama.cpp's built-in templater recognizes (ChatML/Qwen, Llama 3, Gemma 1-3, Mistral, DeepSeek, ...) are formatted by it, as before. Any other template, such as Gemma 4's, is rendered by llama.cpp's Jinja engine through the bundled `llama-unreal-chat` library, and the log says `rendered with llama.cpp's Jinja engine` on load.
+
+With Jinja templates, `Advanced.Thinking.bEnableThinking` is passed to the template as `enable_thinking`, so models with their own reasoning format (e.g. Gemma 4's `<|channel>thought ... <channel|>`) switch reasoning on and off the way they were trained to, and `bStripThinkingFromResponse` uses the tags the template reports. A template that is neither recognized nor valid Jinja is reported through `OnError` and no reply is generated.
+
 ### LoadModel and reloading
 
 `LoadModel(bForceReload = true)` always does a clean reload. With `bForceReload = false`, if the same model and context settings are already loaded, the model is kept and the conversation is reset to the system prompt instead (near-instant); changed sampling params are applied in place. Any other change triggers a real reload.
@@ -426,15 +432,16 @@ Fired from both the local mtmd path and the remote OpenAI-compatible image-encod
 
 # Automation Tests
 
-The plugin ships with two automation buckets matching the module split:
+The plugin ships with three automation buckets matching the module split:
 
-- **`LlamaCore`** - backend-only tests (no RAG, no model files needed): chat-history UTF-8 round-trip, dual-backend prefix-hash and frontier-invalidation logic, path resolver, etc.
+- **`LlamaCore`** - backend tests: chat-history UTF-8 round-trip, dual-backend prefix-hash and frontier-invalidation logic, path resolver, etc., plus model-gated tests for grammar, speculative decoding, chat templates (`ChatTemplate.*`) and image/audio input (`Multimodal.*`) that skip when their GGUFs aren't in `Saved/Models/`.
+- **`LlamaWhisper`** - speech-to-text (`Transcribe.WavFile`, model-gated).
 - **`LlamaTools`** - RAG stack: `VectorDatabase` (HNSW round-trip + ordering + persistence + dimension guards), `BM25` (query/save/load), `Chunker` determinism, `RAG.HybridRRF`, `RAG.ScoreNormalization*`, plus the model-gated end-to-end tests (`RAG.AskPipeline`, `RAG.IngestDirectoryWalk`, `RAG.QwenThinkingDiagnostic`) that load a real embedder + answer model from `Saved/Models/`.
 
 Run headless with:
 
 ```
-UnrealEditor-Cmd.exe <project name>.uproject -ExecCmds="Automation RunTests LlamaCore+LlamaTools;Quit" -unattended -nullrhi -nopause -log
+UnrealEditor-Cmd.exe <project name>.uproject -ExecCmds="Automation RunTests LlamaCore+LlamaTools+LlamaWhisper;Quit" -unattended -nullrhi -nopause -log
 ```
 
 Use `LlamaCore` or `LlamaTools` alone to run a single bucket. The model-gated `LlamaTools.RAG.*` tests skip cleanly with an `AddInfo` log when the corresponding GGUFs are not present - fetch them with [`Source/LlamaTools/Private/Tests/fetch_models.ps1`](Source/LlamaTools/Private/Tests/fetch_models.ps1) (see the RAG section above).
@@ -455,9 +462,11 @@ SN: curl issues: https://github.com/ggml-org/llama.cpp/issues/9937
 ```
 mkdir build
 cd build/
-cmake .. -DGGML_VULKAN=ON -DGGML_NATIVE=OFF
-cmake --build . --config Release -j --verbose
+cmake .. -DGGML_VULKAN=ON -DGGML_NATIVE=OFF -DLLAMA_CURL=OFF "-DCMAKE_PROJECT_llama.cpp_INCLUDE={plugin root}/ThirdParty/LlamaCpp/ChatShim/llama-unreal-chat.cmake"
+cmake --build . --config Release -j --target llama ggml ggml-base ggml-cpu ggml-vulkan llama-common mtmd llama-unreal-chat
 ```
+
+The `CMAKE_PROJECT_llama.cpp_INCLUDE` option adds the plugin's `llama-unreal-chat` library (Jinja chat templates behind a C API, see [Chat templates](#chat-templates)) to the llama.cpp build without modifying llama.cpp.
 
 also in newer builds consider
 
@@ -470,7 +479,7 @@ to workaround CURL and generate .pdbs for debugging
 - Copy `{llama.cpp root}/include`
 - Copy `{llama.cpp root}/ggml/include`
 - into `{plugin root}/ThirdParty/LlamaCpp/Include`
-- Copy `{llama.cpp root}/common/` `common.h` and `sampling.h`
+- Copy `{llama.cpp root}/common/` `common.h`, `sampling.h` and `speculative.h`
 - into `{plugin root}/ThirdParty/LlamaCpp/Include/common`
 - *(Multimodal)* Copy `{llama.cpp root}/tools/mtmd/mtmd.h` and `mtmd-helper.h`
 - *(Multimodal)* into `{plugin root}/ThirdParty/LlamaCpp/Include/mtmd`
@@ -478,14 +487,15 @@ to workaround CURL and generate .pdbs for debugging
 4. Libs: Assuming `{llama.cpp root}/build` as `{build root}`.
 
 - Copy `{build root}/src/Release/llama.lib`,
-- Copy `{build root}/common/Release/common.lib`,
+- Copy `{build root}/common/Release/` `llama-common.lib` & `llama-common-base.lib`,
+- Copy `{build root}/Release/llama-unreal-chat.lib`,
 - Copy `{build root}/ggml/src/Release/` `ggml.lib`, `ggml-base.lib` & `ggml-cpu.lib`,
 - Copy `{build root}/ggml/src/Release/ggml-vulkan/Release/ggml-vulkan.lib`
 - *(Multimodal)* Copy `{build root}/tools/mtmd/Release/mtmd.lib`
 - into `{plugin root}/ThirdParty/LlamaCpp/Lib/Win64`
 
 5. Dlls:
-- Copy `{build root}/bin/Release/` `ggml.dll`, `ggml-base.dll`, `ggml-cpu.dll`, `ggml-vulkan.dll`, & `llama.dll`
+- Copy `{build root}/bin/Release/` `ggml.dll`, `ggml-base.dll`, `ggml-cpu.dll`, `ggml-vulkan.dll`, `llama.dll`, `llama-common.dll` & `llama-unreal-chat.dll`
 - *(Multimodal)* Copy `{build root}/bin/Release/mtmd.dll`
 - into `{plugin root}/ThirdParty/LlamaCpp/Binaries/Win64`
 6. Build plugin
@@ -576,7 +586,7 @@ The toolchain file (`cmake/ue57-linux-cross.cmake` in the llama.cpp clone) bakes
 
 **Artifacts to stage** (into `<plugin>\ThirdParty\LlamaCpp\Lib\Linux\`):
 
-7 unique libraries, each staged twice - as `libfoo.so` (linker resolves `-llama` at link time) and as its soname `libfoo.so.1` (loader resolves SONAME references between sibling libs at runtime; it was `.so.0` before llama.cpp v1.0.0). 14 files total. The build helper script handles this; copy real files, **not** symlinks (WSL2 emits Windows junctions, the loader doesn't follow them).
+8 unique libraries, each staged twice - as `libfoo.so` (linker resolves `-llama` at link time) and as its soname `libfoo.so.1` (loader resolves SONAME references between sibling libs at runtime; it was `.so.0` before llama.cpp v1.0.0). 16 files total. The build helper script handles this; copy real files, **not** symlinks (WSL2 emits Windows junctions, the loader doesn't follow them).
 
 | Library | Purpose |
 |---|---|
@@ -587,6 +597,7 @@ The toolchain file (`cmake/ue57-linux-cross.cmake` in the llama.cpp clone) bakes
 | `libggml-vulkan.so` | Vulkan backend (optional but recommended) |
 | `libllama-common.so` | common helpers (Win64's `llama-common-base.lib` is consolidated into this single shared lib on Linux because `BUILD_SHARED_LIBS=ON` merges static sub-archives into the parent - no separate `libllama-common-base.so`) |
 | `libmtmd.so` | multimodal helper |
+| `libllama-unreal-chat.so` | Jinja chat-template shim (built from `ThirdParty/LlamaCpp/ChatShim` via `CMAKE_PROJECT_llama.cpp_INCLUDE`) |
 
 The `.so` files are linked with `-Wl,-rpath,$ORIGIN` (via `CMAKE_INSTALL_RPATH=$ORIGIN` in the toolchain file), so once staged in the same directory at runtime they find each other without `LD_LIBRARY_PATH`.
 

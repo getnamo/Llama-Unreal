@@ -6,6 +6,7 @@
 #include "common/speculative.h"
 #include "mtmd/mtmd.h"
 #include "mtmd/mtmd-helper.h"
+#include "llama-unreal-chat.h"
 #include "LlamaDataTypes.h"
 #include "LlamaUtility.h"
 #include "HardwareInfo.h"
@@ -248,12 +249,49 @@ bool FLlamaInternal::LoadModelFromParams(const FLLMModelParams& InModelParams)
     
     FilledContextCharLength = 0;
 
+    //The built-in templater handles every template it recognizes (unchanged behavior). Templates it
+    //doesn't (e.g. Gemma 4's Jinja-only one) are rendered by llama.cpp's Jinja engine instead.
+    FreeJinjaTemplates();
+    if (!InModelParams.Advanced.bEmbeddingMode && !Template.empty())
+    {
+        const llama_chat_message Probe = { "user", "test" };
+        if (llama_chat_apply_template(Template.c_str(), &Probe, 1, true, nullptr, 0) < 0)
+        {
+            JinjaTemplates = llu_chat_templates_init(LlamaModel, Template.c_str());
+            if (JinjaTemplates)
+            {
+                UE_LOG(LlamaLog, Log, TEXT("Chat template (%hs) rendered with llama.cpp's Jinja engine."), TemplateSource.c_str());
+            }
+            else
+            {
+                UE_LOG(LlamaLog, Warning, TEXT("Chat template (%hs) is neither a built-in template nor valid Jinja: %hs"),
+                    TemplateSource.c_str(), llu_chat_last_error());
+            }
+        }
+    }
+
     //Detect thinking mode support from template
     bThinkingEnabled = InModelParams.Advanced.Thinking.bEnableThinking;
     bStripThinkingFromResponse = InModelParams.Advanced.Thinking.bStripThinkingFromResponse;
+    bTemplateHandlesThinking = false;
 
+    char JinjaThinkOpen[64] = {};
+    char JinjaThinkClose[64] = {};
+    if (IsUsingJinjaTemplate())
+    {
+        //The template reports its own reasoning tags and switches reasoning off through enable_thinking
+        bModelSupportsThinking = llu_chat_templates_thinking_tags(JinjaTemplates, JinjaThinkOpen, sizeof(JinjaThinkOpen), JinjaThinkClose, sizeof(JinjaThinkClose));
+        bTemplateHandlesThinking = bModelSupportsThinking;
+        ThinkingOpenTag = JinjaThinkOpen;
+        ThinkingCloseTag = JinjaThinkClose;
+        if (bModelSupportsThinking)
+        {
+            UE_LOG(LlamaLog, Log, TEXT("Thinking mode supported by the Jinja template (%hs ... %hs). Thinking %s."),
+                JinjaThinkOpen, JinjaThinkClose, bThinkingEnabled ? TEXT("enabled") : TEXT("disabled via enable_thinking"));
+        }
+    }
     //Auto-detect thinking tags from template source (Qwen3, DeepSeek, etc.)
-    if (Template.find("<think>") != std::string::npos || Template.find("enable_thinking") != std::string::npos)
+    else if (Template.find("<think>") != std::string::npos || Template.find("enable_thinking") != std::string::npos)
     {
         ThinkingOpenTag = "<think>";
         ThinkingCloseTag = "</think>";
@@ -881,6 +919,7 @@ void FLlamaInternal::UnloadModel()
 
     //Free mtmd before context/model since it holds references to them
     FreeMultimodal();
+    FreeJinjaTemplates();
 
     if (Sampler)
     {
@@ -1141,7 +1180,7 @@ std::string FLlamaInternal::InsertTemplatedPrompt(const std::string& Prompt, ECh
     }
 
     //Inject empty think block when thinking is disabled on a thinking-capable model
-    if (!bThinkingEnabled && bAddAssistantBoS && bModelSupportsThinking && NewLen > 0)
+    if (!bThinkingEnabled && bAddAssistantBoS && bModelSupportsThinking && !bTemplateHandlesThinking && NewLen > 0)
     {
         std::string EmptyThinkBlock = ThinkingOpenTag + "\n\n" + ThinkingCloseTag + "\n\n";
         size_t InjLen = EmptyThinkBlock.size();
@@ -1581,6 +1620,24 @@ int32 FLlamaInternal::ApplyTemplateToContextHistory(bool bAddAssistantBOS)
 
 int32 FLlamaInternal::ApplyTemplateFromMessagesToBuffer(const std::string& InTemplate, std::vector<llama_chat_message>& FromMessages, std::vector<char>& ToBuffer, bool bAddAssistantBoS)
 {
+    //The model's Jinja-only template goes through llama.cpp's Jinja engine; same length/resize contract
+    if (JinjaTemplates && InTemplate == Template)
+    {
+        int32 NewLen = llu_chat_templates_apply(JinjaTemplates, FromMessages.data(), FromMessages.size(),
+            bAddAssistantBoS, bThinkingEnabled, ToBuffer.data(), (int32)ToBuffer.size());
+        if (NewLen >= 0 && (size_t)NewLen > ToBuffer.size())
+        {
+            ToBuffer.resize(NewLen);
+            NewLen = llu_chat_templates_apply(JinjaTemplates, FromMessages.data(), FromMessages.size(),
+                bAddAssistantBoS, bThinkingEnabled, ToBuffer.data(), (int32)ToBuffer.size());
+        }
+        if (NewLen < 0)
+        {
+            EmitErrorMessage(FString::Printf(TEXT("Failed to apply the Jinja chat template: %hs"), llu_chat_last_error()), 101, __func__);
+        }
+        return NewLen;
+    }
+
     //Handle empty template case
     char* templatePtr = (char*)InTemplate.c_str();
     if (InTemplate.length() == 0)
@@ -1595,7 +1652,7 @@ int32 FLlamaInternal::ApplyTemplateFromMessagesToBuffer(const std::string& InTem
     //size comparison, where it would convert to a huge size_t and crash in resize().
     if (NewLen < 0)
     {
-        EmitErrorMessage(TEXT("Failed to apply the chat template: llama.cpp's built-in templater doesn't recognize this model's template (Jinja-only templates aren't supported)."), 101, __func__);
+        EmitErrorMessage(TEXT("Failed to apply the chat template: llama.cpp's built-in templater doesn't recognize it, and it couldn't be loaded as Jinja (see the log from model load)."), 101, __func__);
         return NewLen;
     }
 
@@ -1763,6 +1820,15 @@ bool FLlamaInternal::InitMultimodal(const FString& MmprojPath)
         mtmd_support_vision(MtmdContext) ? TEXT("yes") : TEXT("no"),
         mtmd_support_audio(MtmdContext) ? TEXT("yes") : TEXT("no"));
     return true;
+}
+
+void FLlamaInternal::FreeJinjaTemplates()
+{
+    if (JinjaTemplates)
+    {
+        llu_chat_templates_free(JinjaTemplates);
+        JinjaTemplates = nullptr;
+    }
 }
 
 void FLlamaInternal::FreeMultimodal()
@@ -1979,7 +2045,7 @@ std::string FLlamaInternal::InsertMultimodalPrompt(const std::string& TextWithMa
     }
 
     //Inject empty think block when thinking is disabled on a thinking-capable model
-    const bool bActualThinkingInject = !bThinkingEnabled && (bAddAssistantBoS || bGenerateReply) && bModelSupportsThinking && NewLen > 0;
+    const bool bActualThinkingInject = !bThinkingEnabled && (bAddAssistantBoS || bGenerateReply) && bModelSupportsThinking && !bTemplateHandlesThinking && NewLen > 0;
     if (bActualThinkingInject)
     {
         std::string EmptyThinkBlock = ThinkingOpenTag + "\n\n" + ThinkingCloseTag + "\n\n";

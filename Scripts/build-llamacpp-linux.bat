@@ -62,6 +62,9 @@ REM Resolve plugin paths (script lives at <plugin>\Scripts\)
 set "SCRIPT_DIR=%~dp0"
 set "PLUGIN_DIR=%SCRIPT_DIR%.."
 set "STAGE_DIR=%PLUGIN_DIR%\ThirdParty\LlamaCpp\Lib\Linux"
+REM Jinja chat-template shim added to the llama.cpp build (forward slashes for CMake)
+set "CHAT_SHIM_CMAKE=%PLUGIN_DIR%\ThirdParty\LlamaCpp\ChatShim\llama-unreal-chat.cmake"
+set "CHAT_SHIM_CMAKE=%CHAT_SHIM_CMAKE:\=/%"
 
 if not exist "%STAGE_DIR%" mkdir "%STAGE_DIR%"
 
@@ -87,7 +90,8 @@ cmake -S . -B build-linux-vulkan -G Ninja ^
     -DLLAMA_BUILD_TOOLS=ON ^
     -DVulkan_INCLUDE_DIR=%VULKAN_SDK%/Include ^
     -DVulkan_LIBRARY=%LLAMA_UE_LINUX_TC%/x86_64-unknown-linux-gnu/usr/lib64/libvulkan.so ^
-    -DSPIRV-Headers_DIR=%VULKAN_SDK%/Lib/cmake
+    -DSPIRV-Headers_DIR=%VULKAN_SDK%/Lib/cmake ^
+    "-DCMAKE_PROJECT_llama.cpp_INCLUDE=%CHAT_SHIM_CMAKE%"
 if errorlevel 1 (
     echo [build-llamacpp-linux] CMake configure failed.
     popd
@@ -97,7 +101,7 @@ if errorlevel 1 (
 REM Build the libs we need. Building all tools/* targets fails on std::filesystem
 REM linkage (Rocky 8 GCC 8.5 ABI nit), so we list the specific targets we care about.
 cmake --build build-linux-vulkan --config Release -j 8 ^
-    --target llama ggml ggml-base ggml-cpu ggml-vulkan llama-common mtmd
+    --target llama ggml ggml-base ggml-cpu ggml-vulkan llama-common mtmd llama-unreal-chat
 if errorlevel 1 (
     echo [build-llamacpp-linux] Build failed.
     popd
@@ -113,7 +117,7 @@ REM for the loader. Older soname copies are removed first so they don't ship.
 del /q "%STAGE_DIR%\*.so*" 2>nul
 set COPIED=0
 set "BIN=build-linux-vulkan\bin"
-for %%S in (libllama libggml libggml-base libggml-cpu libggml-vulkan libllama-common libmtmd) do (
+for %%S in (libllama libggml libggml-base libggml-cpu libggml-vulkan libllama-common libmtmd libllama-unreal-chat) do (
     set "REAL="
     set "MAJOR="
     REM Newest first, so leftovers from older builds in the same dir are ignored. The real file is the
@@ -140,14 +144,14 @@ for %%S in (libllama libggml libggml-base libggml-cpu libggml-vulkan libllama-co
 
 popd
 
-if !COPIED! lss 14 (
+if !COPIED! lss 16 (
     echo.
-    echo [build-llamacpp-linux] WARNING: only !COPIED! files staged, expected 14.
+    echo [build-llamacpp-linux] WARNING: only !COPIED! files staged, expected 16.
     exit /b 1
 )
 
 echo.
-echo [build-llamacpp-linux] Staged !COPIED! files, 7 libs x 2 names. Done.
+echo [build-llamacpp-linux] Staged !COPIED! files, 8 libs x 2 names. Done.
 echo.
 echo Next: in Epic Games Launcher, enable "Linux" engine platform component for your UE version,
 echo then build the plugin Linux target:

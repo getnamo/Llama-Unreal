@@ -148,16 +148,16 @@ bool FLlamaMultimodalAudioTest::RunTest(const FString& /*Parameters*/)
     return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FLlamaMultimodalUnsupportedTemplateTest,
-    "LlamaCore.Multimodal.UnsupportedTemplateErrors",
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FLlamaMultimodalJinjaTemplateTest,
+    "LlamaCore.Multimodal.ImageJinjaTemplate",
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-bool FLlamaMultimodalUnsupportedTemplateTest::RunTest(const FString& /*Parameters*/)
+bool FLlamaMultimodalJinjaTemplateTest::RunTest(const FString& /*Parameters*/)
 {
     using namespace LlamaMultimodalTests;
 
-    //Gemma 4 ships a Jinja-only chat template that llama_chat_apply_template doesn't recognize (-1).
-    //That used to crash in vector::resize; it must report an error and leave the conversation usable.
+    //Gemma 4 ships a Jinja-only chat template that llama_chat_apply_template doesn't recognize, so it
+    //goes through the llama-unreal-chat Jinja shim (and used to crash before that existed)
     const FString Model = FindModel(TEXT("gemma-4-E2B-it-Q6_K.gguf"));
     const FString Mmproj = FindModel(TEXT("mmproj-gemma-4-E2B-it-Q6_K-F16.gguf"));
     if (Model.IsEmpty() || Mmproj.IsEmpty())
@@ -176,20 +176,30 @@ bool FLlamaMultimodalUnsupportedTemplateTest::RunTest(const FString& /*Parameter
     {
         return false;
     }
+    TestTrue(TEXT("Jinja template in use"), Internal.IsUsingJinjaTemplate());
 
     FLlamaMediaEntry Image;
     Image.MediaType = ELlamaMediaType::Image;
-    Image.ImageWidth = 64;
-    Image.ImageHeight = 64;
-    Image.ImageRGBData.Init(128, Image.ImageWidth * Image.ImageHeight * 3);
+    Image.ImageWidth = 256;
+    Image.ImageHeight = 256;
+    Image.ImageRGBData.SetNumUninitialized(Image.ImageWidth * Image.ImageHeight * 3);
+    for (int32 i = 0; i < Image.ImageWidth * Image.ImageHeight; i++)
+    {
+        Image.ImageRGBData[i * 3 + 0] = 20;
+        Image.ImageRGBData[i * 3 + 1] = 40;
+        Image.ImageRGBData[i * 3 + 2] = 220;
+    }
 
-    AddExpectedError(TEXT("Failed to apply the chat template"), EAutomationExpectedErrorFlags::Contains, 0);
-    const std::string Reply = Ask(Internal, TEXT("<__media__>\nDescribe this image."), { Image });
-    TestTrue(TEXT("no reply generated"), Reply.empty());
-    TestTrue(FString::Printf(TEXT("template error reported (%s)"), *Errors), Errors.Contains(TEXT("chat template")));
-    TestEqual(TEXT("nothing left in the KV cache"), (int32)llama_memory_seq_pos_max(llama_get_memory(Internal.Context), 0), -1);
+    const FString ImageReply = UTF8_TO_TCHAR(Ask(Internal, TEXT("<__media__>\nWhat color is this image? Answer with one word."), { Image }).c_str());
+    AddInfo(FString::Printf(TEXT("Image reply: %s"), *ImageReply));
+    TestTrue(TEXT("image reply names the color"), ImageReply.Contains(TEXT("blue"), ESearchCase::IgnoreCase));
+
+    const FString TextReply = UTF8_TO_TCHAR(Internal.InsertTemplatedPrompt("What color is grass? Answer with one word.", EChatTemplateRole::User, true, true).c_str());
+    AddInfo(FString::Printf(TEXT("Follow-up reply: %s"), *TextReply));
+    TestTrue(TEXT("follow-up reply is coherent"), TextReply.Contains(TEXT("green"), ESearchCase::IgnoreCase));
 
     Internal.UnloadModel();
+    TestTrue(FString::Printf(TEXT("no errors (%s)"), *Errors), Errors.IsEmpty());
     return true;
 }
 
