@@ -437,40 +437,6 @@ void FLlamaInternal::ResetGrammarForNewResponse()
     BuildSamplers(LastLoadedParams.Advanced.Sampling, LastLoadedParams.Seed);
 }
 
-//Port of llama.cpp's common_speculative_are_compatible (not exported): same vocab type, matching
-//BOS/EOS where the model adds them, sizes within 128 and identical token text from id 5 on
-static bool AreSpeculativeVocabsCompatible(const llama_vocab* Target, const llama_vocab* Draft)
-{
-    if (llama_vocab_type(Target) != llama_vocab_type(Draft))
-    {
-        return false;
-    }
-    if (llama_vocab_get_add_bos(Target) != llama_vocab_get_add_bos(Draft) ||
-        (llama_vocab_get_add_bos(Target) && llama_vocab_bos(Target) != llama_vocab_bos(Draft)))
-    {
-        return false;
-    }
-    if (llama_vocab_get_add_eos(Target) != llama_vocab_get_add_eos(Draft) ||
-        (llama_vocab_get_add_eos(Target) && llama_vocab_eos(Target) != llama_vocab_eos(Draft)))
-    {
-        return false;
-    }
-    const int32 NTarget = llama_vocab_n_tokens(Target);
-    const int32 NDraft = llama_vocab_n_tokens(Draft);
-    if (FMath::Abs(NTarget - NDraft) > 128)
-    {
-        return false;
-    }
-    for (int32 i = 5; i < FMath::Min(NTarget, NDraft); i++)
-    {
-        if (strcmp(llama_vocab_get_text(Target, i), llama_vocab_get_text(Draft, i)) != 0)
-        {
-            return false;
-        }
-    }
-    return true;
-}
-
 bool FLlamaInternal::InitSpeculative(const FLLMModelParams& InModelParams)
 {
     const FLLMSpeculativeParams& Spec = InModelParams.Advanced.Speculative;
@@ -508,7 +474,7 @@ bool FLlamaInternal::InitSpeculative(const FLLMModelParams& InModelParams)
             return false;
         }
 
-        if (!AreSpeculativeVocabsCompatible(llama_model_get_vocab(LlamaModel), llama_model_get_vocab(DraftModel)))
+        if (!common_speculative_are_compatible(LlamaModel, DraftModel))
         {
             EmitErrorMessage(TEXT("Draft model tokenizer doesn't match the main model (use a model from the same family), generating without speculation."), 13, __func__);
             FreeSpeculative();
@@ -599,8 +565,10 @@ bool FLlamaInternal::InitSpeculative(const FLLMModelParams& InModelParams)
     //Largest proposal any enabled drafter writes before we clamp it (ngram-mod: n_match + n_max)
     DraftTokens.clear();
     DraftTokens.reserve(512);
-    SpeculativeBatch = llama_batch_init(1 + 64, 0, 1);
-    TrackedBatch = llama_batch_init(llama_n_batch(Context), 0, 1);
+    SpeculativeBatch = new common_batch(Context);
+    SpeculativeBatch->tokens.reserve(1 + 64);
+    TrackedBatch = new common_batch(Context);
+    TrackedBatch->tokens.reserve(llama_n_batch(Context));
 
     UE_LOG(LlamaLog, Log, TEXT("Speculative decoding enabled (%s), max %d draft tokens%s"),
         *UEnum::GetDisplayValueAsText(Spec.Mode).ToString(), SpeculativeParams->draft.n_max,
@@ -627,16 +595,23 @@ void FLlamaInternal::FreeSpeculative()
         llama_model_free(DraftModel);
         DraftModel = nullptr;
     }
-    if (SpeculativeBatch.token)
-    {
-        llama_batch_free(SpeculativeBatch);
-    }
-    SpeculativeBatch = {};
-    if (TrackedBatch.token)
-    {
-        llama_batch_free(TrackedBatch);
-    }
-    TrackedBatch = {};
+    delete SpeculativeBatch;
+    SpeculativeBatch = nullptr;
+    delete TrackedBatch;
+    TrackedBatch = nullptr;
+}
+
+void FLlamaInternal::AddBatchToken(common_batch& Batch, llama_token Token, llama_pos Pos, bool bOutput)
+{
+    common_batch::token Entry{};
+    Entry.id = Token;
+    Entry.pos.fill(0);
+    Entry.pos[0] = Pos;
+    Entry.seq_id = 0;
+    Entry.output = bOutput;
+    Entry.embd = { nullptr, 0, 0 };
+    Entry.state = { nullptr, 0, 0 };
+    Batch.tokens.push_back(std::move(Entry));
 }
 
 bool FLlamaInternal::IsTokenMirrorConsistent() const
@@ -668,24 +643,20 @@ int32 FLlamaInternal::DecodePromptChunk(const llama_token* Tokens, int32 NTokens
 
 int32 FLlamaInternal::DecodeTracked(const llama_token* Tokens, int32 NTokens, llama_pos StartPos)
 {
-    TrackedBatch.n_tokens = NTokens;
+    TrackedBatch->tokens.clear();
     for (int32 i = 0; i < NTokens; i++)
     {
-        TrackedBatch.token[i] = Tokens[i];
-        TrackedBatch.pos[i] = StartPos + i;
-        TrackedBatch.n_seq_id[i] = 1;
-        TrackedBatch.seq_id[i][0] = 0;
-        TrackedBatch.logits[i] = (i == NTokens - 1);
+        AddBatchToken(*TrackedBatch, Tokens[i], StartPos + i, i == NTokens - 1);
     }
 
-    const int32 Result = llama_decode(Context, TrackedBatch);
+    const int32 Result = llama_process(Context, LLAMA_PROCESS_TYPE_DECODE, TrackedBatch->get());
     if (Result != 0)
     {
         return Result;
     }
 
     ContextTokens.insert(ContextTokens.end(), Tokens, Tokens + NTokens);
-    if (Speculative && bSpeculativeInSync && !common_speculative_process(Speculative, TrackedBatch))
+    if (Speculative && bSpeculativeInSync && !common_speculative_process(Speculative, *TrackedBatch))
     {
         UE_LOG(LlamaLog, Warning, TEXT("Speculative: draft side failed to process a batch, disabled until the next context reset."));
         bSpeculativeInSync = false;
@@ -738,12 +709,7 @@ void FLlamaInternal::GenerateSpeculative(std::string& Response, int32& NDecoded,
 
     auto AddToBatch = [this](llama_token Token, llama_pos Pos)
     {
-        const int32 i = SpeculativeBatch.n_tokens++;
-        SpeculativeBatch.token[i] = Token;
-        SpeculativeBatch.pos[i] = Pos;
-        SpeculativeBatch.n_seq_id[i] = 1;
-        SpeculativeBatch.seq_id[i][0] = 0;
-        SpeculativeBatch.logits[i] = true; //every position is verified
+        AddBatchToken(*SpeculativeBatch, Token, Pos, true); //every position is verified
     };
 
     //First token from the prompt's logits. IdLast is always emitted but not yet decoded.
@@ -799,14 +765,14 @@ void FLlamaInternal::GenerateSpeculative(std::string& Response, int32& NDecoded,
 
         //Verify [IdLast, d0..dn-1] in one pass
         const int32 NDraft = (int32)DraftTokens.size();
-        SpeculativeBatch.n_tokens = 0;
+        SpeculativeBatch->tokens.clear();
         AddToBatch(IdLast, NPast);
         for (int32 i = 0; i < NDraft; i++)
         {
             AddToBatch(DraftTokens[i], NPast + 1 + i);
         }
         int64 T0 = ggml_time_us();
-        if (llama_decode(Context, SpeculativeBatch))
+        if (llama_process(Context, LLAMA_PROCESS_TYPE_DECODE, SpeculativeBatch->get()))
         {
             bGenerationActive = false;
             EmitErrorMessage(TEXT("Failed to decode. Could not find a KV slot for the batch (try reducing the size of the batch or increase the context)"), 32, __func__);
@@ -814,7 +780,7 @@ void FLlamaInternal::GenerateSpeculative(std::string& Response, int32& NDecoded,
         }
         int64 T1 = ggml_time_us();
         VerifyUs += T1 - T0;
-        const bool bProcessed = common_speculative_process(Speculative, SpeculativeBatch);
+        const bool bProcessed = common_speculative_process(Speculative, *SpeculativeBatch);
         T0 = ggml_time_us();
         SyncUs += T0 - T1;
         if (!bProcessed)
@@ -1625,27 +1591,23 @@ int32 FLlamaInternal::ApplyTemplateFromMessagesToBuffer(const std::string& InTem
     int32 NewLen = llama_chat_apply_template(templatePtr, FromMessages.data(), FromMessages.size(),
             bAddAssistantBoS, ToBuffer.data(), ToBuffer.size());
 
+    //Negative: llama.cpp doesn't recognize the template (e.g. a Jinja-only template). Checked before the
+    //size comparison, where it would convert to a huge size_t and crash in resize().
+    if (NewLen < 0)
+    {
+        EmitErrorMessage(TEXT("Failed to apply the chat template: llama.cpp's built-in templater doesn't recognize this model's template (Jinja-only templates aren't supported)."), 101, __func__);
+        return NewLen;
+    }
+
     //Resize if ToBuffer can't hold it
-    if (NewLen > ToBuffer.size())
+    if ((size_t)NewLen > ToBuffer.size())
     {
         ToBuffer.resize(NewLen);
-        NewLen = llama_chat_apply_template(InTemplate.c_str(), FromMessages.data(), FromMessages.size(),
+        NewLen = llama_chat_apply_template(templatePtr, FromMessages.data(), FromMessages.size(),
             bAddAssistantBoS, ToBuffer.data(), ToBuffer.size());
     }
-    else 
-    {
-        if (NewLen < 0)
-        {
-            EmitErrorMessage(TEXT("Failed to apply the chat template ApplyTemplateFromMessagesToBuffer, negative length"), 101, __func__);
-        }
-        else if (NewLen == 0)
-        {
-            //This isn't an error but needs to be handled by downstream
-            
-            //EmitErrorMessage(TEXT("Failed to apply the chat template ApplyTemplateFromMessagesToBuffer, length is 0."), 102, __func__);
-        }
-    }
-    
+    //NewLen == 0 isn't an error but needs to be handled by downstream
+
     return NewLen;
 }
 
@@ -1747,10 +1709,17 @@ void FLlamaInternal::BatchDecodeEmbedding(llama_context* InContext, llama_batch&
 
 void FLlamaInternal::BatchAddSeq(llama_batch& batch, const std::vector<int32_t>& tokens, llama_seq_id seq_id)
 {
+    //Same as the old common_batch_add (removed upstream in favor of common_batch)
     size_t n_tokens = tokens.size();
-    for (size_t i = 0; i < n_tokens; i++) 
+    for (size_t i = 0; i < n_tokens; i++)
     {
-        common_batch_add(batch, tokens[i], i, { seq_id }, true);
+        const int32_t Idx = batch.n_tokens;
+        batch.token[Idx] = tokens[i];
+        batch.pos[Idx] = (llama_pos)i;
+        batch.n_seq_id[Idx] = 1;
+        batch.seq_id[Idx][0] = seq_id;
+        batch.logits[Idx] = true;
+        batch.n_tokens++;
     }
 }
 
@@ -1894,8 +1863,11 @@ int32 FLlamaInternal::ProcessMultimodalPrompt(const std::string& FormattedPrompt
     const llama_pos SeqPosMax = llama_memory_seq_pos_max(llama_get_memory(Context), 0);
     const bool IsFirst = (SeqPosMax < 0);
 
-    mtmd_input_text InputText;
+    //Value-initialized: mtmd reads text_len (added upstream after this code was written), and an
+    //uninitialized length made mtmd_tokenize copy gigabytes of stack garbage / throw bad_alloc
+    mtmd_input_text InputText{};
     InputText.text = FormattedPrompt.c_str();
+    InputText.text_len = FormattedPrompt.size();
     InputText.add_special = IsFirst;
     InputText.parse_special = true;
 
@@ -1988,6 +1960,7 @@ std::string FLlamaInternal::InsertMultimodalPrompt(const std::string& TextWithMa
     }
 
     int32 NewLen = FilledContextCharLength;
+    const size_t MessagesBefore = Messages.size();
 
     if (!TextWithMarkers.empty())
     {
@@ -2001,6 +1974,7 @@ std::string FLlamaInternal::InsertMultimodalPrompt(const std::string& TextWithMa
     if (NewLen < 0)
     {
         UE_LOG(LlamaLog, Warning, TEXT("Multimodal prompt after templating has an invalid length of %d"), NewLen);
+        ClearMessages(MessagesBefore);
         return std::string();
     }
 
@@ -2020,8 +1994,16 @@ std::string FLlamaInternal::InsertMultimodalPrompt(const std::string& TextWithMa
 
     if (NewLen > 0)
     {
+        const llama_pos PosBefore = llama_memory_seq_pos_max(llama_get_memory(Context), 0) + 1;
         std::string FormattedPrompt(ContextHistory.data() + FilledContextCharLength, ContextHistory.data() + NewLen);
         int32 TokensProcessed = ProcessMultimodalPrompt(FormattedPrompt, MediaEntries, Role, bGenerateReply);
+        if (TokensProcessed <= 0)
+        {
+            //Error already emitted. Undo this turn instead of generating from logits that don't exist.
+            TrimContextFrom(PosBefore);
+            ClearMessages(MessagesBefore);
+            return std::string();
+        }
     }
 
     FilledContextCharLength = NewLen;

@@ -13,6 +13,7 @@
 struct mtmd_context;
 struct common_speculative;
 struct common_params_speculative;
+struct common_batch;
 
 /** 
 * Uses mostly Llama.cpp native API, meant to be embedded in LlamaNative that wraps 
@@ -180,9 +181,12 @@ protected:
     int32 DecodePromptChunk(const llama_token* Tokens, int32 NTokens);
 
     //Decodes tokens at explicit positions through TrackedBatch (logits for the last token only), then
-    //mirrors + feeds the draft side. Speculative implementations (e.g. MTP) read the batch's positions
-    //and sequence ids, which llama_batch_get_one leaves null.
+    //mirrors + feeds the draft side, which reads the batch's positions and sequence ids.
     int32 DecodeTracked(const llama_token* Tokens, int32 NTokens, llama_pos StartPos);
+
+    //Appends a seq-0 text token to a common_batch from this module, so the token vector is only ever
+    //(re)allocated and freed on our heap (common_batch::add lives in llama-common's DLL/heap)
+    static void AddBatchToken(common_batch& Batch, llama_token Token, llama_pos Pos, bool bOutput);
 
     //Removes KV / token mirror entries from position FromPos onward on the target and draft contexts
     void TrimContextFrom(llama_pos FromPos);
@@ -197,8 +201,11 @@ protected:
     //Draft output buffer. Reserved up front: llama-common is a separate DLL/heap, so the library must
     //only ever write into existing capacity (it push_backs / resizes within it), never reallocate ours
     std::vector<llama_token> DraftTokens;
-    llama_batch SpeculativeBatch = {};
-    llama_batch TrackedBatch = {};
+
+    //Batches fed to both the target decode (llama_process) and common_speculative_process.
+    //Created/destroyed here and filled with AddBatchToken, never with common_batch's own methods.
+    common_batch* SpeculativeBatch = nullptr;
+    common_batch* TrackedBatch = nullptr;
 
     FThreadSafeBool bIsModelLoaded = false;
     int32 FilledContextCharLength = 0;

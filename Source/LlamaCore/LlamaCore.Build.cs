@@ -168,8 +168,8 @@ public class LlamaCore : ModuleRules
 			//   libggml-vulkan.so (optional; Vulkan backend)
 			//
 			// Each .so is staged twice — as `libfoo.so` (linker resolves -llama →
-			// libllama.so) AND as `libfoo.so.0` (loader resolves SONAME references
-			// from sibling libs at runtime, e.g. libllama.so → libggml.so.0).
+			// libllama.so) AND as its soname `libfoo.so.N` (loader resolves SONAME references
+			// from sibling libs at runtime, e.g. libllama.so → libggml.so.1; N is 1 since llama.cpp v1.0.0).
 			string LinuxLibPath = Path.Combine(LlamaCppLibPath, "Linux");
 
 			if (Directory.Exists(LinuxLibPath) && Directory.EnumerateFiles(LinuxLibPath, "*.so").Any())
@@ -188,7 +188,7 @@ public class LlamaCore : ModuleRules
 				}
 
 				// Stage every .so* found alongside the editor/game binary, including
-				// the soname variants (libfoo.so.0). Mirrors the Win64 dynamic
+				// the soname variants (libfoo.so.N). Mirrors the Win64 dynamic
 				// enumeration so new backend variants are picked up without manual
 				// additions.
 				foreach (string SrcSo in Directory.EnumerateFiles(LinuxLibPath, "*.so*"))

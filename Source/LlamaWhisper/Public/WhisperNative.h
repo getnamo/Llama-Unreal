@@ -112,6 +112,15 @@ public:
 
 	float ThreadIdleSleepDuration = 0.005f;
 
+	// ---------------------------------------------------------------------------
+	// WAV file loading utility
+	// ---------------------------------------------------------------------------
+
+	/** Load a RIFF/WAVE file into a float32 mono array at the file's sample rate.
+	 *  Returns true on success; fills OutSamples and OutSampleRate. */
+	static bool LoadWavFile(const FString& FilePath,
+	                        TArray<float>& OutSamples, int32& OutSampleRate);
+
 private:
 	// ---------------------------------------------------------------------------
 	// Background thread (mirrors FLlamaNative exactly)
@@ -171,13 +180,4 @@ private:
 	// ---------------------------------------------------------------------------
 
 	FTSTicker::FDelegateHandle TickDelegateHandle = nullptr;
-
-	// ---------------------------------------------------------------------------
-	// WAV file loading utility
-	// ---------------------------------------------------------------------------
-
-	/** Load a RIFF/WAVE file into a float32 16 kHz mono array.
-	 *  Returns true on success; fills OutSamples and OutSampleRate. */
-	static bool LoadWavFile(const FString& FilePath,
-	                        TArray<float>& OutSamples, int32& OutSampleRate);
 };
