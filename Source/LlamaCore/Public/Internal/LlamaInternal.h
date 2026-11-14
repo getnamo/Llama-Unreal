@@ -80,6 +80,12 @@ public:
     //The template itself switches reasoning off via enable_thinking, so no empty think block is injected
     bool bTemplateHandlesThinking = false;
 
+    //Model runs without GPU backends: GPULayers == 0, or a GPU backend failed to initialize at load
+    bool bCPUOnly = false;
+
+    //Params.Threads capped at the device's core count
+    int32 ThreadCount = 8;
+
     //Cached params, should be accessed on BT
     FLLMModelParams LastLoadedParams;
 
@@ -134,6 +140,13 @@ public:
     bool InitMultimodal(const FString& MmprojPath);
     void FreeMultimodal();
     void FreeJinjaTemplates();
+    static void UseCPUOnly(llama_model_params& ModelParams);
+
+    //llama_decode that turns backend exceptions (e.g. a GPU shader pipeline the driver can't build) into an error result
+    int32 GuardedDecode(llama_context* InContext, const llama_batch& Batch);
+
+    //Decodes a short prompt and a token to build the GPU pipelines up front; false if the GPU path failed
+    bool WarmUpGPU();
     bool IsMultimodalLoaded();
     bool SupportsVision();
     bool SupportsAudio();

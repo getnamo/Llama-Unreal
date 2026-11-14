@@ -82,3 +82,6 @@ Content/Models/*
 ThirdParty/LlamaCpp/Win64/Cuda/cudart.lib
 ThirdParty/LlamaCpp/Win64/Cuda/cublas.lib
 ThirdParty/LlamaCpp/Win64/Cuda/cuda.lib
+
+# Optional Mesa Turnip driver for Android (Scripts/download-turnip-android.bat)
+ThirdParty/MesaTurnip/*/*.so

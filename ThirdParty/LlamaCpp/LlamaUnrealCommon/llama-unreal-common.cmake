@@ -19,7 +19,9 @@ function(llu_add_targets)
         return()
     endif()
 
-    add_library(llama-unreal-common SHARED
+    # Shared like the rest of llama.cpp on Win64/Linux; static on Android (BUILD_SHARED_LIBS=OFF), where
+    # everything is linked into the game's single .so
+    add_library(llama-unreal-common
         "${LLU_DIR}/llama-unreal-common.h"
         "${LLU_DIR}/llu-internal.h"
         "${LLU_DIR}/llu-common.cpp"

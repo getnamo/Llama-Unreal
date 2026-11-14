@@ -332,11 +332,42 @@ public class LlamaCore : ModuleRules
 		}
 		else if (Target.Platform == UnrealTargetPlatform.Android)
 		{
-			//NB: Currently not working for b4879
+			// Static libraries per ABI, built with NDK r27c at API 26 against the NDK's static libc++ like
+			// UE itself (Scripts/build-llamacpp-android.bat). Everything links into the game's single .so,
+			// so there is nothing extra to package. UBT keeps only the libs whose folder matches the
+			// architecture being compiled (arm64-v8a for devices, x86_64 for the emulator).
+			string AndroidLibPath = Path.Combine(LlamaCppLibPath, "Android");
+			string[] StaticLibs = new string[]
+			{
+				"libllama-unreal-common.a", "libllama-common.a", "libllama-common-base.a", "libcpp-httplib.a",
+				"libmtmd.a", "libvendor-hash.a", "libllama.a", "libggml.a", "libggml-cpu.a", "libggml-vulkan.a", "libggml-base.a",
+			};
+			bool bFoundAny = false;
+			foreach (string Abi in new string[] { "arm64-v8a", "x86_64" })
+			{
+				foreach (string Lib in StaticLibs)
+				{
+					string LibPath = Path.Combine(AndroidLibPath, Abi, Lib);
+					if (File.Exists(LibPath))
+					{
+						PublicAdditionalLibraries.Add(LibPath);
+						bFoundAny = true;
+					}
+				}
+			}
+			if (!bFoundAny)
+			{
+				System.Console.WriteLine("Llama-Unreal: no Android libraries in " + AndroidLibPath +
+					"; build them with Scripts/build-llamacpp-android.bat.");
+			}
 
-			//Built against NDK 25.1.8937393, API 26
-			PublicAdditionalLibraries.Add(Path.Combine(PluginDirectory, "Libraries", "Android", "libggml_static.a"));
-			PublicAdditionalLibraries.Add(Path.Combine(PluginDirectory, "Libraries", "Android", "libllama.a"));
+			// ggml-vulkan's few direct Vulkan calls are defined in Private/Android/LlamaAndroidVulkan.cpp, which
+			// loads the device's libvulkan.so (or a packaged driver) at runtime
+			PublicSystemLibraries.Add("vulkan");
+			PublicSystemLibraries.Add("log");
+
+			// Packages ThirdParty/MesaTurnip/<abi>/libvulkan_freedreno.so when it's there (optional, see README)
+			AdditionalPropertiesForReceipt.Add("AndroidPlugin", Path.Combine(ModuleDirectory, "LlamaCore_APL.xml"));
 		}
 	}
 }

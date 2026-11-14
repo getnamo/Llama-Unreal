@@ -650,14 +650,33 @@ cmake --build . --config Release -j --verbose
 
 ### Android build
 
-For Android build see: https://github.com/ggerganov/llama.cpp/blob/master/docs/android.md#cross-compile-using-android-ndk
+Supported: UE 5.8, `arm64-v8a` (devices) and `x86_64` (emulator), API 26+, Vulkan and CPU backends.
 
-```
-mkdir build-android
-cd build-android
-export NDK=<your_ndk_directory>
-cmake -DCMAKE_TOOLCHAIN_FILE=$NDK/build/cmake/android.toolchain.cmake -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-23 -DCMAKE_C_FLAGS=-march=armv8.4a+dotprod ..
-$ make
+llama.cpp is linked statically on Android: `ThirdParty/LlamaCpp/Lib/Android/<abi>/` holds static libraries (llama.cpp, llama-common and llama-unreal-common), built with NDK r27c against the NDK's static libc++ like UE itself. They link into the game's single `.so`, so there is nothing extra to package (apart from the optional Turnip driver below). To rebuild them (needs `NDKROOT`, `VULKAN_SDK`, Visual Studio 2022 and Ninja):
+
+```cmd
+cd <plugin>\Scripts
+build-llamacpp-android.bat <path\to\llama.cpp> "arm64-v8a x86_64"
 ```
 
-Then the .so or .lib file was copied into e.g. `ThirdParty/LlamaCpp/Win64/cpu` directory and all the .h files were copied to the `Includes` directory.
+The script configures llama.cpp with the NDK toolchain (API 26, `c++_static`, Vulkan headers from the Vulkan SDK since the NDK lacks `vulkan.hpp`), builds the static libraries and stages them stripped of debug info.
+
+**Project settings** (Project Settings > Android): `MinSDKVersion=26`. The Launcher's UE 5.8 Android binaries are built for API 26; if your `UserEngine.ini` sets a higher NDK API level, add `NDKAPILevelOverride=android-26` to the project's `[/Script/AndroidRuntimeSettings.AndroidRuntimeSettings]`, or the link fails on `FTask::ActiveTask`.
+
+**Models**: `./model.gguf` paths resolve to `<app external files dir>/Models/`, e.g. `/sdcard/Android/data/<package name>/files/Models/`. To copy one over with adb:
+
+```cmd
+adb shell mkdir -p /sdcard/Android/data/<package name>/files/Models
+adb shell chmod 777 /sdcard/Android/data/<package name>/files/Models
+adb push model.gguf /sdcard/Android/data/<package name>/files/Models/
+```
+
+(A folder created by adb belongs to the shell user and the app can't enter it without the `chmod`.)
+
+**GPU and threads**: the Vulkan backend is used when the device's driver supports what ggml-vulkan needs. If a GPU backend fails to initialize, the model is loaded on the CPU instead and the log says `Model load with GPU backends failed ..., retrying on the CPU only`. Some drivers initialize but can't build ggml-vulkan's shaders, which happens on first use. So on Android a GPU load also runs a short warm-up prompt. If that fails, the model is reloaded on the CPU and the log says `GPU warm-up failed ..., reloading the model on the CPU only`. After a GPU failure, later loads in the same session stay on the CPU. A GPU exception during generation ends that generation with an error instead of crashing. `GPULayers=0` keeps llama.cpp off the GPU entirely. `Threads` is capped at the device's core count, leaving out the slowest cluster of a big.LITTLE CPU: ggml splits work evenly, so a thread on a little core holds up the rest (on an 8-core phone with 2 little cores, 6 threads generated about twice as fast as 8).
+
+**Adreno GPUs (Mesa Turnip)**: Qualcomm's Vulkan driver fails to compile some of llama.cpp's shaders on Adreno GPUs, so those devices end up on the CPU. Run `Scripts/download-turnip-android.bat` to download Mesa's open-source Adreno driver from [nihui/mesa-turnip-android-driver](https://github.com/nihui/mesa-turnip-android-driver) (MIT) into `ThirdParty/MesaTurnip/arm64-v8a/libvulkan_freedreno.so` (see `ThirdParty/MesaTurnip/README.md`). When it's present, it's packaged into arm64 builds and llama.cpp uses it whenever it supports the GPU. The engine's renderer keeps the system driver. Turnip mainly speeds up prompt processing (2.5-4x the CPU on an Adreno 750); token generation is about even with the CPU on a 4B model and slower on very small ones. Delete the file to leave it out, or set the environment variable `LLAMA_VULKAN_DRIVER=system` to ignore it at runtime.
+
+**Emulator**: use an `x86_64` system image (UE's arm64 build doesn't run under the emulator's ARM translation). The emulator's Vulkan driver lacks extensions ggml-vulkan needs, so models run on the CPU there.
+
+**Tests**: the `LlamaCore.Device.*` automation tests are flagged `ClientContext` and run in packaged games as well as the editor. They use `./Qwen3-0.6B-Q8_0.gguf` and accept `-LlamaGPULayers=N` on the command line.

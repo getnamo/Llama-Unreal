@@ -8,6 +8,10 @@
 #include "LlamaUtility.h"
 #include "HardwareInfo.h"
 
+#include <algorithm>
+#include <atomic>
+#include <cstdio>
+
 // Cross-platform strdup. MSVC ships `_strdup` and warns about plain `strdup`;
 // POSIX (glibc/clang on Linux) ships `strdup` and never had `_strdup`.
 #if PLATFORM_WINDOWS
@@ -101,6 +105,125 @@ namespace
         Out.resize((size_t)Wrote2);
         return Out;
     }
+
+    // ggml backends report some failures by throwing: ggml-vulkan builds shader pipelines on first use and
+    // throws when the driver can't (e.g. vk::Device::createComputePipeline ErrorUnknown on some mobile GPUs).
+    // llama_decode/llama_encode/mtmd don't catch these; uncaught they abort the app.
+    // Once a GPU backend has failed this way its state isn't reusable, so later loads in this process stay on the CPU.
+    static std::atomic<bool> bGPUBackendFailed{ false };
+
+    //Upper bound for llama.cpp's CPU threads. ggml splits each op evenly across its threads, so one thread on a
+    //slow core holds up all the others. On Android (big.LITTLE) the lowest-frequency cluster is left out:
+    //on an 8-core phone (2 little cores) 6 threads generated about twice as fast as 8.
+    static int32 MaxUsefulThreads()
+    {
+        const int32 Cores = FPlatformMisc::NumberOfCoresIncludingHyperthreads();
+#if PLATFORM_ANDROID
+        static const int32 FastCores = [Cores]()
+        {
+            std::vector<long long> MaxFreq;
+            for (int32 Cpu = 0; Cpu < Cores; Cpu++)
+            {
+                char Path[96];
+                FCStringAnsi::Snprintf(Path, sizeof(Path), "/sys/devices/system/cpu/cpu%d/cpufreq/cpuinfo_max_freq", Cpu);
+                FILE* File = fopen(Path, "r");
+                long long Freq = 0;
+                const bool bRead = File && fscanf(File, "%lld", &Freq) == 1;
+                if (File)
+                {
+                    fclose(File);
+                }
+                if (!bRead)
+                {
+                    return Cores;
+                }
+                MaxFreq.push_back(Freq);
+            }
+            const long long MinFreq = *std::min_element(MaxFreq.begin(), MaxFreq.end());
+            const int32 Fast = (int32)std::count_if(MaxFreq.begin(), MaxFreq.end(), [MinFreq](long long Freq) { return Freq > MinFreq; });
+            return Fast > 0 ? Fast : Cores;
+        }();
+        return FMath::Max(FastCores, 1);
+#else
+        return Cores;
+#endif
+    }
+
+    static constexpr int32 BackendExceptionResult = -100;
+    static const TCHAR* BackendExceptionMessage = TEXT("Failed to decode: the backend failed with an exception (see the log). Reload the model to continue on the CPU.");
+
+    template <typename F>
+    static int32 GuardBackendCall(const TCHAR* What, bool bOnGPU, F&& Call)
+    {
+        try
+        {
+            return Call();
+        }
+        //Warnings: the callers handle the failure (CPU fallback at load, an error message during generation)
+        catch (const std::exception& Error)
+        {
+            UE_LOG(LlamaLog, Warning, TEXT("%s failed with an exception: %hs"), What, Error.what());
+        }
+        catch (...)
+        {
+            UE_LOG(LlamaLog, Warning, TEXT("%s failed with an unknown exception"), What);
+        }
+        if (bOnGPU && !bGPUBackendFailed.exchange(true))
+        {
+            UE_LOG(LlamaLog, Warning, TEXT("GPU backend failed; models loaded from now on in this session use the CPU only."));
+        }
+        return BackendExceptionResult;
+    }
+}
+
+int32 FLlamaInternal::GuardedDecode(llama_context* InContext, const llama_batch& Batch)
+{
+    return GuardBackendCall(TEXT("llama_decode"), !bCPUOnly, [&]() { return llama_decode(InContext, Batch); });
+}
+
+bool FLlamaInternal::WarmUpGPU()
+{
+    //A prompt-sized batch, then a single token: the two paths (matrix-matrix and matrix-vector kernels)
+    //every generation takes
+    const llama_vocab* Vocab = llama_model_get_vocab(LlamaModel);
+    llama_token Token = llama_vocab_bos(Vocab);
+    if (Token == LLAMA_TOKEN_NULL)
+    {
+        Token = llama_vocab_eos(Vocab);
+    }
+    if (Token == LLAMA_TOKEN_NULL)
+    {
+        Token = 0;
+    }
+    const int32 NPrompt = FMath::Clamp(FMath::Min((int32)llama_n_batch(Context), (int32)llama_n_ctx(Context) - 1), 1, 64);
+
+    std::vector<llama_token> Tokens(NPrompt, Token);
+    std::vector<llama_pos> Positions(NPrompt);
+    for (int32 i = 0; i < NPrompt; i++)
+    {
+        Positions[i] = i;
+    }
+    llama_batch Batch = llama_batch_get_one(Tokens.data(), NPrompt);
+    Batch.pos = Positions.data();
+
+    const int64 T0 = ggml_time_us();
+    bool bOk = GuardedDecode(Context, Batch) == 0;
+    if (bOk)
+    {
+        llama_pos Next = NPrompt;
+        llama_batch Single = llama_batch_get_one(&Token, 1);
+        Single.pos = &Next;
+        bOk = GuardedDecode(Context, Single) == 0;
+    }
+    if (bOk)
+    {
+        llama_synchronize(Context);
+        UE_LOG(LlamaLog, Log, TEXT("GPU warm-up (%d + 1 tokens) took %.0f ms."), NPrompt, (ggml_time_us() - T0) / 1000.0);
+    }
+
+    llama_memory_clear(llama_get_memory(Context), true);
+    llama_perf_context_reset(Context);
+    return bOk;
 }
 
 bool FLlamaInternal::LoadModelFromParams(const FLLMModelParams& InModelParams)
@@ -131,12 +254,33 @@ bool FLlamaInternal::LoadModelFromParams(const FLLMModelParams& InModelParams)
     llama_model_params LlamaModelParams = llama_model_default_params();
     LlamaModelParams.n_gpu_layers = InModelParams.GPULayers;
 
+    //No GPU layers: keep llama.cpp off the GPU backends entirely (no device init, no VRAM)
+    bCPUOnly = InModelParams.GPULayers == 0;
+    if (!bCPUOnly && bGPUBackendFailed)
+    {
+        UE_LOG(LlamaLog, Warning, TEXT("A GPU backend failed earlier in this session, loading on the CPU only."));
+        bCPUOnly = true;
+    }
+    if (bCPUOnly)
+    {
+        UseCPUOnly(LlamaModelParams);
+    }
+
     //MTP heads are skipped at load unless requested
     const ELLMSpeculativeMode SpecMode = InModelParams.Advanced.Speculative.Mode;
     LlamaModelParams.load_mtp = !InModelParams.Advanced.bEmbeddingMode &&
         (SpecMode == ELLMSpeculativeMode::MTP || SpecMode == ELLMSpeculativeMode::MTPAndNGram);
 
     LlamaModel = llama_model_load_from_file(ModelPath.c_str(), LlamaModelParams);
+    if (!LlamaModel && !bCPUOnly)
+    {
+        //A GPU backend that fails to initialize makes the whole load fail (e.g. a Vulkan driver without an
+        //extension ggml-vulkan needs, as on the Android emulator): retry on the CPU
+        UE_LOG(LlamaLog, Warning, TEXT("Model load with GPU backends failed (see [llama] log), retrying on the CPU only."));
+        bCPUOnly = true;
+        UseCPUOnly(LlamaModelParams);
+        LlamaModel = llama_model_load_from_file(ModelPath.c_str(), LlamaModelParams);
+    }
     if (!LlamaModel)
     {
         FString ErrorMessage = FString::Printf(TEXT("Unable to load model at <%hs>"), ModelPath.c_str());
@@ -147,8 +291,15 @@ bool FLlamaInternal::LoadModelFromParams(const FLLMModelParams& InModelParams)
     llama_context_params ContextParams = llama_context_default_params();
     ContextParams.n_ctx = InModelParams.MaxContextLength;
     ContextParams.n_batch = InModelParams.MaxBatchLength;
-    ContextParams.n_threads = InModelParams.Threads;
-    ContextParams.n_threads_batch = InModelParams.Threads;
+    //More threads than cores makes ggml's spinning threads contend (0.2 t/s on a 4-core Android emulator at 8)
+    const int32 UsefulThreads = MaxUsefulThreads();
+    ThreadCount = FMath::Clamp(InModelParams.Threads, 1, UsefulThreads);
+    if (ThreadCount != InModelParams.Threads)
+    {
+        UE_LOG(LlamaLog, Log, TEXT("Using %d threads (%d requested, %d usable of %d cores)."), ThreadCount, InModelParams.Threads, UsefulThreads, FPlatformMisc::NumberOfCoresIncludingHyperthreads());
+    }
+    ContextParams.n_threads = ThreadCount;
+    ContextParams.n_threads_batch = ThreadCount;
 
     if (InModelParams.Advanced.bEmbeddingMode)
     {
@@ -177,7 +328,30 @@ bool FLlamaInternal::LoadModelFromParams(const FLLMModelParams& InModelParams)
 
     SavedFlashAttnType = ContextParams.flash_attn_type;
     Context = llama_init_from_model(LlamaModel, ContextParams);
-    
+
+#if PLATFORM_ANDROID
+    //Mobile Vulkan drivers can fail ggml-vulkan's shader pipelines, which are only built on first use, so the
+    //failure would otherwise surface on the first prompt. Run a short prompt now and fall back to the CPU.
+    if (Context && !bCPUOnly && !llama_model_has_encoder(LlamaModel) && !WarmUpGPU())
+    {
+        UE_LOG(LlamaLog, Warning, TEXT("GPU warm-up failed (see the errors above), reloading the model on the CPU only."));
+        bGPUBackendFailed = true;
+        llama_free(Context);
+        Context = nullptr;
+        llama_model_free(LlamaModel);
+        bCPUOnly = true;
+        UseCPUOnly(LlamaModelParams);
+        LlamaModel = llama_model_load_from_file(ModelPath.c_str(), LlamaModelParams);
+        if (!LlamaModel)
+        {
+            FString ErrorMessage = FString::Printf(TEXT("Unable to load model at <%hs>"), ModelPath.c_str());
+            EmitErrorMessage(ErrorMessage, 10, __func__);
+            return false;
+        }
+        Context = llama_init_from_model(LlamaModel, ContextParams);
+    }
+#endif
+
     if (!Context)
     {
         FString ErrorMessage = FString::Printf(TEXT("Unable to initialize model with given context params."));
@@ -501,6 +675,10 @@ bool FLlamaInternal::InitSpeculative(const FLLMModelParams& InModelParams)
         const std::string DraftPath = TCHAR_TO_UTF8(*FLlamaPaths::ParsePathIntoFullPath(Spec.DraftModelPath));
         llama_model_params DraftModelParams = llama_model_default_params();
         DraftModelParams.n_gpu_layers = Spec.DraftGPULayers;
+        if (bCPUOnly || Spec.DraftGPULayers == 0)
+        {
+            UseCPUOnly(DraftModelParams);
+        }
 
         DraftModel = Spec.DraftModelPath.IsEmpty() ? nullptr : llama_model_load_from_file(DraftPath.c_str(), DraftModelParams);
         if (!DraftModel)
@@ -520,8 +698,8 @@ bool FLlamaInternal::InitSpeculative(const FLLMModelParams& InModelParams)
         llama_context_params DraftContextParams = llama_context_default_params();
         DraftContextParams.n_ctx = llama_n_ctx(Context);
         DraftContextParams.n_batch = llama_n_batch(Context);
-        DraftContextParams.n_threads = InModelParams.Threads;
-        DraftContextParams.n_threads_batch = InModelParams.Threads;
+        DraftContextParams.n_threads = ThreadCount;
+        DraftContextParams.n_threads_batch = ThreadCount;
         if (llama_model_is_recurrent(DraftModel) || llama_model_is_hybrid(DraftModel))
         {
             //Drafting runs ahead by up to n_max + 1 tokens before being rewound
@@ -552,8 +730,8 @@ bool FLlamaInternal::InitSpeculative(const FLLMModelParams& InModelParams)
         MTPContextParams.n_batch = llama_n_batch(Context);
         MTPContextParams.n_rs_seq = 0;
         MTPContextParams.ctx_other = Context;
-        MTPContextParams.n_threads = InModelParams.Threads;
-        MTPContextParams.n_threads_batch = InModelParams.Threads;
+        MTPContextParams.n_threads = ThreadCount;
+        MTPContextParams.n_threads_batch = ThreadCount;
         DraftContext = llama_init_from_model(LlamaModel, MTPContextParams);
         if (!DraftContext)
         {
@@ -632,7 +810,7 @@ int32 FLlamaInternal::DecodePromptChunk(const llama_token* Tokens, int32 NTokens
     }
 
     llama_batch Batch = llama_batch_get_one(const_cast<llama_token*>(Tokens), NTokens);
-    const int32 Result = llama_decode(Context, Batch);
+    const int32 Result = GuardedDecode(Context, Batch);
     if (Result == 0)
     {
         ContextTokens.insert(ContextTokens.end(), Tokens, Tokens + NTokens);
@@ -667,7 +845,7 @@ int32 FLlamaInternal::DecodeTracked(const llama_token* Tokens, int32 NTokens, ll
         }
         llama_batch Batch = llama_batch_get_one(const_cast<llama_token*>(Tokens), NTokens);
         Batch.pos = Positions.data();
-        Result = llama_decode(Context, Batch);
+        Result = GuardedDecode(Context, Batch);
     }
 
     if (Result == 0)
@@ -774,10 +952,14 @@ void FLlamaInternal::GenerateSpeculative(std::string& Response, int32& NDecoded,
         }
         const int64 T0 = ggml_time_us();
         bool bProcessed = true;
-        if (llu_speculative_decode(Speculative, VerifyTokens.data(), 1 + NDraft, NPast, /*all_outputs*/ true, &bProcessed))
+        const int32 VerifyResult = llu_speculative_decode(Speculative, VerifyTokens.data(), 1 + NDraft, NPast, /*all_outputs*/ true, &bProcessed);
+        if (VerifyResult != 0)
         {
             bGenerationActive = false;
-            EmitErrorMessage(TEXT("Failed to decode. Could not find a KV slot for the batch (try reducing the size of the batch or increase the context)"), 32, __func__);
+            //The bridge turns exceptions (e.g. from a GPU backend) into -1 + llu_last_error
+            EmitErrorMessage(VerifyResult < 0 && llu_last_error()[0] != '\0' ?
+                FString::Printf(TEXT("Failed to decode: %hs"), llu_last_error()) :
+                FString(TEXT("Failed to decode. Could not find a KV slot for the batch (try reducing the size of the batch or increase the context)")), 32, __func__);
             return;
         }
         const int64 T1 = ggml_time_us();
@@ -1364,9 +1546,11 @@ int32 FLlamaInternal::ProcessPrompt(const std::string& Prompt, EChatTemplateRole
     for (int32 StartIndex = 0; StartIndex < NPromptTokens; StartIndex += ChunkSize)
     {
         const int32 CurrentBatchSize = FMath::Min(ChunkSize, NPromptTokens - StartIndex);
-        if (DecodePromptChunk(PromptTokens.data() + StartIndex, CurrentBatchSize))
+        const int32 DecodeResult = DecodePromptChunk(PromptTokens.data() + StartIndex, CurrentBatchSize);
+        if (DecodeResult != 0)
         {
-            EmitErrorMessage(TEXT("Failed to decode, could not find a KV slot for the batch (try reducing the size of the batch or increase the context)."), 23, __func__);
+            EmitErrorMessage(DecodeResult == BackendExceptionResult ? BackendExceptionMessage :
+                TEXT("Failed to decode, could not find a KV slot for the batch (try reducing the size of the batch or increase the context)."), 23, __func__);
             return StartIndex;
         }
 
@@ -1496,10 +1680,12 @@ std::string FLlamaInternal::Generate(const std::string& Prompt, bool bAppendToMe
         SingleBatch.pos = &NPast;  // override auto-position with tracked n_past
 
         const bool bTracked = Speculative && bSpeculativeInSync;
-        if (bTracked ? DecodeTracked(&NewTokenId, 1, NPast) != 0 : llama_decode(Context, SingleBatch) != 0)
+        const int32 DecodeResult = bTracked ? DecodeTracked(&NewTokenId, 1, NPast) : GuardedDecode(Context, SingleBatch);
+        if (DecodeResult != 0)
         {
             bGenerationActive = false;
-            FString ErrorMessage = TEXT("Failed to decode. Could not find a KV slot for the batch (try reducing the size of the batch or increase the context)");
+            FString ErrorMessage = DecodeResult == BackendExceptionResult ? BackendExceptionMessage :
+                TEXT("Failed to decode. Could not find a KV slot for the batch (try reducing the size of the batch or increase the context)");
             EmitErrorMessage(ErrorMessage, 32, __func__);
             //Return partial response
             return Response;
@@ -1655,7 +1841,7 @@ void FLlamaInternal::BatchDecodeEmbedding(llama_context* InContext, llama_batch&
     if (llama_model_has_encoder(model) && !llama_model_has_decoder(model))
     {
         // encoder-only model
-        if (llama_encode(InContext, Batch) < 0)
+        if (GuardBackendCall(TEXT("llama_encode"), !bCPUOnly, [&]() { return llama_encode(InContext, Batch); }) < 0)
         {
             UE_LOG(LlamaLog, Error, TEXT("%hs : failed to encode"), __func__);
             return;
@@ -1664,7 +1850,7 @@ void FLlamaInternal::BatchDecodeEmbedding(llama_context* InContext, llama_batch&
     else if (!llama_model_has_encoder(model) && llama_model_has_decoder(model))
     {
         // decoder-only model
-        if (llama_decode(InContext, Batch) < 0)
+        if (GuardedDecode(InContext, Batch) < 0)
         {
             UE_LOG(LlamaLog, Log, TEXT("%hs : failed to decode"), __func__);
             return;
@@ -1750,8 +1936,8 @@ bool FLlamaInternal::InitMultimodal(const FString& MmprojPath)
     std::string Path = TCHAR_TO_UTF8(*FLlamaPaths::ParsePathIntoFullPath(MmprojPath));
 
     mtmd_context_params Params = mtmd_context_params_default();
-    Params.use_gpu = true;
-    Params.n_threads = LastLoadedParams.Threads;
+    Params.use_gpu = !bCPUOnly;
+    Params.n_threads = ThreadCount;
     Params.flash_attn_type = SavedFlashAttnType;
 
     MtmdContext = mtmd_init_from_file(Path.c_str(), LlamaModel, Params);
@@ -1775,6 +1961,14 @@ bool FLlamaInternal::InitMultimodal(const FString& MmprojPath)
         mtmd_support_vision(MtmdContext) ? TEXT("yes") : TEXT("no"),
         mtmd_support_audio(MtmdContext) ? TEXT("yes") : TEXT("no"));
     return true;
+}
+
+void FLlamaInternal::UseCPUOnly(llama_model_params& ModelParams)
+{
+    //An empty (NULL-terminated) device list: no offload devices, everything on the CPU
+    static ggml_backend_dev_t NoDevices[] = { nullptr };
+    ModelParams.devices = NoDevices;
+    ModelParams.n_gpu_layers = 0;
 }
 
 void FLlamaInternal::FreeJinjaTemplates()
@@ -1928,11 +2122,14 @@ int32 FLlamaInternal::ProcessMultimodalPrompt(const std::string& FormattedPrompt
         (int32)mtmd_decode_use_mrope(MtmdContext),
         ModelRopeType);
 
-    int32_t EvalResult = mtmd_helper_eval_chunks(
-        MtmdContext, Context, Chunks,
-        NPast, 0,
-        LastLoadedParams.MaxBatchLength,
-        bLogitsLast, &NewNPast);
+    int32_t EvalResult = GuardBackendCall(TEXT("mtmd_helper_eval_chunks"), !bCPUOnly, [&]()
+    {
+        return mtmd_helper_eval_chunks(
+            MtmdContext, Context, Chunks,
+            NPast, 0,
+            LastLoadedParams.MaxBatchLength,
+            bLogitsLast, &NewNPast);
+    });
 
     int32 TokensProcessed = (int32)NTokensInChunks;
 

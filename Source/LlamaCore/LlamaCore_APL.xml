@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+	Llama-Unreal Android packaging.
+
+	Packages the optional Mesa Turnip Vulkan driver (ThirdParty/MesaTurnip/arm64-v8a/libvulkan_freedreno.so) with
+	the app when it is present. llama.cpp then uses it instead of the system driver on Adreno GPUs
+	(Private/Android/LlamaAndroidVulkan.cpp); the engine's renderer keeps the system driver.
+	copyFile skips files that don't exist, so without the driver nothing is added.
+-->
+<root xmlns:android="http://schemas.android.com/apk/res/android">
+	<resourceCopies>
+		<isArch arch="arm64-v8a">
+			<copyFile src="$S(PluginDir)/../../ThirdParty/MesaTurnip/arm64-v8a/libvulkan_freedreno.so"
+				dst="$S(BuildDir)/libs/arm64-v8a/libvulkan_freedreno.so" />
+		</isArch>
+	</resourceCopies>
+</root>
